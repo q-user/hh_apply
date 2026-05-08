@@ -752,13 +752,9 @@ class Operation(BaseOperation):
             resume["alternate_url"],
             resume["title"],
         )
-<<<<<<< HEAD
-        print("🚀 Начинаю рассылку откликов для резюме:", resume["title"])
+        print("[START] Начинаю рассылку откликов для резюме:", resume["title"])
         applied_count = 0
         limit_reached = False
-=======
-        print("[START] Начинаю рассылку откликов для резюме:", resume["title"])
->>>>>>> 9a335fc (feat: improve cover letter generation and handle vacancies with tests, update docker config)
 
         placeholders = {
             "first_name": user.get("first_name") or "",
@@ -1036,38 +1032,6 @@ class Operation(BaseOperation):
                     
                     # Записываем в отдельный файл для ручного прохождения
                     try:
-<<<<<<< HEAD
-                        if not self.dry_run:
-                            result = self._solve_vacancy_test(
-                                vacancy_id=vacancy["id"],
-                                resume_hash=resume["id"],
-                                letter=letter,
-                            )
-                            if result.get("success") == "true":
-                                applied_count += 1
-                                print(
-                                    "📨 Отправили отклик на вакансию с тестом",
-                                    vacancy["alternate_url"],
-                                )
-                            else:
-                                err = result.get("error")
-
-                                if err == "negotiations-limit-exceeded":
-                                    do_apply = False
-                                    limit_reached = True
-                                    logger.warning(
-                                        "Достигли лимита на отклики (отправлено в этой сессии: %d)",
-                                        applied_count,
-                                    )
-                                    break
-                                else:
-                                    logger.error(
-                                        f"Произошла ошибка при отклике на вакансию с тестом: {vacancy['alternate_url']} - {err}"
-                                    )
-                    except Exception as ex:
-                        logger.error(f"Произошла непредвиденная ошибка: {ex}")
-                        continue
-=======
                         with open("vacancies_with_tests.txt", "a", encoding="utf-8") as f:
                             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                             f.write(f"[{timestamp}] {vacancy.get('name')} - {employer.get('name')} - {test_link}\n")
@@ -1080,7 +1044,6 @@ class Operation(BaseOperation):
                         vacancy, "has_test_manual_required", resume["id"]
                     )
                     continue
->>>>>>> 9a335fc (feat: improve cover letter generation and handle vacancies with tests, update docker config)
 
                 else:
                     params = {
@@ -1183,14 +1146,10 @@ class Operation(BaseOperation):
             resume["title"],
             applied_count,
         )
-<<<<<<< HEAD
         print(
-            f"✅️ Закончили рассылку для резюме: {resume['title']}. Отправлено: {applied_count}"
+            f"[DONE] Закончили рассылку для резюме: {resume['title']}. Отправлено: {applied_count}"
         )
         return limit_reached
-=======
-        print("[DONE] Закончили рассылку откликов для резюме:", resume["title"])
->>>>>>> 9a335fc (feat: improve cover letter generation and handle vacancies with tests, update docker config)
 
     def _send_email(self, to: str, subject: str, body: str) -> None:
         cfg = self.tool.config.get("smtp", {})
