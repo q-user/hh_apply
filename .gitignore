@@ -1,88 +1,69 @@
-# Byte-compiled / optimized / DLL files
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
 
 # Distribution / packaging
 .Python
 build/
-develop-eggs/
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-pip-wheel-metadata/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 MANIFEST
-
-# PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other information.
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
-.pytest_cache/
+sdist/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
 
 # Environments
 .env
-.venv
+.env.*
+.venv/
 env/
 venv/
 ENV/
-env.bak/
-venv.bak/
 
-#mypy
+# Testing
+htmlcov/
+.coverage*
+.pytest_cache/
+.tox/
+.nox/
+.hypothesis/
+
+# Type checkers / linters
 .mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
 .pyre/
-
-# pytype
 .pytype/
+.ruff_cache/
+.dmypy.json
 
-# Cython debug symbols
-cython_debug/
-
-# Содержимое config кроме .gitkeep игнорируется
-/config/*
-!/config/.gitkeep
-
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 Session.vim
+.DS_Store
 
-# AI assistants / IDE agents
+# AI agents / local tooling
 .claude/
-CLAUDE.md
 .serena/
 .codex/
+.agents/
+.zed/
 uv.lock
 poetry.lock
+
+# Project: config dir (keep .gitkeep)
+config/*
+!config/.gitkeep
+
+# Local data
+data/
+*.sqlite
+*.sqlite3
+*.db
