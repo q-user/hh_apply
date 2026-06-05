@@ -3,7 +3,7 @@ PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin
 SHELL=/bin/bash
 
 # При старте системы/контейнера
-@reboot /bin/bash /app/startup.sh >> /var/log/cron.log 2>&1
+@reboot /bin/bash /app/scripts/startup.sh >> /var/log/cron.log 2>&1
 
 # Подъем резюме (раз в 4 часа)
 # Символ процента в кронтабе нужно экранировать
