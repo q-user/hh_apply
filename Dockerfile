@@ -1,5 +1,8 @@
 FROM python:3.13-slim
 
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
 # Системные зависимости
 RUN apt-get update && apt-get install -y --no-install-recommends \
   gcc \
@@ -18,20 +21,18 @@ RUN groupadd -g $GID docker && \
 
 WORKDIR /app
 
-COPY pyproject.toml poetry.lock* README.md /app/
+COPY pyproject.toml uv.lock* README.md /app/
 
-# 1. Сначала ставим только playwright, чтобы получить доступ к его CLI
-RUN pip install --no-cache-dir playwright
-
-# 2. Скачиваем браузер и системные зависимости (этот тяжелый слой теперь закэшируется)
-RUN playwright install-deps chromium && \
-    su docker -c "playwright install chromium"
-
-# 3. Теперь копируем исходный код
+# 1. Копируем исходный код (нужен для editable install)
 COPY src /app/src
 
-# 4. Устанавливаем саму утилиту и остальные зависимости
-RUN pip install --no-cache-dir -e '.[playwright,pillow]'
+# 2. Устанавливаем пакет со ВСЕМИ extras и dev-зависимостями из uv.lock
+# uv sync гарантирует воспроизводимость версий по uv.lock
+RUN uv sync --system --all-extras --all-groups --no-dev
+
+# 3. Скачиваем браузер и системные зависимости (этот тяжелый слой кэшируется отдельно)
+RUN playwright install-deps chromium && \
+    su docker -c "playwright install chromium"
 
 # Очистка кеша пакетов для уменьшения веса контейнера
 RUN rm -rf /var/lib/apt/lists/*

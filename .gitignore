@@ -45,6 +45,7 @@ htmlcov/
 .idea/
 *.swp
 *.swo
+*.bak
 *~
 Session.vim
 .DS_Store
@@ -55,8 +56,6 @@ Session.vim
 .codex/
 .agents/
 .zed/
-uv.lock
-poetry.lock
 
 # Project: config dir (keep .gitkeep)
 config/*
