@@ -39,17 +39,16 @@ RUN rm -rf /var/lib/apt/lists/*
 # Fix: падение, если каталог config не существует
 #RUN mkdir -p /app/config
 
-# Копируем остальное (эти файлы мешают кешированию последующих слоев)
+# Копируем конфиги и скрипты
 COPY config /app/config
-COPY crontab /app/crontab
-COPY startup.sh /app/startup.sh
+COPY scripts /app/scripts
 
 # Настройка крона
 RUN touch /var/log/cron.log && chown docker:docker /var/log/cron.log && \
-  dos2unix /app/crontab && \
-  chmod +x /app/startup.sh && \
-  chmod 0644 /app/crontab && \
-  crontab -u docker /app/crontab
+  dos2unix /app/config/crontab && \
+  chmod +x /app/scripts/startup.sh && \
+  chmod 0644 /app/config/crontab && \
+  crontab -u docker /app/config/crontab
 
 # Запускаем крон и читаем лог
 # cron не видит переменные окружения, переданные главному процессу, точнее

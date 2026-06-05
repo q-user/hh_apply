@@ -13,7 +13,6 @@ from ..utils.date import parse_api_datetime
 from ..utils.string import rand_text
 
 if TYPE_CHECKING:
-    from ..ai.openai import ChatOpenAI
     from ..main import HHApplicantTool
 
 
@@ -114,7 +113,11 @@ class Operation(BaseOperation):
         self.only_invitations = args.only_invitations
 
         self.message_prompt = args.message_prompt
-        self.cover_letter_ai = (tool.get_cover_letter_ai(args.system_prompt) if args.use_ai else None)
+        self.cover_letter_ai = (
+            tool.get_cover_letter_ai(args.system_prompt)
+            if args.use_ai
+            else None
+        )
         self.period = args.period
 
         logger.debug(f"{self.reply_message = }")
