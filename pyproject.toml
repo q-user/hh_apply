@@ -88,6 +88,8 @@ typeCheckingMode = "off"
 
 [tool.ruff]
 line-length = 80
+
+[tool.ruff.lint]
 # E - pycodestyle
 # F - Pyflakes
 # B - flake8-bugbear (советую добавить, ловит реальные баги)
