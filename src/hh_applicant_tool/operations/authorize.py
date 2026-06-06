@@ -11,8 +11,15 @@ from urllib.parse import parse_qs, urlsplit
 
 try:
     from playwright.async_api import async_playwright
-except ImportError:
-    pass
+except ImportError as ex:
+    raise ImportError(
+        "Для авторизации требуется пакет 'playwright'. "
+        "Установите зависимости одной из команд:\n"
+        "  uv sync --extra playwright\n"
+        "  .venv/bin/playwright install chromium\n"
+        "или через саму утилиту:\n"
+        "  hh-applicant-tool install"
+    ) from ex
 
 from ..main import BaseOperation
 from ..utils.terminal import print_kitty_image, print_sixel_mage
