@@ -1,6 +1,75 @@
 PRAGMA foreign_keys = OFF;
 -- На всякий случай выключаем проверки
 BEGIN;
+/* ===================== application_drafts ===================== */
+-- Подготовленные черновики откликов: один на пару (resume_id, vacancy_id).
+-- Разделяет фазы подготовки (prepare-vacancies) и отправки (apply-worker).
+CREATE TABLE IF NOT EXISTS application_drafts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    search_profile_id TEXT,
+    resume_id TEXT NOT NULL,
+    vacancy_id INTEGER NOT NULL,
+    employer_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'new',
+    relevance_score INTEGER,
+    success_probability INTEGER,
+    relevance_reason TEXT,
+    analysis_json TEXT,
+    full_vacancy_json TEXT,
+    cover_letter TEXT,
+    cover_letter_status TEXT,
+    has_test BOOLEAN DEFAULT 0,
+    test_status TEXT,
+    hh_response_url TEXT,
+    last_error TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (resume_id, vacancy_id)
+);
+/* ===================== application_test_answers ===================== */
+-- Сгенерированные/отредактированные ответы на тесты HH, привязанные к черновику.
+CREATE TABLE IF NOT EXISTS application_test_answers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    draft_id INTEGER NOT NULL,
+    task_id TEXT NOT NULL,
+    question TEXT,
+    answer_type TEXT,
+    options_json TEXT,
+    generated_answer TEXT,
+    selected_solution_id TEXT,
+    review_status TEXT DEFAULT 'generated',
+    reviewer_comment TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (draft_id, task_id)
+);
+/* ===================== apply_jobs ===================== */
+-- Очередь асинхронной отправки откликов. Один job на черновик (UNIQUE draft_id).
+CREATE TABLE IF NOT EXISTS apply_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    draft_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued',
+    attempts INTEGER DEFAULT 0,
+    max_attempts INTEGER DEFAULT 3,
+    next_attempt_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    locked_at DATETIME,
+    locked_by TEXT,
+    last_error TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (draft_id)
+);
+/* ===================== telegram_sessions ===================== */
+-- Состояние FSM интерактивного ревью в Telegram: по одной записи на chat_id.
+CREATE TABLE IF NOT EXISTS telegram_sessions (
+    chat_id INTEGER PRIMARY KEY,
+    user_id INTEGER,
+    state TEXT NOT NULL DEFAULT 'idle',
+    draft_id INTEGER,
+    current_test_answer_id INTEGER,
+    payload_json TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 /* ===================== employers ===================== */
 CREATE TABLE IF NOT EXISTS employers (
     id INTEGER PRIMARY KEY,
@@ -164,6 +233,15 @@ CREATE TABLE IF NOT EXISTS skipped_vacancies (
 CREATE INDEX IF NOT EXISTS idx_emp_site_upd ON employer_sites(updated_at);
 CREATE INDEX IF NOT EXISTS idx_skipped_vac_resume ON skipped_vacancies(resume_id, vacancy_id);
 
+-- Быстрый поиск черновиков по статусу (для prepare-vacancies / digest)
+CREATE INDEX IF NOT EXISTS idx_app_drafts_status ON application_drafts(status);
+-- Фильтрация дайджеста по профилю
+CREATE INDEX IF NOT EXISTS idx_app_drafts_profile ON application_drafts(search_profile_id);
+-- Ответы тестов по черновику (обход в порядке создания)
+CREATE INDEX IF NOT EXISTS idx_app_test_answers_draft ON application_test_answers(draft_id);
+-- Очередь задач воркера: claimed by (status, next_attempt_at)
+CREATE INDEX IF NOT EXISTS idx_apply_jobs_queue ON apply_jobs(status, next_attempt_at);
+
 /* ===================== ТРИГГЕРЫ ===================== */
 CREATE TRIGGER IF NOT EXISTS trg_employer_sites_updated
 AFTER UPDATE ON employer_sites
@@ -171,5 +249,33 @@ BEGIN
     UPDATE employer_sites
     SET updated_at = CURRENT_TIMESTAMP
     WHERE id = OLD.id;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_application_drafts_updated
+AFTER UPDATE ON application_drafts
+BEGIN
+    UPDATE application_drafts
+    SET updated_at = CURRENT_TIMESTAMP
+    WHERE id = OLD.id;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_application_test_answers_updated
+AFTER UPDATE ON application_test_answers
+BEGIN
+    UPDATE application_test_answers
+    SET updated_at = CURRENT_TIMESTAMP
+    WHERE id = OLD.id;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_apply_jobs_updated
+AFTER UPDATE ON apply_jobs
+BEGIN
+    UPDATE apply_jobs
+    SET updated_at = CURRENT_TIMESTAMP
+    WHERE id = OLD.id;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_telegram_sessions_updated
+AFTER UPDATE ON telegram_sessions
+BEGIN
+    UPDATE telegram_sessions
+    SET updated_at = CURRENT_TIMESTAMP
+    WHERE chat_id = OLD.chat_id;
 END;
 COMMIT;
