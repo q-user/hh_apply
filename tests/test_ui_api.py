@@ -235,50 +235,41 @@ class TestErrorMessages:
         assert "/etc/secret" not in result["message"]
         assert "leaked" not in result["message"]
 
+    def test_apply_vacancies_ignores_unknown_keys(self, api, mock_tool):
+        """Неизвестные ключи UI-payload не вызывают ошибку (issue #16).
+
+        До рефакторинга такие ключи проходили через argparse и падали
+        с ``SystemExit`` → ``{"status": "error", ...}``. Сейчас
+        ``_build_command_from_params`` тихо их игнорирует.
+        """
+        mock_tool.get_resumes.return_value = []
+        result = api.apply_vacancies(
+            {"nonexistent_flag_xyz": "leak /root/.ssh"}
+        )
+        assert result["status"] == "ok"
+        # Заодно проверяем, что «leak» не утёк ни в какое поле.
+        assert "/root/.ssh" not in str(result)
+
     def test_apply_vacancies_generic_message_on_failure(self, api, mock_tool):
         """При внутренней ошибке наружу идёт generic-сообщение, не str(e)."""
-        # Форсим ошибку через невалидные argv, которые вызовут SystemExit
-        # внутри argparse → Exception путь в apply_vacancies
-        mock_tool.get_resumes.return_value = []
-        # Невалидный параметр вызовет ошибку argparse / Namespace
-        result = api.apply_vacancies({"nonexistent_flag_xyz": "leak /root/.ssh"})
-        # Либо отработал, либо упал с generic message
-        if result["status"] == "error":
-            assert "/root/.ssh" not in result.get("message", "")
+        # Форсим исключение в use case — Api должен проглотить ``str(e)``
+        # и отдать наружу общий текст.
+        from unittest.mock import patch
+        from hh_applicant_tool.container import AppContainer
+
+        with patch.object(
+            AppContainer,
+            "apply_to_vacancies_use_case",
+            side_effect=Exception("leak /root/.ssh"),
+        ):
+            result = api.apply_vacancies({"search": "test"})
+
+        assert result["status"] == "error"
+        assert "/root/.ssh" not in result.get("message", "")
 
 
 class TestApplyVacancies:
     """Тесты интеграции apply_vacancies через Api."""
-
-    def test_params_to_argv_simple(self, api):
-        """Конвертация dict → CLI argv."""
-        argv = api._params_to_argv({"search": "python", "salary": 200000})
-        assert "--search" in argv
-        assert "python" in argv
-        assert "--salary" in argv
-        assert "200000" in argv
-
-    def test_params_to_argv_bool_true(self, api):
-        argv = api._params_to_argv({"dry_run": True})
-        assert "--dry-run" in argv
-
-    def test_params_to_argv_bool_false_skipped(self, api):
-        argv = api._params_to_argv({"dry_run": False})
-        assert "--dry-run" not in argv
-
-    def test_params_to_argv_none_skipped(self, api):
-        argv = api._params_to_argv({"salary": None})
-        assert argv == []
-
-    def test_params_to_argv_list(self, api):
-        argv = api._params_to_argv({"area": ["1", "2"]})
-        # nargs="+" expects: --area 1 2 (single flag, multiple values)
-        assert argv.count("--area") == 1
-        assert argv == ["--area", "1", "2"]
-
-    def test_params_to_argv_empty_list_skipped(self, api):
-        argv = api._params_to_argv({"area": []})
-        assert argv == []
 
     def test_apply_saves_last_used(self, api, mock_tool):
         """apply_vacancies должен сохранять параметры как last_used."""

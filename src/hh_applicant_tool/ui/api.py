@@ -9,6 +9,8 @@ from contextlib import redirect_stdout
 from typing import TYPE_CHECKING, Any
 
 from .presets import PresetValidationError, PresetsManager
+from ..application import ApplyToVacanciesCommand
+from ..container import AppContainer
 
 if TYPE_CHECKING:
     from ..main import HHApplicantTool
@@ -73,6 +75,195 @@ class _ProgressHandler(logging.Handler):
         except Exception:
             pass
 
+
+# Поисковые фильтры, которые собираются в ApplyToVacanciesCommand.search_params.
+# ``search`` и ``order_by`` остаются top-level полями DTO.
+_APPLY_SEARCH_PARAM_KEYS: tuple[str, ...] = (
+    "schedule",
+    "experience",
+    "currency",
+    "salary",
+    "period",
+    "date_from",
+    "date_to",
+    "top_lat",
+    "bottom_lat",
+    "left_lng",
+    "right_lng",
+    "sort_point_lat",
+    "sort_point_lng",
+    "search_field",
+    "employment",
+    "area",
+    "metro",
+    "professional_role",
+    "industry",
+    "employer_id",
+    "excluded_employer_id",
+    "label",
+    "only_with_salary",
+    "no_magic",
+    "premium",
+)
+
+# Поля DTO, которые UI шлёт как массив (из multi-select / lookup-виджета).
+_APPLY_LIST_KEYS: frozenset[str] = frozenset({
+    "employment",
+    "area",
+    "metro",
+    "professional_role",
+    "industry",
+    "employer_id",
+    "excluded_employer_id",
+    "label",
+    "search_field",
+})
+
+# Поля DTO, которые UI шлёт как bool (checkbox).
+_APPLY_BOOL_KEYS: frozenset[str] = frozenset({
+    "only_with_salary",
+    "no_magic",
+    "premium",
+})
+
+# Поля DTO, которые UI шлёт как int.
+_APPLY_INT_KEYS: frozenset[str] = frozenset({
+    "salary",
+    "period",
+})
+
+# Поля DTO, которые UI шлёт как float (геокоординаты).
+_APPLY_FLOAT_KEYS: frozenset[str] = frozenset({
+    "top_lat",
+    "bottom_lat",
+    "left_lng",
+    "right_lng",
+    "sort_point_lat",
+    "sort_point_lng",
+})
+
+
+def _coerce_str(value: Any) -> str | None:
+    if value is None or value is False or value == "":
+        return None
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1", "yes", "on")
+    if value is None:
+        return False
+    return bool(value)
+
+
+def _coerce_int(value: Any) -> int | None:
+    if value is None or value is False or value == "":
+        return None
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _coerce_float(value: Any) -> float | None:
+    if value is None or value is False or value == "":
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _coerce_list(value: Any) -> list[str] | None:
+    """Нормализует значение массива из UI.
+
+    Поддерживает:
+    - ``list``/``tuple`` — элементы конвертируются в строки; ``dict`` →
+      берётся ``id``; пустые элементы отбрасываются;
+    - ``str`` вида ``"1,2,3"`` — разбивается по запятой;
+    - одиночное значение — оборачивается в одноэлементный список.
+    """
+    if value is None or value is False or value == "":
+        return None
+    if isinstance(value, (list, tuple)):
+        cleaned: list[str] = []
+        for item in value:
+            if item is None or item is False or item == "":
+                continue
+            if isinstance(item, dict):
+                item_id = item.get("id")
+                if item_id is None or item_id == "":
+                    continue
+                cleaned.append(str(item_id))
+            else:
+                cleaned.append(str(item))
+        return cleaned or None
+    if isinstance(value, str):
+        parts = [s.strip() for s in value.split(",") if s.strip()]
+        return parts or None
+    return [str(value)]
+
+
+def _build_command_from_params(
+    params: dict[str, Any],
+) -> ApplyToVacanciesCommand:
+    """Прямой маппинг UI-payload → :class:`ApplyToVacanciesCommand`.
+
+    Без argparse / argv / Namespace: ключи из ``params`` напрямую
+    кладутся в поля DTO с нормализацией типов. Неизвестные ключи
+    (например, ``api_delay`` или ``max_responses``) тихо игнорируются —
+    UI-payload может содержать служебные поля, которые обрабатываются
+    выше (``api_delay``) или просто не поддерживаются текущей версией
+    use case'а.
+    """
+    p = dict(params)  # defensive copy
+
+    search_params: dict[str, Any] = {}
+    for key in _APPLY_SEARCH_PARAM_KEYS:
+        if key not in p:
+            continue
+        value = p[key]
+        if key in _APPLY_LIST_KEYS:
+            coerced = _coerce_list(value)
+        elif key in _APPLY_BOOL_KEYS:
+            coerced = _coerce_bool(value)
+        elif key in _APPLY_INT_KEYS:
+            coerced = _coerce_int(value)
+        elif key in _APPLY_FLOAT_KEYS:
+            coerced = _coerce_float(value)
+        else:
+            coerced = _coerce_str(value)
+        if coerced is None:
+            continue
+        # bool False и пустые строки отбрасываем.
+        if coerced is False or coerced == "" or coerced == []:
+            continue
+        search_params[key] = coerced
+
+    return ApplyToVacanciesCommand(
+        resume_id=_coerce_str(p.get("resume_id")),
+        search=_coerce_str(p.get("search")),
+        search_params=search_params,
+        per_page=_coerce_int(p.get("per_page")) or 100,
+        total_pages=_coerce_int(p.get("total_pages")) or 20,
+        dry_run=_coerce_bool(p.get("dry_run")),
+        force_message=_coerce_bool(p.get("force_message")),
+        use_ai=_coerce_bool(p.get("use_ai")),
+        ai_filter=_coerce_str(p.get("ai_filter")),
+        ai_rate_limit=_coerce_int(p.get("ai_rate_limit")) or 40,
+        skip_tests=_coerce_bool(p.get("skip_tests")),
+        send_email=_coerce_bool(p.get("send_email")),
+        excluded_filter=_coerce_str(p.get("excluded_filter")),
+        system_prompt=_coerce_str(p.get("system_prompt")) or "",
+        message_prompt=_coerce_str(p.get("message_prompt")) or "",
+        letter_file_content=_coerce_str(p.get("letter_file")),
+        order_by=_coerce_str(p.get("order_by")),
+    )
 
 class Api:
     def __init__(self, tool: HHApplicantTool):
@@ -377,8 +568,6 @@ class Api:
                 return len(s)
 
         try:
-            from ..operations.apply_vacancies import Namespace, Operation
-
             params = dict(params)
             api_delay = params.pop("api_delay", None)
             if api_delay is not None:
@@ -387,22 +576,17 @@ class Api:
                 except (ValueError, TypeError):
                     pass
 
-            argv = self._params_to_argv(params)
-            op = Operation()
-            parser = argparse.ArgumentParser()
-            op.setup_parser(parser)
-            try:
-                args = parser.parse_args(argv, namespace=Namespace())
-            except SystemExit:
-                return {
-                    "status": "error",
-                    "message": "Неверные параметры поиска",
-                }
-            args._cancel_event = cancel_event
-            op._cancel_event = cancel_event
+            # Прямой маппинг dict → DTO (без argparse/argv/Namespace).
+            command = _build_command_from_params(params)
+
+            use_case = AppContainer(self._tool).apply_to_vacancies_use_case(
+                system_prompt=command.system_prompt,
+                use_ai=command.use_ai,
+                send_email=command.send_email,
+            )
 
             with redirect_stdout(_PrintCapture()):
-                op.run(self._tool, args)
+                use_case.execute(command, cancel_event=cancel_event)
 
             if cancel_event.is_set():
                 return {"status": "cancelled"}
@@ -422,30 +606,6 @@ class Api:
         event = self._cancel_event
         if event is not None:
             event.set()
-
-    @staticmethod
-    def _params_to_argv(params: dict[str, Any]) -> list[str]:
-        argv = []
-        for key, value in params.items():
-            if value is None or value is False:
-                continue
-            if isinstance(value, list) and len(value) == 0:
-                continue
-            flag = f"--{key.replace('_', '-')}"
-            if value is True:
-                argv.append(flag)
-            elif isinstance(value, list):
-                argv.append(flag)
-                for item in value:
-                    if isinstance(item, dict):
-                        argv.append(str(item.get("id", "")))
-                    else:
-                        argv.append(str(item))
-            elif isinstance(value, float) and value == int(value):
-                argv.extend([flag, str(int(value))])
-            else:
-                argv.extend([flag, str(value)])
-        return argv
 
     def get_areas(self) -> list[dict]:
         try:

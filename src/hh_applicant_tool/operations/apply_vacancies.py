@@ -1,13 +1,14 @@
 """CLI-операция ``apply-vacancies`` (тонкий адаптер).
 
 Парсит argparse-аргументы → строит :class:`ApplyToVacanciesCommand` →
-собирает :class:`ApplyToVacanciesUseCase` (явный DI из ``HHApplicantTool``)
-→ вызывает ``use_case.execute()`` → печатает статистику.
+получает готовый :class:`ApplyToVacanciesUseCase` из
+:class:`AppContainer` (issue #16) → вызывает ``use_case.execute()`` →
+печатает статистику.
 
 Вся бизнес-логика рассылки вынесена в
 ``hh_applicant_tool.application.use_cases.ApplyToVacanciesUseCase`` (issue
-#15). UI ``ui/api.py`` пока работает через ``Operation`` по-старому
-(``argparse.Namespace``); отвязка запланирована в issue #16.
+#15). UI ``ui/api.py`` использует тот же ``AppContainer`` напрямую,
+без argparse / ``Operation`` (issue #16).
 """
 
 from __future__ import annotations
@@ -16,10 +17,8 @@ import argparse
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from ..application import (
-    ApplyToVacanciesCommand,
-    ApplyToVacanciesUseCase,
-)
+from ..application import ApplyToVacanciesCommand
+from ..container import AppContainer
 from ..main import BaseNamespace, BaseOperation
 
 if TYPE_CHECKING:
@@ -355,20 +354,10 @@ class Operation(BaseOperation):
             order_by=args.order_by,
         )
 
-        use_case = ApplyToVacanciesUseCase(
-            api_client=tool.api_client,
-            session=tool.session,
-            storage=tool.storage,
-            cover_letter_ai=(
-                tool.get_cover_letter_ai(args.system_prompt)
-                if args.use_ai
-                else None
-            ),
-            captcha_ai=tool.get_captcha_ai(),
-            xsrf_token=tool.xsrf_token,
-            vacancy_filter_ai_factory=tool.get_vacancy_filter_ai,
-            smtp=tool.smtp if args.send_email else None,
-            config=tool.config,
+        use_case = AppContainer(tool).apply_to_vacancies_use_case(
+            system_prompt=args.system_prompt,
+            use_ai=args.use_ai,
+            send_email=args.send_email,
         )
 
         result = use_case.execute(command, cancel_event=cancel_event)
