@@ -12,6 +12,7 @@ from .repositories.employer_sites import EmployerSitesRepository
 from .repositories.employers import EmployersRepository
 from .repositories.negotiations import NegotiationRepository
 from .repositories.resumes import ResumesRepository
+from .repositories.search_profiles import SearchProfilesRepository
 from .repositories.settings import SettingsRepository
 from .repositories.skipped_vacancies import SkippedVacanciesRepository
 from .repositories.telegram_sessions import TelegramSessionsRepository
@@ -31,6 +32,7 @@ class StorageFacade:
         self.employers = EmployersRepository(conn)
         self.negotiations = NegotiationRepository(conn)
         self.resumes = ResumesRepository(conn)
+        self.search_profiles = SearchProfilesRepository(conn)
         self.settings = SettingsRepository(conn)
         self.skipped_vacancies = SkippedVacanciesRepository(conn)
         self.telegram_sessions = TelegramSessionsRepository(conn)

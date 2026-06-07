@@ -156,6 +156,22 @@ CREATE TABLE IF NOT EXISTS resumes (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+/* ===================== search_profiles ===================== */
+-- Сохранённый профиль поиска вакансий. Определяет, какие вакансии искать,
+-- какое резюме использовать, какие правила релевантности и AI-фильтрации
+-- применять. Источник истины для prepare-vacancies (issue #5) и
+-- опционального --search-profile флага в apply-vacancies.
+CREATE TABLE IF NOT EXISTS search_profiles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    resume_id TEXT NOT NULL,
+    enabled BOOLEAN DEFAULT 1,
+    search_params TEXT,
+    relevance_rules TEXT,
+    ai_filter_mode TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 /* ===================== ИНДЕКСЫ ДЛЯ СТАТИСТИКИ ===================== */
 -- Чтобы выборка для отправки на сервер по updated_at не тормозила
 CREATE INDEX IF NOT EXISTS idx_vac_upd ON vacancies(updated_at);
@@ -241,6 +257,8 @@ CREATE INDEX IF NOT EXISTS idx_app_drafts_profile ON application_drafts(search_p
 CREATE INDEX IF NOT EXISTS idx_app_test_answers_draft ON application_test_answers(draft_id);
 -- Очередь задач воркера: claimed by (status, next_attempt_at)
 CREATE INDEX IF NOT EXISTS idx_apply_jobs_queue ON apply_jobs(status, next_attempt_at);
+-- Поиск активных профилей для prepare-vacancies
+CREATE INDEX IF NOT EXISTS idx_search_profiles_enabled ON search_profiles(enabled);
 
 /* ===================== ТРИГГЕРЫ ===================== */
 CREATE TRIGGER IF NOT EXISTS trg_employer_sites_updated
@@ -277,5 +295,12 @@ BEGIN
     UPDATE telegram_sessions
     SET updated_at = CURRENT_TIMESTAMP
     WHERE chat_id = OLD.chat_id;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_search_profiles_updated
+AFTER UPDATE ON search_profiles
+BEGIN
+    UPDATE search_profiles
+    SET updated_at = CURRENT_TIMESTAMP
+    WHERE id = OLD.id;
 END;
 COMMIT;
