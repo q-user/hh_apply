@@ -76,7 +76,7 @@ class ApplyToVacanciesResult:
     Attributes:
         resumes_processed: количество обработанных резюме.
         vacancies_seen: сколько вакансий увидели (до фильтров).
-        skipped: сколько вакансий пропустили (по любой причине).
+        skipped: сколько вакансийпропустили (по любой причине).
         applied: сколько откликов реально отправлено.
         failed: сколько попыток отправки упало с ошибкой.
         limit_reached: был ли достигнут дневной лимит hh.ru.
@@ -88,3 +88,59 @@ class ApplyToVacanciesResult:
     applied: int = 0
     failed: int = 0
     limit_reached: bool = False
+
+
+@dataclass
+class PrepareVacanciesCommand:
+    """Входные данные для :class:`PrepareVacanciesUseCase` (issue #5).
+
+    Команда для CLI ``prepare-vacancies``: подготовить черновики откликов
+    (черновик + сопроводительное письмо + ответы на тесты) — БЕЗ отправки
+    откликов на hh.ru. Используется для пре-валидации вакансий и для
+    последующего ревью через Telegram (issue #7-9).
+
+    Attributes:
+        search_profile: фильтр по конкретному ``search_profiles.id``.
+            ``None`` — обработать все включённые профили.
+        dry_run: не писать в БД (только напечатать, что было бы
+            подготовлено). HH API/AI по-прежнему вызываются.
+        per_page: количество вакансий на странице (``--per-page``).
+        total_pages: верхняя граница числа страниц (``--total-pages``).
+        force_message: всегда генерировать сопроводительное письмо.
+        system_prompt: system_prompt для AI cover_letter. Применяется
+            при подготовке черновиков.
+        ai_rate_limit: лимит запросов к AI в минуту.
+    """
+
+    search_profile: str | None = None
+    dry_run: bool = False
+    per_page: int = 100
+    total_pages: int = 20
+    force_message: bool = True
+    system_prompt: str = ""
+    ai_rate_limit: int = 40
+
+
+@dataclass
+class PrepareVacanciesResult:
+    """Статистика выполнения :class:`PrepareVacanciesUseCase` (issue #5).
+
+    Attributes:
+        profiles_processed: количество обработанных search-профилей.
+        vacancies_seen: сколько вакансий увидели (до фильтров пропуска).
+        prepared: сколько черновиков создано/обновлено со статусом
+            ``prepared`` (прошли AI-фильтр).
+        rejected: сколько черновиков со статусом ``rejected`` (AI отклонил).
+        skipped: сколько вакансий пропущено (relations/archived/
+            ранее пропущенные).
+        test_answers: сколько ответов на тесты сохранено.
+        failed: сколько вакансий упало с неожиданной ошибкой.
+    """
+
+    profiles_processed: int = 0
+    vacancies_seen: int = 0
+    prepared: int = 0
+    rejected: int = 0
+    skipped: int = 0
+    test_answers: int = 0
+    failed: int = 0
