@@ -70,7 +70,7 @@ def _make_relevance_svc(suitable: bool, **kwargs) -> MagicMock:
     """Возвращает MagicMock, у которого is_suitable_heavy/light = заданный результат."""
     result = RelevanceResult(
         suitable=suitable,
-        score=kwargs.get("score", 80 if suitable else 20),
+        relevance_score=kwargs.get("relevance_score", 80 if suitable else 20),
         reason=kwargs.get("reason", "ok" if suitable else "wrong stack"),
         raw_response=kwargs.get("raw_response", "raw"),
     )
@@ -83,7 +83,7 @@ def _make_relevance_svc(suitable: bool, **kwargs) -> MagicMock:
 def test_prepare_one_ai_heavy_rejected(storage: sqlite3.Connection):
     facade = _make_facade(storage)
     relevance = _make_relevance_svc(
-        suitable=False, score=20, reason="wrong stack"
+        suitable=False, relevance_score=20, reason="wrong stack"
     )
     svc = ApplicationsService(facade, relevance=relevance)
 
@@ -107,7 +107,7 @@ def test_prepare_one_ai_heavy_rejected(storage: sqlite3.Connection):
 def test_prepare_one_ai_light_accepted(storage: sqlite3.Connection):
     facade = _make_facade(storage)
     relevance = _make_relevance_svc(
-        suitable=True, score=85, reason="matches stack"
+        suitable=True, relevance_score=85, reason="matches stack"
     )
     svc = ApplicationsService(facade, relevance=relevance)
 
@@ -131,10 +131,10 @@ def test_prepare_one_ai_filter_heavy_uses_heavy(storage: sqlite3.Connection):
     facade = _make_facade(storage)
     relevance = MagicMock()
     relevance.is_suitable_heavy.return_value = RelevanceResult(
-        suitable=True, score=90, reason="ok"
+        suitable=True, relevance_score=90, reason="ok"
     )
     relevance.is_suitable_light.return_value = RelevanceResult(
-        suitable=False, score=10, reason="no"
+        suitable=False, relevance_score=10, reason="no"
     )
     svc = ApplicationsService(facade, relevance=relevance)
 
@@ -152,10 +152,10 @@ def test_prepare_one_ai_filter_light_uses_light(storage: sqlite3.Connection):
     facade = _make_facade(storage)
     relevance = MagicMock()
     relevance.is_suitable_heavy.return_value = RelevanceResult(
-        suitable=False, score=10, reason="no"
+        suitable=False, relevance_score=10, reason="no"
     )
     relevance.is_suitable_light.return_value = RelevanceResult(
-        suitable=True, score=80, reason="ok"
+        suitable=True, relevance_score=80, reason="ok"
     )
     svc = ApplicationsService(facade, relevance=relevance)
 
@@ -485,7 +485,7 @@ def test_prepare_one_with_relevance_service_stores_analysis(
     """analysis_json содержит suitable/score/reason/raw_response."""
     facade = _make_facade(storage)
     relevance = _make_relevance_svc(
-        suitable=True, score=88, reason="matches", raw_response="RAW"
+        suitable=True, relevance_score=88, reason="matches", raw_response="RAW"
     )
     svc = ApplicationsService(facade, relevance=relevance)
 
@@ -498,6 +498,8 @@ def test_prepare_one_with_relevance_service_stores_analysis(
 
     assert draft.analysis_json is not None
     assert draft.analysis_json["suitable"] is True
+    # applications._analysis_to_dict пишет legacy-поле ``score`` для
+    # обратной совместимости (issue #4). Новое имя — ``relevance_score``.
     assert draft.analysis_json["score"] == 88
     assert draft.analysis_json["reason"] == "matches"
     assert draft.analysis_json["raw_response"] == "RAW"

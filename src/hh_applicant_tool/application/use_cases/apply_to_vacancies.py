@@ -155,7 +155,11 @@ class ApplyToVacanciesUseCase:
             total_pages=command.total_pages,
         )
         self.relevance_service = RelevanceService(
-            self.api_client, ai_client=None
+            self.api_client,
+            ai_client=None,
+            relevance_rules=(
+                self.command.relevance_rules  # type: ignore[union-attr]
+            ),
         )
 
         result = ApplyToVacanciesResult()
@@ -359,12 +363,18 @@ class ApplyToVacanciesUseCase:
             resume_analysis = self.relevance_service.analyze_resume_heavy(
                 resume
             )
-            system_prompt = build_filter_system_prompt_heavy(resume_analysis)
+            system_prompt = build_filter_system_prompt_heavy(
+                resume_analysis,
+                relevance_rules=self.relevance_service.relevance_rules,
+            )
         elif ai_filter == "light":
             resume_analysis = self.relevance_service.analyze_resume_light(
                 resume
             )
-            system_prompt = build_filter_system_prompt_light(resume_analysis)
+            system_prompt = build_filter_system_prompt_light(
+                resume_analysis,
+                relevance_rules=self.relevance_service.relevance_rules,
+            )
         else:
             raise ValueError(f"Неизвестный режим AI фильтра: {ai_filter}")
 
