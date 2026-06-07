@@ -159,6 +159,7 @@ class ApplicationsService:
         # 3. Тесты вакансии (без HTTP-отправки)
         has_test = bool(vacancy.get("has_test"))
         test_status: str | None = None
+        generated_answers: list | None = None
         if has_test and self.vacancy_tests is not None and response_url:
             try:
                 tests_data_dict = self.vacancy_tests.fetch_tests(response_url)
@@ -166,9 +167,12 @@ class ApplicationsService:
                 if test_data is None:
                     test_status = "manual_required"
                 else:
-                    # Готовим ответы, но сохраняем их вместе с draft
-                    # (apply-worker потом соберёт payload).
-                    # Здесь помечаем draft.test_status='generated'.
+                    # Готовим ответы AI/rule-based. Их нужно сохранить
+                    # после ``storage.application_drafts.save(draft)``,
+                    # потому что ``draft.id`` появляется только после UPSERT.
+                    generated_answers = self.vacancy_tests.prepare_answers(
+                        test_data
+                    )
                     test_status = "generated"
             except Exception as ex:
                 logger.warning(
@@ -197,6 +201,36 @@ class ApplicationsService:
             test_status=test_status,
         )
         self.storage.application_drafts.save(draft)
+
+        # 5. Сохранение сгенерированных ответов на тесты (issue #5).
+        # ``draft.id`` известен только после UPSERT — перечитываем запись.
+        # Если сохранение не удалось — черновик остаётся (статус
+        # ``generated``), а тест-ответы можно перегенерировать отдельно.
+        if generated_answers:
+            try:
+                saved_draft = (
+                    self.storage.application_drafts.get_by_resume_vacancy(
+                        str(resume_id or ""), int(vacancy_id or 0)
+                    )
+                )
+            except Exception as ex:  # noqa: BLE001
+                logger.warning(
+                    "Не удалось перечитать черновик для привязки "
+                    "тест-ответов: %s",
+                    ex,
+                )
+                saved_draft = None
+            if saved_draft is not None and saved_draft.id is not None:
+                for answer in generated_answers:
+                    answer.draft_id = saved_draft.id
+                    try:
+                        self.storage.application_test_answers.save(answer)
+                    except Exception as ex:  # noqa: BLE001
+                        logger.warning(
+                            "Не удалось сохранить ответ на тест %s: %s",
+                            getattr(answer, "task_id", "?"),
+                            ex,
+                        )
         return draft
 
 

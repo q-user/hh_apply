@@ -13,11 +13,19 @@
 - Telegram-бот (issues #7-9).
 """
 
-from .dto import ApplyToVacanciesCommand, ApplyToVacanciesResult
-from .use_cases import ApplyToVacanciesUseCase
+from .dto import (
+    ApplyToVacanciesCommand,
+    ApplyToVacanciesResult,
+    PrepareVacanciesCommand,
+    PrepareVacanciesResult,
+)
+from .use_cases import ApplyToVacanciesUseCase, PrepareVacanciesUseCase
 
 __all__ = (
     "ApplyToVacanciesCommand",
     "ApplyToVacanciesResult",
     "ApplyToVacanciesUseCase",
+    "PrepareVacanciesCommand",
+    "PrepareVacanciesResult",
+    "PrepareVacanciesUseCase",
 )

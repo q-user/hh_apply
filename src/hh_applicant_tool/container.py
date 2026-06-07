@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .application import ApplyToVacanciesUseCase
+from .application import ApplyToVacanciesUseCase, PrepareVacanciesUseCase
 
 if TYPE_CHECKING:
     from .main import HHApplicantTool
@@ -74,4 +74,36 @@ class AppContainer:
             vacancy_filter_ai_factory=tool.get_vacancy_filter_ai,
             smtp=tool.smtp if send_email else None,
             config=tool.config,
+        )
+
+    def prepare_vacancies_use_case(
+        self,
+        *,
+        system_prompt: str = "",
+        use_ai: bool = False,
+    ) -> PrepareVacanciesUseCase:
+        """Возвращает fully-wired :class:`PrepareVacanciesUseCase` (issue #5).
+
+        ``prepare-vacancies`` НИКОГДА не отправляет отклики на hh.ru —
+        фабрика возвращает use case только с зависимостями для подготовки
+        черновиков (поиск вакансий, AI-фильтр, AI-письмо, AI-тесты).
+
+        Args:
+            system_prompt: system_prompt для AI-генерации писем.
+                Применяется только при ``use_ai=True``.
+            use_ai: включить AI для генерации сопроводительных писем
+                и ответов на тесты. При ``False`` письма и тесты строятся
+                по rule-based fallback.
+        """
+        tool = self._tool
+        cover_letter_ai = (
+            tool.get_cover_letter_ai(system_prompt) if use_ai else None
+        )
+        return PrepareVacanciesUseCase(
+            api_client=tool.api_client,
+            session=tool.session,
+            storage=tool.storage,
+            cover_letter_ai=cover_letter_ai,
+            vacancy_filter_ai_factory=tool.get_vacancy_filter_ai,
+            test_ai=cover_letter_ai,
         )

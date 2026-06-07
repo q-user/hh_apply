@@ -5,5 +5,6 @@
 """
 
 from .apply_to_vacancies import ApplyToVacanciesUseCase
+from .prepare_vacancies import PrepareVacanciesUseCase
 
-__all__ = ("ApplyToVacanciesUseCase",)
+__all__ = ("ApplyToVacanciesUseCase", "PrepareVacanciesUseCase")
