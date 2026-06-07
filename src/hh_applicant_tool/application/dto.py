@@ -43,6 +43,10 @@ class ApplyToVacanciesCommand:
             (если указан). Используется как шаблон сопроводительного
             письма вместо дефолтного.
         order_by: сортировка вакансий (``--order-by``).
+        relevance_rules: правила релевантности из
+            :class:`SearchProfileModel.relevance_rules` (issue #4).
+            Проставляются ``prepare-vacancies`` (#5) — для ``apply-vacancies``
+            CLI остаётся ``None``.
     """
 
     resume_id: str | None = None
@@ -62,6 +66,7 @@ class ApplyToVacanciesCommand:
     message_prompt: str = ""
     letter_file_content: str | None = None
     order_by: str | None = None
+    relevance_rules: dict[str, Any] | None = None
 
 
 @dataclass

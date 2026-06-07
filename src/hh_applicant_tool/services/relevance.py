@@ -7,9 +7,16 @@
 - **light** — быстрый матч по названию + skill_set.
 
 Возвращает структурированный :class:`RelevanceResult`
-(``suitable`` / ``score`` / ``reason``), который сохраняется в
-``application_drafts.analysis_json``, ``relevance_score`` и
-``relevance_reason`` (issue #4).
+(``suitable`` / ``relevance_score`` / ``success_probability`` /
+``primary_stack`` / ``risks`` / ``reason`` и др.), который сохраняется в
+``application_drafts.analysis_json``, ``relevance_score``,
+``success_probability`` и ``relevance_reason`` (issue #4).
+
+Контракт AI-ответа — строгий JSON. ``relevance_rules`` из
+:class:`SearchProfileModel` участвуют в построении system prompt и
+применяются к результату (issue #4): ``min_score`` понижает
+``suitable`` ниже порога, ``reject_if_primary`` отклоняет вакансию,
+если её стек попадает в «запрещённый» список.
 """
 
 from __future__ import annotations
@@ -17,7 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ..ai.base import AIError
@@ -28,68 +35,221 @@ logger = logging.getLogger(__package__)
 # Максимум попыток переспросить AI, если JSON невалидный
 MAX_RETRIES = 3
 
+# Границы для 0..100 score
+SCORE_MIN = 0
+SCORE_MAX = 100
+
 
 @dataclass
 class RelevanceResult:
-    """Структурированный результат AI-фильтра.
+    """Структурированный результат AI-фильтра (issue #4).
+
+    Содержит все поля, которые AI может вернуть в новом «строгом» JSON
+    контракте, плюс обратную совместимость со старым boolean-only
+    форматом (``{"suitable": true/false}``).
 
     Attributes:
         suitable: итоговое решение — подходит ли кандидат.
-        score: числовая оценка (0..100), если AI её вернул.
+        relevance_score: числовая оценка релевантности (0..100).
+        success_probability: оценка шансов на оффер (0..100).
+        primary_stack: основные технологии вакансии.
+        secondary_stack: второстепенные технологии вакансии.
+        project_summary: краткое описание проекта/продукта.
+        complexity: сложность задач (``low``/``medium``/``high``).
+        salary_summary: краткое описание зарплаты.
+        employment_format: формат занятости (remote/office/гибрид).
+        perks: плюшки (remote, white salary, и т.п.).
+        risks: риски/опасения по вакансии.
         reason: текстовое обоснование от AI.
         raw_response: исходный ответ AI (для отладки и
             ``application_drafts.analysis_json``).
     """
 
     suitable: bool
-    score: int | None = None
+    relevance_score: int | None = None
+    success_probability: int | None = None
+    primary_stack: list[str] | None = None
+    secondary_stack: list[str] | None = None
+    project_summary: str | None = None
+    complexity: str | None = None
+    salary_summary: str | None = None
+    employment_format: str | None = None
+    perks: list[str] | None = None
+    risks: list[str] | None = None
     reason: str | None = None
     raw_response: str | None = None
+    # Применённые правила профиля — нужно для дебага и логирования.
+    # Не пишется в ``to_analysis_json`` (это профиль-локальные метаданные).
+    applied_rules: dict[str, Any] = field(default_factory=dict, repr=False)
+
+    @property
+    def score(self) -> int | None:
+        """Backwards-compat alias для ``relevance_score`` (issue #3)."""
+        return self.relevance_score
+
+    def to_analysis_json(self) -> dict[str, Any]:
+        """Возвращает dict, пригодный для записи в
+        ``application_drafts.analysis_json``.
+
+        ``None``-поля отбрасываются, чтобы не раздувать JSON.
+        ``raw_response`` намеренно НЕ включается (он свой столбец/
+        используется отдельно для дебага).
+        """
+        data: dict[str, Any] = {"suitable": self.suitable}
+        for key in (
+            "relevance_score",
+            "success_probability",
+            "primary_stack",
+            "secondary_stack",
+            "project_summary",
+            "complexity",
+            "salary_summary",
+            "employment_format",
+            "perks",
+            "risks",
+            "reason",
+        ):
+            value = getattr(self, key)
+            if value is not None:
+                data[key] = value
+        return data
+
+
+# ─── helpers для нормализации ответа AI ───────────────────────────
+
+
+def _as_int_0_100(value: Any) -> int | None:
+    """Приводит ``value`` к ``int`` в диапазоне 0..100.
+
+    Возвращает ``None`` для нечисловых значений, пустых строк, ``None``,
+    и для значений, которые не получается привести к ``int``.
+    Округляет float (``int(80.7) == 80``), клампит диапазон.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        # bool — подкласс int, но семантически это не число;
+        # ``True``/``False`` для score бессмысленно.
+        return None
+    if isinstance(value, int):
+        return max(SCORE_MIN, min(SCORE_MAX, value))
+    if isinstance(value, float):
+        if value != value:  # NaN
+            return None
+        return max(SCORE_MIN, min(SCORE_MAX, int(value)))
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        try:
+            return _as_int_0_100(float(s))
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _as_str_list(value: Any) -> list[str] | None:
+    """Приводит ``value`` к ``list[str]`` (``None`` если пусто/не list).
+
+    Не-payload элементы молча приводятся через ``str()`` и фильтруются
+    от пустых строк — это устойчиво к типичным ответам AI вроде
+    ``["Django", 1, null, "PostgreSQL"]``.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        # AI иногда отдаёт строку вместо массива — берём её как один элемент,
+        # если она непустая.
+        v = value.strip()
+        return [v] if v else None
+    if not isinstance(value, list):
+        return None
+    out: list[str] = []
+    for item in value:
+        if item is None:
+            continue
+        s = str(item).strip()
+        if s:
+            out.append(s)
+    return out or None
+
+
+# ─── парсинг ответа AI ────────────────────────────────────────────
+
+
+# Регексп для fallback-поиска JSON-блока с ``"suitable"`` внутри текста.
+# Используется, если AI обернул JSON в пояснение и не снял markdown fence.
+_FALLBACK_JSON_RE = re.compile(
+    r"\{[^{}]*\"suitable\"\s*:\s*(?:true|false)[^{}]*\}",
+    re.IGNORECASE,
+)
+
+
+def _strip_markdown_fence(text: str) -> str:
+    """Снимает ```` ```json ... ```` обрамляющие блоки, не повреждая JSON.
+
+    Удаляет ТОЛЬКО обрамляющие fence (``\`\`\`json`` и ``\`\`\``), если они
+    стоят в начале/конце текста. Внутренние ``\`\`\`` не трогаем.
+    """
+    s = text.strip()
+    if s.startswith("```"):
+        # Срезаем первую строку (``\`\`\`json`` / ``\`\`\```)
+        first_nl = s.find("\n")
+        if first_nl != -1:
+            s = s[first_nl + 1 :]
+        else:
+            s = s.lstrip("`")
+    if s.endswith("```"):
+        s = s[:-3].rstrip()
+    return s
 
 
 def parse_ai_json_response(response: str) -> RelevanceResult | None:
     """Парсит ответ AI в :class:`RelevanceResult`.
 
-    Поддерживает три формы ответа:
+    Поддерживаемые формы ответа (issue #4):
+
     - ``"да"/"yes"/"true"`` → ``RelevanceResult(suitable=True)``;
     - ``"нет"/"no"/"false"`` → ``RelevanceResult(suitable=False)``;
-    - JSON ``{"suitable": bool, "score": int, "reason": str}`` или
-      ``{"suitable": bool, "reason": str}``.
+    - JSON ``{"suitable": bool, ...}`` — произвольный набор полей из
+      расширенного контракта (``relevance_score``, ``primary_stack``,
+      ``risks`` и т.д.). Поле ``score`` (legacy) маппится в
+      ``relevance_score``;
+    - Тот же JSON, обёрнутый в markdown fence ``\`\`\`json ... \`\`\``;
+    - Тот же JSON, вкрапленный в произвольный текст (fallback-регексп).
 
     Если ни одна форма не сработала — возвращает ``None`` (для retry в
     :meth:`RelevanceService._ask_ai_suitability`).
     """
-    response = (response or "").strip()
-    if not response:
+    if response is None:
+        return None
+    text = str(response).strip()
+    if not text:
         return None
 
-    lower = response.lower()
+    # Boolean-only ответ (case-insensitive). По спеке score не заполняется.
+    lower = text.lower()
     if lower in ("да", "yes", "true"):
-        return RelevanceResult(suitable=True, raw_response=response)
+        return RelevanceResult(suitable=True, raw_response=text)
     if lower in ("нет", "no", "false"):
-        return RelevanceResult(suitable=False, raw_response=response)
+        return RelevanceResult(suitable=False, raw_response=text)
 
-    clean_json = re.sub(
-        r"```json\s*|\s*```", "", response, flags=re.IGNORECASE
-    ).strip()
-    try:
-        data = json.loads(clean_json)
-        if isinstance(data, dict) and "suitable" in data:
-            return _result_from_dict(data, response)
-    except (ValueError, TypeError) as ex:
-        logger.debug("JSON parse error: %s. Raw response: %s", ex, response)
+    clean = _strip_markdown_fence(text)
+    if clean:
+        try:
+            data = json.loads(clean)
+            if isinstance(data, dict) and "suitable" in data:
+                return _result_from_dict(data, text)
+        except (ValueError, TypeError) as ex:
+            logger.debug("JSON parse error: %s. Raw response: %s", ex, text)
 
-    # Fallback: ищем первый подходящий JSON-блок
-    json_match = re.search(
-        r'\{[^{}]*"suitable"\s*:\s*(true|false)[^{}]*\}',
-        response,
-        re.IGNORECASE,
-    )
+    # Fallback: ищем JSON-блок с "suitable" в произвольном тексте.
+    json_match = _FALLBACK_JSON_RE.search(text)
     if json_match:
         try:
             data = json.loads(json_match.group(0))
             if isinstance(data, dict):
-                return _result_from_dict(data, response)
+                return _result_from_dict(data, text)
         except (ValueError, TypeError):
             pass
 
@@ -97,24 +257,119 @@ def parse_ai_json_response(response: str) -> RelevanceResult | None:
 
 
 def _result_from_dict(data: dict, raw: str) -> RelevanceResult:
-    """Достаёт suitable/score/reason из dict ответа AI."""
+    """Собирает :class:`RelevanceResult` из dict ответа AI.
+
+    Legacy-поле ``score`` трактуется как alias ``relevance_score``
+    (issue #4). При наличии обоих полей предпочтение у ``relevance_score``.
+    """
     suitable = bool(data.get("suitable"))
-    score = data.get("score")
-    if score is not None:
-        try:
-            score = int(score)
-        except (TypeError, ValueError):
-            score = None
-    reason = data.get("reason")
-    if reason is not None:
-        reason = str(reason)
+
+    # legacy ``score`` → ``relevance_score``
+    relevance_score = _as_int_0_100(data.get("relevance_score"))
+    if relevance_score is None:
+        relevance_score = _as_int_0_100(data.get("score"))
+
     return RelevanceResult(
-        suitable=suitable, score=score, reason=reason, raw_response=raw
+        suitable=suitable,
+        relevance_score=relevance_score,
+        success_probability=_as_int_0_100(data.get("success_probability")),
+        primary_stack=_as_str_list(data.get("primary_stack")),
+        secondary_stack=_as_str_list(data.get("secondary_stack")),
+        project_summary=_as_optional_str(data.get("project_summary")),
+        complexity=_as_optional_str(data.get("complexity")),
+        salary_summary=_as_optional_str(data.get("salary_summary")),
+        employment_format=_as_optional_str(data.get("employment_format")),
+        perks=_as_str_list(data.get("perks")),
+        risks=_as_str_list(data.get("risks")),
+        reason=_as_optional_str(data.get("reason")),
+        raw_response=raw,
     )
 
 
-def build_filter_system_prompt_heavy(resume_analysis: str) -> str:
-    """System prompt для тяжёлого AI-фильтра."""
+def _as_optional_str(value: Any) -> str | None:
+    """Возвращает ``str(value)`` или ``None`` для пустых значений."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    return s or None
+
+
+# ─── формат relevance_rules для system prompt ─────────────────────
+
+
+def _format_relevance_rules(rules: dict[str, Any] | None) -> str:
+    """Рендерит :attr:`SearchProfileModel.relevance_rules` в текст для
+    вставки в system prompt.
+
+    Возвращает пустую строку, если правил нет или они пустые.
+    """
+    if not rules:
+        return ""
+    parts: list[str] = []
+    must = _as_str_list(rules.get("must_have"))
+    if must:
+        parts.append(
+            f"- Обязательные технологии (must have): {', '.join(must)}"
+        )
+    nice = _as_str_list(rules.get("nice_to_have"))
+    if nice:
+        parts.append(
+            f"- Желательные технологии (nice to have): {', '.join(nice)}"
+        )
+    allowed = _as_str_list(rules.get("allowed_secondary"))
+    if allowed:
+        parts.append(
+            "- Допустимые второстепенные технологии "
+            "(НЕ отклоняй вакансию, если они в secondary_stack): "
+            f"{', '.join(allowed)}"
+        )
+    reject = _as_str_list(rules.get("reject_if_primary"))
+    if reject:
+        parts.append(
+            "- Категорически отклоняй (suitable=false), если в primary_stack "
+            f"есть: {', '.join(reject)}"
+        )
+    role = _as_optional_str(rules.get("strict_role"))
+    if role:
+        parts.append(f"- Целевая роль кандидата: {role}")
+    if not parts:
+        return ""
+    return (
+        "\n\n#### ПРАВИЛА РЕЛЕВАНТНОСТИ (ОБЯЗАТЕЛЬНО УЧИТЫВАЙ)\n"
+        + "\n".join(parts)
+    )
+
+
+# ─── system prompts ───────────────────────────────────────────────
+
+
+def build_filter_system_prompt_heavy(
+    resume_analysis: str,
+    *,
+    relevance_rules: dict[str, Any] | None = None,
+) -> str:
+    """System prompt для тяжёлого AI-фильтра (issue #4).
+
+    Требует от AI СТРОГО JSON следующей формы::
+
+        {
+          "suitable": true,
+          "relevance_score": 92,
+          "success_probability": 78,
+          "primary_stack": ["Python", "Django"],
+          "secondary_stack": ["FastAPI"],
+          "project_summary": "...",
+          "complexity": "low|medium|high",
+          "salary_summary": "...",
+          "employment_format": "...",
+          "perks": ["..."],
+          "risks": ["..."],
+          "reason": "..."
+        }
+
+    ``relevance_rules`` (опционально) — ``relevance_rules`` из
+    :class:`SearchProfileModel` — дописываются отдельной секцией.
+    """
     return f"""
 Ты - HR-эксперт и карьерный консультант с 15-летним опытом IT-подбора.
 Твоя задача - объективно решить, подходит ли кандидат под данную вакансию.
@@ -132,14 +387,32 @@ def build_filter_system_prompt_heavy(resume_analysis: str) -> str:
 3. Сравни эти данные. Решение "ПОДХОДИТ" (true) принимай только в том случае, если опыт и достижения кандидата позволяют эффективно решать задачи, описанные в [JOB].
 
 Принимай решение взвешенно, как при реальном найме на Senior/Lead позиции.
+{_format_relevance_rules(relevance_rules)}
 
 #### ВЫХОД (OUTPUT)
-Ответ СТРОГО в формате JSON:
+Ответ СТРОГО в формате JSON (без markdown-обрамления, без пояснений):
 {{
   "suitable": true,
-  "score": 85,
+  "relevance_score": 92,
+  "success_probability": 78,
+  "primary_stack": ["Python", "Django"],
+  "secondary_stack": ["FastAPI"],
+  "project_summary": "краткое описание проекта/продукта",
+  "complexity": "low|medium|high",
+  "salary_summary": "вилка и валюта одной строкой",
+  "employment_format": "remote/office/hybrid, full-time/part-time",
+  "perks": ["remote", "white salary"],
+  "risks": ["что может смутить соискателя"],
   "reason": "краткое профессиональное обоснование: какие именно навыки/достижения кандидата мэтчатся с задачами вакансии"
 }}
+
+Правила:
+- "suitable" — финальное решение, true/false.
+- "relevance_score" — целое 0..100, насколько вакансия релевантна кандидату.
+- "success_probability" — целое 0..100, шансы получить оффер.
+- "primary_stack" / "secondary_stack" — массивы строк-технологий.
+- "complexity" — одно из: "low", "medium", "high".
+- Все строковые поля могут быть null, если данных недостаточно.
 
 ---
 
@@ -148,8 +421,24 @@ def build_filter_system_prompt_heavy(resume_analysis: str) -> str:
 """
 
 
-def build_filter_system_prompt_light(resume_analysis: str) -> str:
-    """System prompt для лёгкого AI-фильтра."""
+def build_filter_system_prompt_light(
+    resume_analysis: str,
+    *,
+    relevance_rules: dict[str, Any] | None = None,
+) -> str:
+    """System prompt для лёгкого AI-фильтра (issue #4).
+
+    Требует укороченный JSON — те же ключевые поля, но без подробностей::
+
+        {
+          "suitable": true,
+          "relevance_score": 80,
+          "primary_stack": ["Python", "Django"],
+          "secondary_stack": [],
+          "risks": [],
+          "reason": "..."
+        }
+    """
     return f"""
 Ты делаешь очень грубую проверку: подходит вакансия или нет.
 
@@ -166,13 +455,90 @@ def build_filter_system_prompt_light(resume_analysis: str) -> str:
 - если название вакансии и резюме в одной профессии или близких ролях, и есть хотя бы частичное совпадение по ключевым навыкам -> suitable = true
 - если роли явно разные или совпадений по навыкам почти нет -> suitable = false
 - если данных мало -> ориентируйся только на явные совпадения, без фантазий
+{_format_relevance_rules(relevance_rules)}
 
-Ответ только JSON:
-{{"suitable": true, "score": 80, "reason": "..."}} или {{"suitable": false, "reason": "..."}}
+Ответ СТРОГО в формате JSON (без markdown-обрамления, без пояснений):
+{{
+  "suitable": true,
+  "relevance_score": 80,
+  "primary_stack": ["Python", "Django"],
+  "secondary_stack": [],
+  "risks": [],
+  "reason": "краткое обоснование"
+}}
 
 Кандидат:
 {resume_analysis}
 """
+
+
+# ─── применение relevance_rules к результату AI ───────────────────
+
+
+def _apply_relevance_rules(
+    result: RelevanceResult,
+    rules: dict[str, Any] | None,
+) -> RelevanceResult:
+    """Применяет ``relevance_rules`` к результату AI (issue #4).
+
+    Изменяет ``result`` **in place** и возвращает тот же объект.
+
+    Применяемые правила:
+
+    - ``min_score`` — если ``relevance_score < min_score``, то
+      ``suitable=False`` (с указанием причины в ``reason``).
+    - ``reject_if_primary`` — если в ``primary_stack`` есть элемент из
+      этого списка, то ``suitable=False``.
+
+    ``allowed_secondary`` / ``nice_to_have`` / ``must_have`` / ``strict_role``
+    сюда НЕ входят — они сообщаются AI в system prompt.
+    """
+    if not rules:
+        return result
+    applied: dict[str, Any] = {}
+
+    min_score = _as_int_0_100(rules.get("min_score"))
+    if min_score is not None and result.relevance_score is not None:
+        if result.relevance_score < min_score:
+            applied["min_score"] = min_score
+            result.suitable = False
+            note = (
+                f"relevance_score={result.relevance_score} ниже "
+                f"min_score={min_score}"
+            )
+            result.reason = _append_reason(result.reason, note)
+
+    reject = _as_str_list(rules.get("reject_if_primary"))
+    primary = result.primary_stack or []
+    if reject and primary:
+        # Case-insensitive матч по строковому совпадению.
+        # AI может вернуть "FastAPI" и правило "fastapi" — должны совпасть.
+        reject_lower = {r.lower() for r in reject}
+        matched = [p for p in primary if p.lower() in reject_lower]
+        if matched:
+            applied["reject_if_primary_matched"] = matched
+            result.suitable = False
+            note = (
+                f"primary_stack содержит запрещённые технологии: "
+                f"{', '.join(matched)}"
+            )
+            result.reason = _append_reason(result.reason, note)
+
+    if applied:
+        result.applied_rules = applied
+    return result
+
+
+def _append_reason(existing: str | None, addition: str) -> str:
+    """Дописывает ``addition`` в ``existing`` через "; " (issue #4)."""
+    if not existing:
+        return addition
+    if addition in existing:
+        return existing
+    return f"{existing}; {addition}"
+
+
+# ─── основной сервис ──────────────────────────────────────────────
 
 
 class RelevanceService:
@@ -187,11 +553,22 @@ class RelevanceService:
         ai_client: экземпляр ``ChatOpenAI`` с system_prompt или ``None``
             (тогда фильтрация отключена — все вакансии считаются
             подходящими).
+        relevance_rules: правила релевантности из
+            :class:`SearchProfileModel.relevance_rules` или ``None``.
+            Влияют и на system prompt, и на пост-обработку результата
+            (issue #4).
     """
 
-    def __init__(self, api_client: Any, ai_client: Any = None):
+    def __init__(
+        self,
+        api_client: Any,
+        ai_client: Any = None,
+        *,
+        relevance_rules: dict[str, Any] | None = None,
+    ):
         self.api_client = api_client
         self.ai_client = ai_client
+        self.relevance_rules = relevance_rules
         # Кеш для тяжёлого анализа резюме
         self._resume_analysis_cache: dict[tuple[str | None, str], str] = {}
 
@@ -363,6 +740,10 @@ class RelevanceService:
         (т.е. вакансия считается подходящей, фильтрация выключена).
         При ``AIError`` — также ``suitable=True`` с raw_response, чтобы не
         блокировать работу из-за сбоя AI.
+
+        После успешного парсинга применяет ``relevance_rules`` (issue #4):
+        ``min_score`` / ``reject_if_primary`` могут «дожать» результат
+        в ``suitable=False``.
         """
         if not self.ai_client:
             return RelevanceResult(suitable=True)
@@ -380,6 +761,7 @@ class RelevanceService:
 
                 result = parse_ai_json_response(response)
                 if result is not None:
+                    _apply_relevance_rules(result, self.relevance_rules)
                     if not result.suitable:
                         logger.info(
                             "Вакансия %s отклонена AI %s",
