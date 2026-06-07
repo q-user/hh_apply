@@ -3,11 +3,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import html
-import json
 import logging
 import random
 import re
-import time
 from datetime import datetime
 from email.message import EmailMessage
 from itertools import chain
@@ -17,21 +15,25 @@ from urllib.parse import urlparse
 
 import requests
 
-from .. import utils
 from ..ai.base import AIError
 from ..api import BadResponse, Redirect, datatypes
-from ..api.datatypes import PaginatedItems, SearchVacancy
+from ..api.datatypes import SearchVacancy
 from ..api.errors import ApiError, CaptchaRequired, LimitExceeded
 from ..main import BaseNamespace, BaseOperation
+from ..services import (
+    CoverLetterService,
+    RelevanceService,
+    VacancySearchService,
+    VacancyTestsService,
+    build_filter_system_prompt_heavy,
+    build_filter_system_prompt_light,
+    build_search_params,
+    parse_ai_json_response,
+)
 from ..storage.repositories.errors import RepositoryError
 from ..utils.datatypes import VacancyTestsData
 from ..utils.json import JSONDecoder
-from ..utils.string import (
-    bool2str,
-    rand_text,
-    strip_tags,
-    unescape_string,
-)
+from ..utils.string import rand_text, strip_tags, unescape_string
 
 if TYPE_CHECKING:
     from ..main import HHApplicantTool
@@ -357,8 +359,24 @@ class Operation(BaseOperation):
             else None
         )
         self.ai_filter = args.ai_filter
+        self.relevance_service = RelevanceService(
+            self.api_client, ai_client=None
+        )
+        self.cover_letter_service = CoverLetterService(
+            self.api_client,
+            self.cover_letter_ai,
+            template=self.cover_letter,
+        )
+        self.vacancy_tests_service = VacancyTestsService(
+            self.tool.session,
+            self.cover_letter_ai,
+        )
+        self.vacancy_search_service = VacancySearchService(
+            self.api_client,
+            per_page=self.per_page,
+            total_pages=self.total_pages,
+        )
         self.vacancy_filter_ai = None
-        self._resume_analysis_cache: dict[tuple[str | None, str], str] = {}
 
         self._apply_vacancies()
 
@@ -366,91 +384,13 @@ class Operation(BaseOperation):
         return self.api_client.get(f"/resumes/{resume_id}")
 
     def _analyze_resume_heavy(self, resume: dict) -> str:
-        resume_id = resume.get("id")
-        cache_key = (resume_id, "heavy")
-        if cache_key in self._resume_analysis_cache:
-            return self._resume_analysis_cache[cache_key]
-
-        if resume_id:
-            try:
-                full_resume = self._get_full_resume(resume_id)
-
-                parts = []
-
-                title = full_resume.get("title", "")
-                if title:
-                    parts.append(f"Должность: {title}")
-
-                if "skills" in full_resume:
-                    parts.append("\n---------- О СЕБЕ ----------")
-                    parts.append(full_resume.get("skills", ""))
-
-                if "skill_set" in full_resume and full_resume["skill_set"]:
-                    parts.append("\n---------- НАВЫКИ ----------")
-                    skills_row = ", ".join(full_resume["skill_set"])
-                    parts.append(skills_row)
-
-                if "experience" in full_resume:
-                    parts.append("\n---------- ОПЫТ РАБОТЫ ----------")
-                    for exp in full_resume.get("experience", []):
-                        company = exp.get("company", "Не указано")
-                        position = exp.get("position", "Не указано")
-                        start = exp.get("start", "")
-                        end = exp.get("end") or "по настоящее время"
-
-                        parts.append(f"\n- {company}")
-                        parts.append(f" Должность: {position}")
-                        parts.append(f" Период: {start} - {end}")
-
-                        description = exp.get("description")
-                        if description:
-                            parts.append(" Описание:")
-                            parts.append(f" {description}")
-
-                result = "\n".join(parts)
-                self._resume_analysis_cache[cache_key] = result
-                return result
-
-            except Exception as e:
-                logger.warning(f"Не удалось получить полное резюме: {e}")
-
-        return ""
+        return self.relevance_service.analyze_resume_heavy(resume)
 
     def _analyze_resume_light(self, resume: dict) -> str:
-        resume_id = resume.get("id")
-        cache_key = (resume_id, "light")
-        if cache_key in self._resume_analysis_cache:
-            return self._resume_analysis_cache[cache_key]
-
-        parts = []
-
-        full_resume = self._get_full_resume(resume_id)
-
-        title = full_resume.get("title", "")
-        if title:
-            parts.append(f"Должность: {title}")
-
-        if "skill_set" in full_resume and full_resume["skill_set"]:
-            parts.append("Навыки: ")
-            skills_row = ", ".join(full_resume["skill_set"])
-            parts.append(skills_row)
-
-        result = "\n".join(parts)
-        self._resume_analysis_cache[cache_key] = result
-        return result
+        return self.relevance_service.analyze_resume_light(resume)
 
     def _get_vacancy_key_skills(self, vacancy_id: str | int) -> str:
-        try:
-            full_vacancy = self.api_client.get(f"/vacancies/{vacancy_id}")
-            key_skills_data = full_vacancy.get("key_skills") or []
-            return ", ".join(
-                s["name"] for s in key_skills_data if s.get("name")
-            )
-        except Exception as e:
-            logger.warning(
-                "Не удалось получить key_skills вакансии %s: %s", vacancy_id, e
-            )
-            return ""
+        return self.relevance_service.get_vacancy_key_skills(vacancy_id)
 
     def _build_vacancy_context(
         self,
@@ -458,192 +398,36 @@ class Operation(BaseOperation):
         full_vacancy: dict | None = None,
         include_full: bool = False,
     ) -> str:
-        parts: list[str] = []
-
-        name = vacancy.get("name")
-        if name:
-            parts.append(f"Вакансия: {name}")
-
-        if full_vacancy:
-            description = full_vacancy.get("description")
-            if description:
-                parts.append(f"Описание: {strip_tags(description)}")
-        else:
-            if vacancy.get("id"):
-                key_skills = self._get_vacancy_key_skills(vacancy["id"])
-                if key_skills:
-                    parts.append(f"Ключевые навыки: {key_skills}")
-
-        return "\n".join(parts)
+        return self.relevance_service.build_vacancy_context(
+            vacancy,
+            full_vacancy=full_vacancy,
+            include_full=include_full,
+        )
 
     def _ask_ai_suitability(
         self, prompt: str, vacancy_name: str, log_suffix: str = ""
     ) -> bool:
-        MAX_RETRIES = 3
-
-        if not self.vacancy_filter_ai:
-            return True
-
-        for attempt in range(MAX_RETRIES):
-            try:
-                response = self.vacancy_filter_ai.complete(prompt).strip()
-
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "AI %s ответ (попытка %d): %s",
-                        log_suffix,
-                        attempt + 1,
-                        response,
-                    )
-
-                result = self._parse_ai_json_response(response)
-                if result is not None:
-                    if result:
-                        return True
-                    logger.info(
-                        "Вакансия %s отклонена AI %s", vacancy_name, log_suffix
-                    )
-                    return False
-
-                # Если не удалось распарсить JSON, повторяем запрос
-                logger.warning(
-                    "AI %s не дал валидный JSON для вакансии %s (попытка %d/%d)",
-                    log_suffix,
-                    vacancy_name,
-                    attempt + 1,
-                    MAX_RETRIES,
-                )
-                continue
-
-            except AIError as e:
-                # ChatOpenAI уже делает retry для 429, поэтому здесь только логируем
-                logger.error("Ошибка AI %s: %s", log_suffix, e)
-                return True
-
-        logger.warning(
-            "AI %s не дал валидный JSON после %d попыток для вакансии %s",
-            log_suffix,
-            MAX_RETRIES,
+        return self.relevance_service._ask_ai_suitability(
+            prompt,
             vacancy_name,
-        )
-        return True
+            log_suffix,
+        ).suitable
 
     def _parse_ai_json_response(self, response: str) -> bool | None:
-        response = response.strip()
-        lower_resp = response.lower()
+        result = parse_ai_json_response(response)
+        return None if result is None else result.suitable
 
-        if lower_resp in ("да", "yes", "true"):
-            return True
-        if lower_resp in ("нет", "no", "false"):
-            return False
-
-        import json
-        import re
-
-        clean_json = re.sub(
-            r"```json\s*|\s*```", "", response, flags=re.IGNORECASE
-        ).strip()
-
-        try:
-            data = json.loads(clean_json)
-            if isinstance(data, dict) and "suitable" in data:
-                return bool(data["suitable"])
-        except Exception as e:
-            logger.debug(f"JSON parse error: {e}. Raw response: {response}")
-
-        # Fallback to regex if pure json parsing fails
-        json_match = re.search(
-            r'\{[^{}]*"suitable"\s*:\s*(true|false)[^{}]*\}',
-            response,
-            re.IGNORECASE,
-        )
-        if json_match:
-            try:
-                data = json.loads(json_match.group(0))
-                return data.get("suitable")
-            except Exception:
-                pass
-
-        return None
-
-    # КТО ЭТО ПРОЧИТАЛ ТОТ ПИД@РАС
     def _is_vacancy_suitable_heavy(self, vacancy: dict) -> bool:
-        full_vacancy = None
-        if vacancy.get("id"):
-            full_vacancy = self.api_client.get(f"/vacancies/{vacancy['id']}")
-
-        vacancy_info = self._build_vacancy_context(
-            vacancy,
-            full_vacancy=full_vacancy,
-            include_full=True,
-        )
-        prompt = f"Вакансия: {vacancy_info}"
-        return self._ask_ai_suitability(
-            prompt, vacancy.get("name", ""), "(heavy)"
-        )
+        return self.relevance_service.is_suitable_heavy(vacancy).suitable
 
     def _is_vacancy_suitable_light(self, vacancy: dict) -> bool:
-        vacancy_info = self._build_vacancy_context(vacancy, include_full=False)
-        prompt = f"Вакансия: {vacancy_info}"
-        return self._ask_ai_suitability(
-            prompt, vacancy.get("name", ""), "(light)"
-        )
+        return self.relevance_service.is_suitable_light(vacancy).suitable
 
     def _build_filter_system_prompt_heavy(self, resume_analysis: str) -> str:
-        return f"""
-Ты - HR-эксперт и карьерный консультант с 15-летним опытом IT-подбора.
-Твоя задача - объективно решить, подходит ли кандидат под данную вакансию.
-
----
-
-#### ВХОДНЫЕ ДАННЫЕ (INPUT)
-Для анализа тебе предоставлены:
-1. [JOB] - Описание вакансии (стек, задачи, компания).
-2. [CANDIDATE] - Полные данные из резюме соискателя.
-
-#### ЗАДАНИЕ (TASK)
-1. Выдели из блока [CANDIDATE] ключевой технологический стек, профессиональную роль и главные достижения (ищи цифры, метрики, конкретные результаты).
-2. Проанализируй [JOB] и определи основные боли работодателя и требуемый уровень экспертности.
-3. Сравни эти данные. Решение "ПОДХОДИТ" (true) принимай только в том случае, если опыт и достижения кандидата позволяют эффективно решать задачи, описанные в [JOB].
-
-Принимай решение взвешенно, как при реальном найме на Senior/Lead позиции.
-
-#### ВЫХОД (OUTPUT)
-Ответ СТРОГО в формате JSON:
-{{
-  "suitable": true,
-  "reason": "краткое профессиональное обоснование: какие именно навыки/достижения кандидата мэтчатся с задачами вакансии"
-}}
-
----
-### [CANDIDATE DATA]
-{resume_analysis}
-"""
+        return build_filter_system_prompt_heavy(resume_analysis)
 
     def _build_filter_system_prompt_light(self, resume_analysis: str) -> str:
-        return f"""
-Ты делаешь очень грубую проверку: подходит вакансия или нет.
-
-Используй только:
-- название резюме
-- список навыков резюме
-- название вакансии
-- явно указанные ключевые навыки вакансии
-
-Не анализируй описание, обязанности, контекст, домен, уровень, карьерный рост и прочую воду.
-Не додумывай ничего, чего нет в тексте.
-
-Правила:
-- если название вакансии и резюме в одной профессии или близких ролях, и есть хотя бы частичное совпадение по ключевым навыкам -> suitable = true
-- если роли явно разные или совпадений по навыкам почти нет -> suitable = false
-- если данных мало -> ориентируйся только на явные совпадения, без фантазий
-
-Ответ только JSON:
-{{"suitable": true}} или {{"suitable": false}}
-
-Кандидат:
-{resume_analysis}
-"""
+        return build_filter_system_prompt_light(resume_analysis)
 
     SEL_CAPTCHA_IMAGE = 'img[data-qa="account-captcha-picture"]'
     SEL_CAPTCHA_INPUT = 'input[data-qa="account-captcha-input"]'
@@ -858,15 +642,15 @@ class Operation(BaseOperation):
         if not self.ai_filter:
             return ""
         if self.ai_filter == "heavy":
-            resume_analysis = self._analyze_resume_heavy(resume)
-            system_prompt = self._build_filter_system_prompt_heavy(
-                resume_analysis
+            resume_analysis = self.relevance_service.analyze_resume_heavy(
+                resume
             )
+            system_prompt = build_filter_system_prompt_heavy(resume_analysis)
         elif self.ai_filter == "light":
-            resume_analysis = self._analyze_resume_light(resume)
-            system_prompt = self._build_filter_system_prompt_light(
-                resume_analysis
+            resume_analysis = self.relevance_service.analyze_resume_light(
+                resume
             )
+            system_prompt = build_filter_system_prompt_light(resume_analysis)
         else:
             raise ValueError(f"Неизвестный режим AI фильтра: {self.ai_filter}")
         logger.debug(
@@ -875,6 +659,7 @@ class Operation(BaseOperation):
         self.vacancy_filter_ai = self.tool.get_vacancy_filter_ai(system_prompt)
         if self.args.ai_rate_limit:
             self.vacancy_filter_ai.rate_limit = self.args.ai_rate_limit
+        self.relevance_service.ai_client = self.vacancy_filter_ai
         return resume_analysis
 
     def _save_vacancy_to_storage(self, vacancy: SearchVacancy, storage) -> None:
@@ -1049,61 +834,14 @@ class Operation(BaseOperation):
         resume: datatypes.Resume,
     ) -> str:
         """Генерирует сопроводительное письмо (AI или шаблон)."""
-        if not (self.force_message or vacancy.get("response_letter_required")):
-            return ""
-        if self.cover_letter_ai:
-            return self._generate_cover_letter_via_ai(
-                vacancy, message_placeholders, resume_analysis, resume
-            )
-        return rand_text(self.cover_letter) % message_placeholders
-
-    def _generate_cover_letter_via_ai(
-        self,
-        vacancy: SearchVacancy,
-        message_placeholders: dict,
-        resume_analysis: str,
-        resume: datatypes.Resume,
-    ) -> str:
-        """Генерирует сопроводительное письмо через AI (OpenAI и т.п.)."""
-        full_vacancy_data = self.api_client.get(f"/vacancies/{vacancy['id']}")
-        ai_context = {
-            "job": {
-                "title": vacancy.get("name"),
-                "employer": (vacancy.get("employer") or {}).get("name"),
-                "description": (
-                    strip_tags(full_vacancy_data.get("description", ""))
-                    if full_vacancy_data
-                    else ""
-                ),
-                "key_skills": (
-                    [s["name"] for s in full_vacancy_data.get("key_skills", [])]
-                    if full_vacancy_data
-                    else []
-                ),
-            },
-            "candidate": {
-                "first_name": message_placeholders.get(
-                    "first_name", "Кандидат"
-                ),
-                "last_name": message_placeholders.get("last_name", ""),
-                "resume_title": resume.get("title"),
-                "experience_summary": resume_analysis,
-            },
-        }
-        prompt_msg = (
-            "Проанализируй данные и напиши сопроводительное письмо:\n"
-            + json.dumps(ai_context, ensure_ascii=False, indent=2)
+        return self.cover_letter_service.generate(
+            vacancy,
+            message_placeholders,
+            resume_analysis=resume_analysis,
+            resume=resume,
+            force=self.force_message,
+            required_by_vacancy=bool(vacancy.get("response_letter_required")),
         )
-        raw_response = self.cover_letter_ai.complete(prompt_msg)
-        try:
-            clean_json = re.sub(r"```json\s*|\s*```", "", raw_response).strip()
-            letter_data = json.loads(clean_json)
-            letter = letter_data.get("cover_letter", "")
-            if not letter:
-                letter = raw_response
-        except Exception:
-            letter = raw_response
-        return letter
 
     def _handle_vacancy_test(
         self, vacancy: SearchVacancy, resume_id: str
@@ -1225,22 +963,7 @@ class Operation(BaseOperation):
 
     def _get_vacancy_tests(self, response_url: str) -> VacancyTestsData:
         """Парсит тесты"""
-        r = self.tool.session.get(response_url)
-
-        tests_marker = ',"vacancyTests":'
-        start_tests = r.text.find(tests_marker)
-        end_tests = r.text.find(',"counters":', start_tests)
-
-        if -1 in (start_tests, end_tests):
-            raise ValueError("tests not found.")
-
-        try:
-            return utils.json.loads(
-                r.text[start_tests + len(tests_marker) : end_tests],
-                strict=False,
-            )
-        except json.JSONDecodeError as ex:
-            raise ValueError("Не могу распарсить vacancyTests.") from ex
+        return self.vacancy_tests_service.fetch_tests(response_url)
 
     def _solve_vacancy_test(
         self,
@@ -1248,124 +971,30 @@ class Operation(BaseOperation):
         resume_hash: str,
         letter: str = "",
     ) -> dict[str, Any]:
-        """Загружает тест, ждет паузу и отправляет отклик."""
+        """Загружает тест, подготавливает ответы и отправляет отклик."""
         response_url = f"https://hh.ru/applicant/vacancy_response?vacancyId={vacancy_id}&startedWithQuestion=false&hhtmFrom=vacancy"
 
-        # Загружаем данные теста и токен
-        tests_data = self._get_vacancy_tests(response_url)
+        tests_data = self.vacancy_tests_service.fetch_tests(response_url)
 
         try:
             test_data = tests_data[str(vacancy_id)]
         except KeyError as ex:
             raise ValueError("Отсутствуют данные теста для вакансии.") from ex
 
-        logger.debug(f"{test_data = }")
-
-        payload: dict[str, Any] = {
-            "_xsrf": self.tool.xsrf_token,
-            "uidPk": test_data["uidPk"],
-            "guid": test_data["guid"],
-            "startTime": test_data["startTime"],
-            "testRequired": test_data["required"],
-            "vacancy_id": vacancy_id,
-            "resume_hash": resume_hash,
-            "ignore_postponed": "true",
-            "incomplete": "false",
-            "mark_applicant_visible_in_vacancy_country": "false",
-            "country_ids": "[]",
-            "lux": "true",
-            "withoutTest": "no",
-            "letter": letter,
-        }
-
-        for task in test_data["tasks"]:
-            field_name = f"task_{task['id']}"
-            solutions = task.get("candidateSolutions") or []
-            question = (task.get("description") or "").strip()
-
-            if solutions:
-                if self.cover_letter_ai:
-                    options = "\n".join(
-                        [
-                            f"{s['id']}: {strip_tags(s['text'])}"
-                            for s in solutions
-                        ]
-                    )
-                    prompt = (
-                        f"Вопрос: {question}\n"
-                        f"Варианты:\n{options}\n"
-                        f"Выбери ID правильного ответа. Пришли только ID."
-                    )
-                    ai_answer = self.cover_letter_ai.complete(prompt).strip()
-                    # Ищем ID в ответе AI на случай лишнего текста
-                    match = re.search(r"\d+", ai_answer)
-                    selected_id = (
-                        match.group(0) if match else solutions[0]["id"]
-                    )
-                    payload[field_name] = selected_id
-                else:
-                    yes_solution = next(
-                        filter(lambda x: x["text"].lower() == "да", solutions),
-                        None,
-                    )
-
-                    payload[field_name] = (
-                        yes_solution["id"]
-                        if yes_solution
-                        # По статистике правильный ответ в большинстве случаев
-                        # находится посередине
-                        else solutions[len(solutions) // 2]["id"]
-                    )
-            else:
-                # Рандомные эмоджи
-                # payload[f"{field_name}_text"] = "".join(
-                #     chr(random.randint(0x1F300, 0x1F64F))
-                #     for _ in range(random.randint(3, 15))
-                # )
-
-                if "://" in question:
-                    answer = rand_text(
-                        "{{Простите|Извините}, но я не перехожу по {внешним|сторонним} ссылкам, так как {опасаюсь взлома|не хочу {быть взломанным|подхватить вирус|чтобы у меня {со|с банковского} счета украли деньги}}.|У меня нет времени на заполнение анкет и гуглодоков}"
-                    )
-                elif self.cover_letter_ai:
-                    prompt = f"Дай краткий и профессиональный ответ на вопрос: {question}"
-                    answer = self.cover_letter_ai.complete(prompt)
-                # Тупоеблые любят вопросы с ответами да/нет, где ответ да является правильным в большинстве случаев.
-                else:
-                    answer = "Да"
-
-                payload[f"{field_name}_text"] = answer
-
-        logger.debug(f"{payload = }")
-
-        # Ожидание перед отправкой (float)
-        time.sleep(random.uniform(2.0, 3.0))
-
-        response = self.tool.session.post(
-            "https://hh.ru/applicant/vacancy_response/popup",
-            data=payload,
-            headers={
-                "Referer": response_url,
-                # x-gib-fgsscgib-w-hh и x-gib-gsscgib-w-hh вроде в куках
-                # передаются и не нужны
-                "X-Hhtmfrom": "vacancy",
-                "X-Hhtmsource": "vacancy_response",
-                "X-Requested-With": "XMLHttpRequest",
-                "X-Xsrftoken": self.tool.xsrf_token,
-            },
+        answers = self.vacancy_tests_service.prepare_answers(test_data)
+        payload = self.vacancy_tests_service.build_apply_payload_from_answers(
+            test_data,
+            answers,
+            vacancy_id=vacancy_id,
+            resume_hash=resume_hash,
+            letter=letter,
+            xsrf_token=self.tool.xsrf_token,
         )
-
-        logger.debug(
-            "%s %s %d",
-            response.request.method,
-            response.url,
-            response.status_code,
+        return self.vacancy_tests_service.submit_apply(
+            response_url,
+            payload,
+            xsrf_token=self.tool.xsrf_token,
         )
-
-        data = response.json()
-        # logger.debug(data)
-
-        return data
 
     def _parse_site(self, url: str) -> dict[str, Any]:
         with self.tool.session.get(url, timeout=10) as r:
@@ -1425,99 +1054,54 @@ class Operation(BaseOperation):
             if not item.startswith("*.")
         )
 
-    def _get_search_params(self, page: int) -> dict:
-        params = {
-            "page": page,
-            "per_page": self.per_page,
+    def _search_params_kwargs(self) -> dict[str, Any]:
+        return {
+            "order_by": self.order_by,
+            "text": self.search,
+            "schedule": self.schedule,
+            "experience": self.experience,
+            "currency": self.currency,
+            "salary": self.salary,
+            "period": self.period,
+            "date_from": self.date_from,
+            "date_to": self.date_to,
+            "top_lat": self.top_lat,
+            "bottom_lat": self.bottom_lat,
+            "left_lng": self.left_lng,
+            "right_lng": self.right_lng,
+            "sort_point_lat": self.sort_point_lat,
+            "sort_point_lng": self.sort_point_lng,
+            "search_field": self.search_field,
+            "employment": self.employment,
+            "area": self.area,
+            "metro": self.metro,
+            "professional_role": self.professional_role,
+            "industry": self.industry,
+            "employer_id": self.employer_id,
+            "excluded_employer_id": self.excluded_employer_id,
+            "label": self.label,
+            "only_with_salary": self.only_with_salary,
+            "no_magic": self.no_magic,
+            "premium": self.premium,
         }
-        if self.order_by:
-            params |= {"order_by": self.order_by}
-        if self.search:
-            params["text"] = self.search
-        if self.schedule:
-            params["schedule"] = self.schedule
-        if self.experience:
-            params["experience"] = self.experience
-        if self.currency:
-            params["currency"] = self.currency
-        if self.salary:
-            params["salary"] = self.salary
-        if self.period:
-            params["period"] = self.period
-        if self.date_from:
-            params["date_from"] = self.date_from
-        if self.date_to:
-            params["date_to"] = self.date_to
-        if self.top_lat:
-            params["top_lat"] = self.top_lat
-        if self.bottom_lat:
-            params["bottom_lat"] = self.bottom_lat
-        if self.left_lng:
-            params["left_lng"] = self.left_lng
-        if self.right_lng:
-            params["right_lng"] = self.right_lng
-        if self.sort_point_lat:
-            params["sort_point_lat"] = self.sort_point_lat
-        if self.sort_point_lng:
-            params["sort_point_lng"] = self.sort_point_lng
-        if self.search_field:
-            params["search_field"] = list(self.search_field)
-        if self.employment:
-            params["employment"] = list(self.employment)
-        if self.area:
-            params["area"] = list(self.area)
-        if self.metro:
-            params["metro"] = list(self.metro)
-        if self.professional_role:
-            params["professional_role"] = list(self.professional_role)
-        if self.industry:
-            params["industry"] = list(self.industry)
-        if self.employer_id:
-            params["employer_id"] = list(self.employer_id)
-        if self.excluded_employer_id:
-            params["excluded_employer_id"] = list(self.excluded_employer_id)
-        if self.label:
-            params["label"] = list(self.label)
-        if self.only_with_salary:
-            params["only_with_salary"] = bool2str(self.only_with_salary)
-        # if self.clusters:
-        #     params["clusters"] = bool2str(self.clusters)
-        if self.no_magic:
-            params["no_magic"] = bool2str(self.no_magic)
-        if self.premium:
-            params["premium"] = bool2str(self.premium)
-        # if self.responses_count_enabled is not None:
-        #     params["responses_count_enabled"] = bool2str(self.responses_count_enabled)
 
-        return params
+    def _get_search_params(self, page: int) -> dict[str, Any]:
+        return build_search_params(
+            page=page,
+            per_page=self.per_page,
+            **self._search_params_kwargs(),
+        )
+
+    def _base_search_params(self) -> dict[str, Any]:
+        return self._get_search_params(page=0)
 
     def _get_vacancies(
         self, resume_id: str | None = None
     ) -> Iterator[SearchVacancy]:
-        for page in range(self.total_pages):
-            logger.debug(f"Загружаем вакансии со страницы: {page + 1}")
-            params = self._get_search_params(page)
-
-            if self.search:
-                res: PaginatedItems[SearchVacancy] = self.api_client.get(
-                    "/vacancies",
-                    params,
-                )
-            else:
-                res: PaginatedItems[SearchVacancy] = self.api_client.get(
-                    f"/resumes/{resume_id}/similar_vacancies",
-                    params,
-                )
-
-            logger.debug(f"Количество вакансий: {res['found']}")
-
-            if not res["items"]:
-                return
-
-            yield from res["items"]
-
-            if page >= res["pages"] - 1:
-                return
+        yield from self.vacancy_search_service.search(
+            self._base_search_params(),
+            resume_id=resume_id,
+        )
 
     def _is_excluded(self, vacancy: SearchVacancy) -> bool:
         if not self.excluded_filter:
