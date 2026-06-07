@@ -12,7 +12,21 @@ logger: logging.Logger = logging.getLogger(__package__)
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    """Создает схему БД"""
+    """Создает схему БД и настраивает connection-уровневые PRAGMA.
+
+    Включает WAL-режим и busy_timeout — это требование для одновременной
+    записи из нескольких процессов (collector, telegram-bot, apply-worker)
+    в один файл SQLite. PRAGMA journal_mode персистится в файле БД,
+    но дёргаем на каждом соединении для надёжности (например, in-memory БД).
+    """
+    # Настраиваем ПЕРЕД executescript — схема может полагаться на PRAGMA.
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA busy_timeout=5000;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+    except sqlite3.Error as e:
+        logger.warning("PRAGMA setup failed: %s", e)
+
     changes_before = conn.total_changes
 
     conn.executescript(
