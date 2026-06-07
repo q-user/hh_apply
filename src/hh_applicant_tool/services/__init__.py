@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 from .applications import ApplicationsService
-from .cover_letters import CoverLetterService
+from .cover_letters import DEFAULT_LETTER_TEMPLATE, CoverLetterService
 from .relevance import (
     RelevanceResult,
     RelevanceService,
@@ -24,6 +24,7 @@ from .vacancy_tests import VacancyTestsService
 __all__ = (
     "ApplicationsService",
     "CoverLetterService",
+    "DEFAULT_LETTER_TEMPLATE",
     "RelevanceResult",
     "RelevanceService",
     "VacancySearchService",
