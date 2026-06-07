@@ -24,6 +24,9 @@ class BaseRepository:
 
     conn: sqlite3.Connection
     auto_commit: bool = True
+    # Колонки, которые НЕ пишутся при INSERT (если модель их не задала явно),
+    # чтобы сработали DEFAULT в SQLite (CURRENT_TIMESTAMP и т.п.).
+    insert_excludes: ClassVar[tuple[str, ...]] = ("created_at", "updated_at")
 
     @property
     def table_name(self) -> str:
@@ -125,7 +128,7 @@ class BaseRepository:
             else obj_or_pkey
         )
         self.conn.execute(sql, (pk_value,))
-        self.maybe_commit(commit=commit)
+        self.maybe_commit(commit)
 
     remove = delete
 
@@ -152,15 +155,20 @@ class BaseRepository:
         if batch and not data:
             return
 
-        columns = list(dict(data[0] if batch else data).keys())
+        # Исключаем из INSERT колонки с SQLite DEFAULT (created_at, updated_at),
+        # если модель не задала их явно. Это позволяет DEFAULT CURRENT_TIMESTAMP
+        # сработать на стороне SQLite.
+        raw_columns = list(dict(data[0] if batch else data).keys())
+        columns = [c for c in raw_columns if c not in self.insert_excludes]
+        cols_set = set(columns)
+        if not columns:
+            return
         sql = (
             f"INSERT INTO {self.table_name} ({', '.join(columns)})"
             f" VALUES (:{', :'.join(columns)})"
         )
 
         if upsert:
-            cols_set = set(columns)
-
             # Определяем поля конфликта: или переданные, или pkey
             if conflict_columns:
                 conflict_set = set(conflict_columns) & cols_set
