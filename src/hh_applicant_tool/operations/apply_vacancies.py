@@ -352,6 +352,7 @@ class Operation(BaseOperation):
                 else None
             ),
             order_by=args.order_by,
+            max_responses=args.max_responses,
         )
 
         use_case = AppContainer(tool).apply_to_vacancies_use_case(

@@ -8,9 +8,9 @@ import threading
 from contextlib import redirect_stdout
 from typing import TYPE_CHECKING, Any
 
-from .presets import PresetValidationError, PresetsManager
 from ..application import ApplyToVacanciesCommand
 from ..container import AppContainer
+from .presets import PresetsManager, PresetValidationError
 
 if TYPE_CHECKING:
     from ..main import HHApplicantTool
@@ -42,11 +42,7 @@ def _mask_secrets(obj: Any) -> Any:
 
 def _strip_masked(obj: Any) -> Any:
     if isinstance(obj, dict):
-        return {
-            k: _strip_masked(v)
-            for k, v in obj.items()
-            if v != MASK_VALUE
-        }
+        return {k: _strip_masked(v) for k, v in obj.items() if v != MASK_VALUE}
     if isinstance(obj, list):
         return [_strip_masked(x) for x in obj]
     return obj
@@ -107,40 +103,48 @@ _APPLY_SEARCH_PARAM_KEYS: tuple[str, ...] = (
 )
 
 # Поля DTO, которые UI шлёт как массив (из multi-select / lookup-виджета).
-_APPLY_LIST_KEYS: frozenset[str] = frozenset({
-    "employment",
-    "area",
-    "metro",
-    "professional_role",
-    "industry",
-    "employer_id",
-    "excluded_employer_id",
-    "label",
-    "search_field",
-})
+_APPLY_LIST_KEYS: frozenset[str] = frozenset(
+    {
+        "employment",
+        "area",
+        "metro",
+        "professional_role",
+        "industry",
+        "employer_id",
+        "excluded_employer_id",
+        "label",
+        "search_field",
+    }
+)
 
 # Поля DTO, которые UI шлёт как bool (checkbox).
-_APPLY_BOOL_KEYS: frozenset[str] = frozenset({
-    "only_with_salary",
-    "no_magic",
-    "premium",
-})
+_APPLY_BOOL_KEYS: frozenset[str] = frozenset(
+    {
+        "only_with_salary",
+        "no_magic",
+        "premium",
+    }
+)
 
 # Поля DTO, которые UI шлёт как int.
-_APPLY_INT_KEYS: frozenset[str] = frozenset({
-    "salary",
-    "period",
-})
+_APPLY_INT_KEYS: frozenset[str] = frozenset(
+    {
+        "salary",
+        "period",
+    }
+)
 
 # Поля DTO, которые UI шлёт как float (геокоординаты).
-_APPLY_FLOAT_KEYS: frozenset[str] = frozenset({
-    "top_lat",
-    "bottom_lat",
-    "left_lng",
-    "right_lng",
-    "sort_point_lat",
-    "sort_point_lng",
-})
+_APPLY_FLOAT_KEYS: frozenset[str] = frozenset(
+    {
+        "top_lat",
+        "bottom_lat",
+        "left_lng",
+        "right_lng",
+        "sort_point_lat",
+        "sort_point_lng",
+    }
+)
 
 
 def _coerce_str(value: Any) -> str | None:
@@ -263,7 +267,10 @@ def _build_command_from_params(
         message_prompt=_coerce_str(p.get("message_prompt")) or "",
         letter_file_content=_coerce_str(p.get("letter_file")),
         order_by=_coerce_str(p.get("order_by")),
+        relevance_rules=p.get("relevance_rules"),
+        max_responses=_coerce_int(p.get("max_responses")),
     )
+
 
 class Api:
     def __init__(self, tool: HHApplicantTool):
@@ -274,11 +281,14 @@ class Api:
         self._is_running: bool = False
         self._auth_running: bool = False
         self._auth_thread: threading.Thread | None = None
+        self._apply_lock = threading.Lock()
 
     def set_window(self, window) -> None:
         self._window = window
 
-    def _send_progress(self, current: int, total: int, message: str = "") -> None:
+    def _send_progress(
+        self, current: int, total: int, message: str = ""
+    ) -> None:
         if self._window:
             try:
                 safe_msg = json.dumps(message)
@@ -301,7 +311,9 @@ class Api:
 
     def _is_invalid_grant(self, exc: BaseException) -> bool:
         msg = str(exc).lower()
-        return "invalid_grant" in msg or "token has already been refreshed" in msg
+        return (
+            "invalid_grant" in msg or "token has already been refreshed" in msg
+        )
 
     def _clear_token(self) -> None:
         try:
@@ -355,7 +367,9 @@ class Api:
 
         self._auth_running = True
         self._clear_token()
-        self._send_auth_event("started", "Запуск браузера для входа на hh.ru...")
+        self._send_auth_event(
+            "started", "Запуск браузера для входа на hh.ru..."
+        )
 
         def _worker() -> None:
             event = "error"
@@ -426,7 +440,10 @@ class Api:
             return {"status": "ok"}
         except Exception as e:
             logger.error("save_config error: %s", e)
-            return {"status": "error", "message": "Ошибка сохранения конфигурации"}
+            return {
+                "status": "error",
+                "message": "Ошибка сохранения конфигурации",
+            }
 
     def list_presets(self) -> list[str]:
         return self._presets.list_names()
@@ -476,10 +493,7 @@ class Api:
                 """
             )
             cols = [d[0] for d in cur.description]
-            return [
-                dict(zip(cols, row, strict=True))
-                for row in cur.fetchall()
-            ]
+            return [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
         except Exception as e:
             logger.error("get_negotiations_from_db error: %s", e)
             return []
@@ -512,8 +526,7 @@ class Api:
             stats["by_state"] = dict(cur.fetchall())
 
             cur = conn.execute(
-                "SELECT reason, count(*) FROM skipped_vacancies"
-                " GROUP BY reason"
+                "SELECT reason, count(*) FROM skipped_vacancies GROUP BY reason"
             )
             stats["skipped_by_reason"] = dict(cur.fetchall())
 
@@ -533,12 +546,8 @@ class Api:
             )
             stats["daily_skipped"] = dict(cur.fetchall())
 
-            stats["total_negotiations"] = sum(
-                stats["by_state"].values()
-            )
-            stats["total_skipped"] = sum(
-                stats["skipped_by_reason"].values()
-            )
+            stats["total_negotiations"] = sum(stats["by_state"].values())
+            stats["total_skipped"] = sum(stats["skipped_by_reason"].values())
 
             return stats
         except Exception as e:
@@ -546,14 +555,18 @@ class Api:
             return {}
 
     def apply_vacancies(self, params: dict[str, Any]) -> dict[str, Any]:
-        if self._is_running:
-            return {"status": "error", "message": "Операция уже выполняется"}
-        self._is_running = True
+        with self._apply_lock:
+            if self._is_running:
+                return {
+                    "status": "error",
+                    "message": "Операция уже выполняется",
+                }
+            self._is_running = True
+
+            cancel_event = threading.Event()
+            self._cancel_event = cancel_event
 
         self._presets.save_last_used(params)
-
-        cancel_event = threading.Event()
-        self._cancel_event = cancel_event
 
         handler = _ProgressHandler(self)
         pkg_logger = logging.getLogger("hh_applicant_tool")
@@ -599,22 +612,27 @@ class Api:
             }
         finally:
             pkg_logger.removeHandler(handler)
-            self._cancel_event = None
-            self._is_running = False
+            with self._apply_lock:
+                self._cancel_event = None
+                self._is_running = False
 
     def cancel_apply(self) -> None:
-        event = self._cancel_event
-        if event is not None:
-            event.set()
+        with self._apply_lock:
+            event = self._cancel_event
+            if event is not None:
+                event.set()
 
     def get_areas(self) -> list[dict]:
         try:
+
             def flatten(nodes: list, result: list, depth: int = 0) -> None:
                 for node in nodes:
-                    result.append({
-                        "id": node["id"],
-                        "name": ("  " * depth) + node["name"],
-                    })
+                    result.append(
+                        {
+                            "id": node["id"],
+                            "name": ("  " * depth) + node["name"],
+                        }
+                    )
                     if node.get("areas"):
                         flatten(node["areas"], result, depth + 1)
 
