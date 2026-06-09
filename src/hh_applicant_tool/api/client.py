@@ -17,8 +17,8 @@ from hh_applicant_tool.api.user_agent import generate_android_useragent
 
 from . import errors
 from .client_keys import (
-    ANDROID_CLIENT_ID,
-    ANDROID_CLIENT_SECRET,
+    get_android_client_id,
+    get_android_client_secret,
 )
 from .datatypes import AccessToken
 
@@ -43,6 +43,7 @@ class BaseClient:
     user_agent: str | None = None
     session: Session | None = None
     delay: float | None = None
+    timeout: float = 30.0
     _previous_request_time: float = 0.0
 
     def __post_init__(self) -> None:
@@ -102,6 +103,7 @@ class BaseClient:
                 **payload,
                 headers=self._default_headers(),
                 allow_redirects=False,
+                timeout=self.timeout,
             )
             try:
                 # У этих лошков сервер не отдает Content-Length, а кривое API
@@ -159,8 +161,8 @@ class OAuthClient(BaseClient):
 
     def __post_init__(self) -> None:
         super().__post_init__()
-        self.client_id = self.client_id or ANDROID_CLIENT_ID
-        self.client_secret = self.client_secret or ANDROID_CLIENT_SECRET
+        self.client_id = self.client_id or get_android_client_id()
+        self.client_secret = self.client_secret or get_android_client_secret()
 
     @property
     def authorize_url(self) -> str:
