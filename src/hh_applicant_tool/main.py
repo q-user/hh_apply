@@ -184,7 +184,6 @@ class HHApplicantTool(MegaTool):
         log_label: str,
     ) -> requests.Session:
         session = requests.Session()
-        session.verify = False
 
         if proxies:
             logger.info("Use proxies for %s: %r", log_label, proxies)
@@ -329,25 +328,28 @@ class HHApplicantTool(MegaTool):
         return self._init_ai_client(system_prompt, purpose="vacancy_filter")
 
     def get_captcha_ai(self) -> ai.ChatOpenAI:
-        return self._init_ai_client(system_prompt="Что написано на картинке?", purpose="captcha")
+        return self._init_ai_client(
+            system_prompt="Что написано на картинке?", purpose="captcha"
+        )
 
-    def _init_ai_client(self, system_prompt: str, purpose: str) -> ai.ChatOpenAI:
-
+    def _init_ai_client(
+        self, system_prompt: str, purpose: str
+    ) -> ai.ChatOpenAI:
         config_sections = {
             "cover_letter": "openai_cover_letter",
             "vacancy_filter": "openai_vacancy_filter",
             "captcha": "openai_captcha",
         }
-        
+
         if purpose not in config_sections:
             raise ValueError(
                 f"Неизвестная цель AI: {purpose}. "
                 f"Допустимые значения: {list(config_sections.keys())}"
             )
-        
+
         config_section = config_sections[purpose]
         c = self.config.get(config_section, {})
-        
+
         api_key = c.get("api_key")
         if not api_key:
             raise ValueError(
@@ -371,7 +373,7 @@ class HHApplicantTool(MegaTool):
                 "Примеры: 'gpt-4o-mini', 'gpt-3.5-turbo', 'openai/gpt-4'",
                 config_section,
             )
-    
+
         return ai.ChatOpenAI(
             api_key=api_key,
             model=model,
