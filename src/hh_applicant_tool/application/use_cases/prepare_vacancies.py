@@ -22,6 +22,9 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 import requests
 
+from ...ai.base import AIError
+from ...api import BadResponse
+from ...api.errors import ApiError
 from ...services import (
     DEFAULT_LETTER_TEMPLATE,
     ApplicationsService,
@@ -277,7 +280,7 @@ class PrepareVacanciesUseCase:
                     search_params, resume_id=profile.resume_id
                 )
             )
-        except Exception as ex:  # noqa: BLE001
+        except (requests.RequestException, ApiError, BadResponse) as ex:
             logger.exception(
                 "Ошибка при поиске вакансий для профиля %s: %s",
                 profile.id,
@@ -352,7 +355,12 @@ class PrepareVacanciesUseCase:
                 force_message=command.force_message,
                 response_url=merged.get("response_url"),
             )
-        except Exception as ex:  # noqa: BLE001
+        except (
+            RepositoryError,
+            requests.RequestException,
+            ApiError,
+            BadResponse,
+        ) as ex:
             logger.exception("Ошибка при подготовке черновика %s: %s", alt, ex)
             self._notify(f"[FAIL] {alt}: {ex}")
             result.failed += 1
@@ -434,7 +442,7 @@ class PrepareVacanciesUseCase:
                     resume_id="", vacancy_id=vacancy_id
                 )
             )
-        except Exception:  # noqa: BLE001
+        except RepositoryError:
             return False
 
     def _save_skipped_ai_rejected(
@@ -454,7 +462,7 @@ class PrepareVacanciesUseCase:
                     "created_at": created_at,
                 }
             )
-        except Exception as ex:  # noqa: BLE001
+        except RepositoryError as ex:
             logger.warning("Не удалось сохранить skipped_vacancy: %s", ex)
 
     # ─── Сохранение vacancy/employer ─────────────────────────────
@@ -477,7 +485,7 @@ class PrepareVacanciesUseCase:
             return
         try:
             profile = self.api_client.get(f"/employers/{employer_id}")
-        except Exception as ex:  # noqa: BLE001
+        except (requests.RequestException, ApiError, BadResponse) as ex:
             logger.debug("Не удалось получить профиль работодателя: %s", ex)
             return
         try:
@@ -490,7 +498,7 @@ class PrepareVacanciesUseCase:
             return None
         try:
             return self.api_client.get(f"/vacancies/{vacancy_id}")
-        except Exception as ex:  # noqa: BLE001
+        except (requests.RequestException, ApiError, BadResponse) as ex:
             logger.debug(
                 "Не удалось получить полную вакансию %s: %s",
                 vacancy_id,
@@ -574,8 +582,13 @@ class PrepareVacanciesUseCase:
 
         try:
             ai_client = self.vacancy_filter_ai_factory(system_prompt)
-        except Exception as ex:  # noqa: BLE001
+        except (ValueError, TypeError, AIError, RuntimeError) as ex:
             logger.warning("Не удалось создать AI-клиент фильтра: %s", ex)
+            return relevance
+        except Exception as ex:  # noqa: BLE001
+            logger.warning(
+                "Неожиданная ошибка при создании AI-клиента фильтра: %s", ex
+            )
             return relevance
 
         if self.command and self.command.ai_rate_limit:

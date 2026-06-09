@@ -21,6 +21,7 @@ import html
 import logging
 import random
 import re
+import smtplib
 import sqlite3
 import threading
 from datetime import datetime
@@ -669,7 +670,7 @@ class ApplyToVacanciesUseCase:
         if self._site_parser is not None:
             try:
                 return self._site_parser.parse_site(url)
-            except Exception as ex:
+            except Exception as ex:  # noqa: BLE001
                 logger.warning("SiteParserPort failed for %s: %s", url, ex)
 
         # Legacy fallback
@@ -761,7 +762,7 @@ class ApplyToVacanciesUseCase:
                     employer.get("name", ""),
                     test_link or "",
                 )
-            except Exception as ex:
+            except OSError as ex:
                 logger.error("TestVacancyLoggerPort failed: %s", ex)
         else:
             # Legacy fallback
@@ -774,7 +775,7 @@ class ApplyToVacanciesUseCase:
                         f"[{timestamp}] {vacancy.get('name')} - "
                         f"{employer.get('name')} - {test_link}\n"
                     )
-            except Exception as e:  # noqa: BLE001
+            except OSError as e:
                 logger.error(
                     "Не удалось записать вакансию с тестом в файл: %s", e
                 )
@@ -831,8 +832,17 @@ class ApplyToVacanciesUseCase:
                     vacancy["alternate_url"],
                 )
                 return True
-            except Exception as e:  # noqa: BLE001
+            except (
+                ApiError,
+                BadResponse,
+                LimitExceeded,
+                AIError,
+                AssertionError,
+            ) as e:
                 logger.error(f"Ошибка при решении капчи: {e}")
+                raise
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"Неожиданная ошибка при решении капчи: {e}")
                 raise
 
     async def _solve_captcha_async(self, captcha_url: str) -> bool:
@@ -848,8 +858,11 @@ class ApplyToVacanciesUseCase:
                     return True
                 logger.error("CaptchaSolverPort returned empty text")
                 return False
-            except Exception as ex:
-                logger.error("CaptchaSolverPort failed: %s", ex)
+            except AIError as ex:
+                logger.error("CaptchaSolverPort failed (AI error): %s", ex)
+                return False
+            except Exception as ex:  # noqa: BLE001
+                logger.error("CaptchaSolverPort failed (unexpected): %s", ex)
                 return False
 
         # Legacy fallback: inline Playwright
@@ -936,7 +949,7 @@ class ApplyToVacanciesUseCase:
                 "[EMAIL] Отправлено письмо на email по поводу вакансии",
                 vacancy["alternate_url"],
             )
-        except Exception as ex:  # noqa: BLE001
+        except smtplib.SMTPException as ex:
             logger.error(f"Ошибка отправки письма: {ex}")
 
     def _send_email(self, to: str, subject: str, body: str) -> None:
@@ -946,7 +959,7 @@ class ApplyToVacanciesUseCase:
             try:
                 self._email_sender.send_email(to, subject, body)
                 return
-            except Exception as ex:
+            except smtplib.SMTPException as ex:
                 logger.warning("EmailSenderPort failed: %s", ex)
 
         # Legacy fallback
