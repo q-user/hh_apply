@@ -35,13 +35,20 @@ from hh_applicant_tool.telegram.transport import (
 
 
 class _FixedClock:
-    """Детерминированные часы для тестов."""
+    """Детерминированные часы для тестов.
+
+    Реализует каноничный ``application.ports.Clock`` (требует и ``now``,
+    и ``sleep``). ``sleep`` — no-op: тестам не нужна реальная задержка.
+    """
 
     def __init__(self, day: date) -> None:
         self._now = datetime(day.year, day.month, day.day, 9, 0, 0)
 
     def now(self) -> datetime:
         return self._now
+
+    def sleep(self, seconds: float) -> None:
+        return None
 
 
 def _make_transport() -> MagicMock:
@@ -120,7 +127,7 @@ def test_service_instantiation_with_minimal_args(storage: sqlite3.Connection):
         storage=StorageFacade(storage),
         transport=_make_transport(),
     )
-    assert svc.clock is not None  # fallback _SystemClock
+    assert svc.clock is not None  # fallback SystemClock
 
 
 # ─── Группировка и агрегация ────────────────────────────────────────
@@ -590,6 +597,47 @@ def test_send_telegram_error_does_not_mark_settings(
     # Ключевая проверка: settings НЕ помечены.
     storage.commit()
     assert facade.settings.get_value(LAST_DIGEST_KEY) is None
+
+
+def test_send_telegram_error_allows_same_day_retry(
+    storage: sqlite3.Connection,
+):
+    """``TelegramTransportError``: ``result`` заполнен, idempotency не
+    срабатывает — повторный ``send()`` в тот же день снова дёргает transport.
+    """
+    facade = StorageFacade(storage)
+    _save_profile(facade, "p1", "P1")
+    _save_draft(facade, profile_id="p1", resume_id="r1", vacancy_id=1)
+    _save_draft(facade, profile_id="p1", resume_id="r1", vacancy_id=2)
+    storage.commit()
+
+    transport = _make_transport()
+    transport.send_message.side_effect = TelegramTransportError("boom")
+    svc = _make_service(storage, transport=transport)
+    result = svc.send()
+
+    # 1) ``result`` корректно отражает сбой, но содержит полезные поля.
+    assert result.sent is False
+    assert result.skipped_reason == "send_failed"
+    assert result.total_drafts == 2  # оба черновика учтены
+    assert "Готово к ревью" in result.message  # сообщение сформировано
+    storage.commit()
+    # 2) settings НЕ помечены — флаг last_digest_date не записан.
+    assert facade.settings.get_value(LAST_DIGEST_KEY) is None
+
+    # 3) Повторный вызов в тот же день БЕЗ ``force=True`` НЕ скипается
+    #    по idempotency (потому что флаг не выставлен) и снова дёргает
+    #    transport — имитируем успех и убеждаемся, что путь не «залип».
+    transport.send_message.side_effect = None
+    transport.send_message.return_value = {"message_id": 2, "ok": True}
+    result2 = svc.send()
+    assert result2.sent is True
+    assert result2.skipped_reason is None
+    # transport был дёрнут 2 раза: 1-я попытка (сбой) + повтор (успех).
+    assert transport.send_message.call_count == 2
+    # И только теперь settings помечены.
+    storage.commit()
+    assert facade.settings.get_value(LAST_DIGEST_KEY) == "2026-06-09"
 
 
 # ─── AI-аннотация (опционально) ────────────────────────────────────

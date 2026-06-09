@@ -25,11 +25,14 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date, datetime
-from typing import Any, Protocol
+from datetime import date
+from typing import TYPE_CHECKING, Any
 
 from ..storage.facade import StorageFacade
 from ..telegram.transport import TelegramTransport, TelegramTransportError
+
+if TYPE_CHECKING:
+    from ..application.ports import AIClientPort, Clock
 
 logger = logging.getLogger(__package__)
 
@@ -38,35 +41,6 @@ LAST_DIGEST_KEY = "telegram.last_digest_date"
 
 # Ключи конфига для приёма chat_id (от самого явного к самому мягкому).
 _DIGEST_CHAT_ID_KEYS = ("digest_chat_id", "chat_id")
-
-
-# ─── Вспомогательные протоколы и fallback-часы ────────────────────────
-
-
-class Clock(Protocol):
-    """Порт времени. Позволяет подменять ``datetime.now()`` в тестах."""
-
-    def now(self) -> datetime:
-        """Возвращает текущий ``datetime`` (обычно с локальной TZ)."""
-        ...
-
-
-class _SystemClock:
-    """Fallback-реализация :class:`Clock` поверх ``datetime.now()``."""
-
-    def now(self) -> datetime:
-        return datetime.now()
-
-
-class AIClientPort(Protocol):
-    """Минимальный порт AI для генерации однострочной аннотации.
-
-    Соответствует :class:`hh_applicant_tool.application.ports.AIClientPort`.
-    """
-
-    def complete(self, prompt: str) -> str:
-        """Возвращает текстовое продолжение промпта."""
-        ...
 
 
 # ─── DTO ────────────────────────────────────────────────────────────
@@ -132,7 +106,7 @@ class DailyDigestService:
             ``digest_chat_id`` / ``chat_id`` / ``allowed_user_ids``).
             Если не передан — считаем, что конфиг отсутствует.
         clock: порт времени; если не передан — fallback
-            :class:`_SystemClock` (``datetime.now()``).
+            :class:`infrastructure.time.SystemClock` (``datetime.now()``).
         ai_client: опциональный AI-порт для однострочной аннотации.
             При сбое AI дайджест всё равно отправляется без аннотации.
     """
@@ -150,8 +124,18 @@ class DailyDigestService:
         self._transport = transport
         # Mapping — принимаем как dict, так и ``Config`` (подкласс dict).
         self._config: Mapping[str, Any] = config if config is not None else {}
-        self._clock: Clock = clock if clock is not None else _SystemClock()
+        self._clock: Clock = (
+            clock if clock is not None else self._default_clock()
+        )
         self._ai_client = ai_client
+
+    @staticmethod
+    def _default_clock() -> Clock:
+        # Ленивый импорт, чтобы не ловить цикл ``services`` → ``infrastructure``
+        # → ``application.use_cases`` → ``services`` при загрузке модуля.
+        from ..infrastructure.time import SystemClock
+
+        return SystemClock()
 
     # ─── Публичные свойства (для тестов и DI-контейнера) ──────────
 
