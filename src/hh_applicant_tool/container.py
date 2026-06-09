@@ -42,6 +42,41 @@ class AppContainer:
 
     def __init__(self, tool: "HHApplicantTool") -> None:
         self._tool = tool
+        # Phase 2: lazy port singletons
+        self._site_parser = None
+        self._email_sender = None
+        self._test_logger = None
+
+    # ─── Phase 2 port factories (lazy) ───────────────────────────
+
+    def _get_site_parser(self):
+        if self._site_parser is None:
+            from .infrastructure.http import RequestsSiteParser
+
+            self._site_parser = RequestsSiteParser(
+                session=self._tool.session,
+            )
+        return self._site_parser
+
+    def _get_email_sender(self):
+        if self._email_sender is None:
+            from .infrastructure.email import SMTPEmailSenderFromConfig
+
+            cfg = (self._tool.config or {}).get("smtp", {})
+            if cfg:
+                self._email_sender = SMTPEmailSenderFromConfig.create(cfg)
+            else:
+                self._email_sender = False  # sentinel for "not configured"
+        return self._email_sender if self._email_sender is not False else None
+
+    def _get_test_logger(self):
+        if self._test_logger is None:
+            from .infrastructure.test_logger import FileTestVacancyLogger
+
+            self._test_logger = FileTestVacancyLogger()
+        return self._test_logger
+
+    # ─── Use case factories ──────────────────────────────────────
 
     def apply_to_vacancies_use_case(
         self,
@@ -74,6 +109,10 @@ class AppContainer:
             vacancy_filter_ai_factory=tool.get_vacancy_filter_ai,
             smtp=tool.smtp if send_email else None,
             config=tool.config,
+            # Phase 2 ports
+            site_parser=self._get_site_parser(),
+            email_sender=(self._get_email_sender() if send_email else None),
+            test_logger=self._get_test_logger(),
         )
 
     def prepare_vacancies_use_case(

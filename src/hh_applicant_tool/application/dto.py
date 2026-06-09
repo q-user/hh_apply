@@ -67,6 +67,7 @@ class ApplyToVacanciesCommand:
     letter_file_content: str | None = None
     order_by: str | None = None
     relevance_rules: dict[str, Any] | None = None
+    max_responses: int | None = None
 
 
 @dataclass

@@ -557,6 +557,12 @@ class RelevanceService:
             :class:`SearchProfileModel.relevance_rules` или ``None``.
             Влияют и на system prompt, и на пост-обработку результата
             (issue #4).
+        ai_failure_mode: режим при сбое AI (issue #28):
+            ``"permissive"`` (по умолчанию) — вакансия считается подходящей;
+            ``"strict"`` — вакансия отклоняется;
+            ``"raise"`` — исключение пробрасывается наверх.
+        vacancy_fetcher: порт для загрузки описания вакансии (issue #33).
+            Если не задан — используется ``api_client.get()`` напрямую.
     """
 
     def __init__(
@@ -565,10 +571,19 @@ class RelevanceService:
         ai_client: Any = None,
         *,
         relevance_rules: dict[str, Any] | None = None,
+        ai_failure_mode: str = "permissive",
+        vacancy_fetcher: Any = None,
     ):
+        if ai_failure_mode not in ("permissive", "strict", "raise"):
+            raise ValueError(
+                f"ai_failure_mode must be 'permissive', 'strict', or 'raise', "
+                f"got {ai_failure_mode!r}"
+            )
         self.api_client = api_client
         self.ai_client = ai_client
         self.relevance_rules = relevance_rules
+        self._ai_failure_mode = ai_failure_mode
+        self._vacancy_fetcher = vacancy_fetcher
         # Кеш для тяжёлого анализа резюме
         self._resume_analysis_cache: dict[tuple[str | None, str], str] = {}
 
@@ -738,8 +753,11 @@ class RelevanceService:
 
         Если ``ai_client`` не задан — возвращает ``RelevanceResult(suitable=True)``
         (т.е. вакансия считается подходящей, фильтрация выключена).
-        При ``AIError`` — также ``suitable=True`` с raw_response, чтобы не
-        блокировать работу из-за сбоя AI.
+
+        При сбое AI поведение зависит от ``ai_failure_mode`` (issue #28):
+        - ``"permissive"`` — ``suitable=True`` (не блокировать);
+        - ``"strict"`` — ``suitable=False`` (отклонить при неуверенности);
+        - ``"raise"`` — исключение пробрасывается наверх.
 
         После успешного парсинга применяет ``relevance_rules`` (issue #4):
         ``min_score`` / ``reject_if_primary`` могут «дожать» результат
@@ -779,7 +797,9 @@ class RelevanceService:
                 )
             except AIError as ex:
                 logger.error("Ошибка AI %s: %s", log_suffix, ex)
-                return RelevanceResult(suitable=True, raw_response=str(ex))
+                return self._handle_ai_failure(
+                    str(ex), vacancy_name, log_suffix
+                )
 
         logger.warning(
             "AI %s не дал валидный JSON после %d попыток для вакансии %s",
@@ -787,4 +807,29 @@ class RelevanceService:
             MAX_RETRIES,
             vacancy_name,
         )
-        return RelevanceResult(suitable=True)
+        return self._handle_ai_failure(
+            "max_retries_exceeded", vacancy_name, log_suffix
+        )
+
+    def _handle_ai_failure(
+        self, reason: str, vacancy_name: str, log_suffix: str
+    ) -> RelevanceResult:
+        """Обрабатывает сбой AI согласно ``ai_failure_mode`` (issue #28)."""
+        if self._ai_failure_mode == "raise":
+            raise AIError(
+                f"AI failure ({log_suffix}) for {vacancy_name}: {reason}"
+            )
+        if self._ai_failure_mode == "strict":
+            logger.info(
+                "AI %s отклонил вакансию %s (strict mode): %s",
+                log_suffix,
+                vacancy_name,
+                reason,
+            )
+            return RelevanceResult(
+                suitable=False,
+                raw_response=reason,
+                reason=f"AI failure ({log_suffix}): {reason}",
+            )
+        # permissive (default, backward compatible)
+        return RelevanceResult(suitable=True, raw_response=reason)

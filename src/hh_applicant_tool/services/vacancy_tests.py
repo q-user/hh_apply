@@ -20,9 +20,7 @@ import logging
 import random
 import re
 import time
-from typing import Any
-
-import requests
+from typing import TYPE_CHECKING, Any
 
 from .. import utils
 from ..storage.models.application_test_answer import (
@@ -30,6 +28,11 @@ from ..storage.models.application_test_answer import (
 )
 from ..utils.datatypes import VacancyTest, VacancyTestsData
 from ..utils.string import rand_text, strip_tags
+
+if TYPE_CHECKING:
+    import requests
+
+    from ..application.ports import DelayPort, HttpClientPort
 
 logger = logging.getLogger(__package__)
 
@@ -48,10 +51,14 @@ SUBMIT_DELAY_RANGE = (2.0, 3.0)
 
 
 def fetch_vacancy_tests(
-    session: requests.Session, response_url: str
+    session: "requests.Session | 'HttpClientPort'", response_url: str
 ) -> VacancyTestsData:
     """Парсит блок ``vacancyTests`` из HTML страницы отклика."""
-    r = session.get(response_url)
+    # Поддержка как requests.Session, так и HttpClientPort (issue #29)
+    if hasattr(session, "get"):
+        r = session.get(response_url)
+    else:
+        r = session  # already a Response (для тестов)
 
     tests_marker = ',"vacancyTests":'
     start_tests = r.text.find(tests_marker)
@@ -73,16 +80,25 @@ class VacancyTestsService:
     """Сервис подготовки/отправки ответов на тесты вакансий.
 
     Attributes:
-        session: ``requests.Session`` (используется и для fetch, и для
-            submit).
+        session: ``requests.Session`` или ``HttpClientPort``
+            (используется и для fetch, и для submit).
         ai_client: ``ChatOpenAI`` (используется как для генерации ответов,
             так и для выбора option'ов в choice-вопросах) или ``None``
             (тогда rule-based fallback).
+        delay: ``DelayPort`` для пауз между запросами (issue #29).
+            Если не задан — используется ``time.sleep`` напрямую.
     """
 
-    def __init__(self, session: requests.Session, ai_client: Any = None):
+    def __init__(
+        self,
+        session: Any,
+        ai_client: Any = None,
+        *,
+        delay: "DelayPort | None" = None,
+    ):
         self.session = session
         self.ai_client = ai_client
+        self._delay = delay
 
     # ─── Fetch ────────────────────────────────────────────────────
 
@@ -247,11 +263,15 @@ class VacancyTestsService:
     ) -> dict[str, Any]:
         """Отправляет payload на ``/applicant/vacancy_response/popup``.
 
-        Делает паузу ``SUBMIT_DELAY_RANGE`` (legacy-поведение) и
-        выставляет Referer/X-Hhtmfrom/X-Xsrftoken.
+        Делает паузу ``SUBMIT_DELAY_RANGE`` (через ``DelayPort`` или
+        ``time.sleep``) и выставляет Referer/X-Hhtmfrom/X-Xsrftoken.
         """
         # Ожидание перед отправкой
-        time.sleep(random.uniform(*SUBMIT_DELAY_RANGE))
+        wait_seconds = random.uniform(*SUBMIT_DELAY_RANGE)
+        if self._delay is not None:
+            self._delay.sleep(wait_seconds)
+        else:
+            time.sleep(wait_seconds)
 
         response = self.session.post(
             "https://hh.ru/applicant/vacancy_response/popup",

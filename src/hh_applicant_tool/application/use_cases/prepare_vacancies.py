@@ -8,6 +8,9 @@ Telegram-ботом (issue #7-9) и apply-worker'ом (issue #10).
 Use case зависит только от инфраструктурных клиентов (``api_client``,
 ``session``, ``storage``, AI-фабрики) — не знает про ``HHApplicantTool`` или
 argparse. Это позволяет запускать его из CLI, UI или Telegram-бота.
+
+Phase 2 (Clean Architecture): порты ``CancellationToken`` и ``Clock``
+принимаются опционально через конструктор (issue #35).
 """
 
 from __future__ import annotations
@@ -15,7 +18,7 @@ from __future__ import annotations
 import logging
 import threading
 from datetime import datetime
-from typing import Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 import requests
 
@@ -32,6 +35,9 @@ from ...services import (
 from ...storage.models.search_profile import SearchProfileModel
 from ...storage.repositories.errors import RepositoryError
 from ..dto import PrepareVacanciesCommand, PrepareVacanciesResult
+
+if TYPE_CHECKING:
+    from ..ports import CancellationToken, Clock
 
 logger = logging.getLogger(__package__)
 
@@ -83,6 +89,9 @@ class PrepareVacanciesUseCase:
         *,
         test_ai: Any = None,
         letter_template: str | None = None,
+        # Phase 2 ports (optional, backward compatible)
+        cancellation: "CancellationToken | None" = None,
+        clock: "Clock | None" = None,
     ) -> None:
         self.api_client = api_client
         self.session = session
@@ -91,6 +100,10 @@ class PrepareVacanciesUseCase:
         self.vacancy_filter_ai_factory = vacancy_filter_ai_factory
         self.test_ai = test_ai
         self.letter_template = letter_template or DEFAULT_LETTER_TEMPLATE
+
+        # Phase 2 ports
+        self._cancellation = cancellation
+        self._clock = clock
 
         # Состояние, заполняемое в execute().
         self.command: PrepareVacanciesCommand | None = None
@@ -428,6 +441,7 @@ class PrepareVacanciesUseCase:
         self, vacancy: dict[str, Any], resume_id: str | None
     ) -> None:
         employer = vacancy.get("employer") or {}
+        created_at = self._clock.now() if self._clock else datetime.now()
         try:
             self.storage.skipped_vacancies.save(
                 {
@@ -437,7 +451,7 @@ class PrepareVacanciesUseCase:
                     "alternate_url": vacancy.get("alternate_url"),
                     "name": vacancy.get("name"),
                     "employer_name": employer.get("name"),
-                    "created_at": datetime.now(),
+                    "created_at": created_at,
                 }
             )
         except Exception as ex:  # noqa: BLE001
@@ -612,6 +626,10 @@ class PrepareVacanciesUseCase:
         }
 
     def _is_cancelled(self) -> bool:
+        """Проверяет отмену через ``CancellationToken`` (issue #35)
+        или ``threading.Event``."""
+        if self._cancellation is not None:
+            return self._cancellation.is_cancelled
         return self.cancel_event is not None and self.cancel_event.is_set()
 
     def _notify(self, *args: Any) -> None:

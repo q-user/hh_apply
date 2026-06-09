@@ -7,6 +7,11 @@
 через конструктор — use case не зависит от ``HHApplicantTool`` service
 locator и может быть вызван из CLI, UI, prepare-vacancies (#5),
 apply-worker (#10) или Telegram-бота (#7-9).
+
+Phase 2 (Clean Architecture): порты для инфраструктурных зависимостей
+(captcha, site parsing, email, cancellation, clock, vacancy fetcher, test
+logger, delay) принимаются опционально через конструктор. Если порт не
+передан — используется legacy-код напрямую (с обратной совместимостью).
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ import html
 import logging
 import random
 import re
+import sqlite3
 import threading
 from datetime import datetime
 from email.message import EmailMessage
@@ -43,6 +49,14 @@ from ..dto import ApplyToVacanciesCommand, ApplyToVacanciesResult
 
 if TYPE_CHECKING:
     from ...utils.config import Config
+    from ..ports import (
+        CancellationToken,
+        CaptchaSolverPort,
+        Clock,
+        EmailSenderPort,
+        SiteParserPort,
+        TestVacancyLoggerPort,
+    )
 
 logger = logging.getLogger(__package__)
 
@@ -73,6 +87,14 @@ class ApplyToVacanciesUseCase:
         smtp: ``smtplib.SMTP`` клиент или ``None``.
         config: ``utils.Config`` (для шаблонов ``apply_mail_*``
             и секции ``smtp``).
+
+        (Phase 2 ports — опционально, заменяют прямые вызовы)
+        captcha_solver: ``CaptchaSolverPort`` — решает капчу (issue #38).
+        site_parser: ``SiteParserPort`` — парсит сайты работодателей (issue #34).
+        email_sender: ``EmailSenderPort`` — отправляет email (issue #36).
+        cancellation: ``CancellationToken`` — токен отмены (issue #24).
+        clock: ``Clock`` — операции со временем (issue #25).
+        test_logger: ``TestVacancyLoggerPort`` — логирует вакансии с тестами (issue #30).
     """
 
     SEL_CAPTCHA_IMAGE = 'img[data-qa="account-captcha-picture"]'
@@ -91,6 +113,13 @@ class ApplyToVacanciesUseCase:
         vacancy_filter_ai_factory: Callable[[str], Any] | None = None,
         smtp: Any = None,
         config: "Config | None" = None,
+        # Phase 2 ports (optional, backward compatible)
+        captcha_solver: "CaptchaSolverPort | None" = None,
+        site_parser: "SiteParserPort | None" = None,
+        email_sender: "EmailSenderPort | None" = None,
+        cancellation: "CancellationToken | None" = None,
+        clock: "Clock | None" = None,
+        test_logger: "TestVacancyLoggerPort | None" = None,
     ) -> None:
         self.api_client = api_client
         self.session = session
@@ -102,6 +131,14 @@ class ApplyToVacanciesUseCase:
         self.vacancy_filter_ai_factory = vacancy_filter_ai_factory
         self.smtp = smtp
         self.config = config
+
+        # Phase 2 ports
+        self._captcha_solver = captcha_solver
+        self._site_parser = site_parser
+        self._email_sender = email_sender
+        self._cancellation = cancellation
+        self._clock = clock
+        self._test_logger = test_logger
 
         # Состояние, заполняемое в execute().
         self.command: ApplyToVacanciesCommand | None = None
@@ -256,9 +293,17 @@ class ApplyToVacanciesUseCase:
         site_emails: dict[str, Any] = {}
         resume_analysis = self._init_ai_filter(resume)
 
+        max_responses = self.command.max_responses
+
         for vacancy in self._get_vacancies(resume_id=resume["id"]):
-            if self.cancel_event is not None and self.cancel_event.is_set():
+            if self._is_cancelled():
                 logger.info("Операция отменена пользователем")
+                break
+            if max_responses is not None and applied_count >= max_responses:
+                logger.info(
+                    "Достигнут лимит откликов (max_responses=%d). Останавливаю.",
+                    max_responses,
+                )
                 break
             try:
                 if self._check_vacancy_skips(vacancy, resume, do_apply):
@@ -338,6 +383,20 @@ class ApplyToVacanciesUseCase:
                 self.progress_callback(message)
             except Exception as ex:  # noqa: BLE001
                 logger.warning("progress_callback error: %s", ex)
+
+    def _now(self) -> datetime:
+        """Возвращает текущее время через ``Clock`` порт (issue #25)
+        или ``datetime.now()``."""
+        if self._clock is not None:
+            return self._clock.now()
+        return datetime.now()
+
+    def _is_cancelled(self) -> bool:
+        """Проверяет отмену через ``CancellationToken`` (issue #24)
+        или ``threading.Event``."""
+        if self._cancellation is not None:
+            return self._cancellation.is_cancelled
+        return self.cancel_event is not None and self.cancel_event.is_set()
 
     # ─── AI-фильтр (per-resume) ─────────────────────────────────
 
@@ -525,10 +584,10 @@ class ApplyToVacanciesUseCase:
                     "alternate_url": vacancy.get("alternate_url"),
                     "name": vacancy.get("name"),
                     "employer_name": employer.get("name"),
-                    "created_at": datetime.now(),
+                    "created_at": self._now(),
                 }
             )
-        except Exception as ex:  # noqa: BLE001
+        except (RepositoryError, sqlite3.Error) as ex:
             logger.warning(f"Не удалось сохранить пропущенную вакансию: {ex}")
 
     def _is_vacancy_already_skipped(
@@ -550,7 +609,7 @@ class ApplyToVacanciesUseCase:
                     vacancy_id=vacancy_id,
                 )
             )
-        except Exception:  # noqa: BLE001
+        except (RepositoryError, sqlite3.Error):
             return False
 
     # ─── Профиль работодателя + парсинг сайта ────────────────────
@@ -602,6 +661,18 @@ class ApplyToVacanciesUseCase:
                 logger.exception(ex)
 
     def _parse_site(self, url: str) -> dict[str, Any]:
+        """Парсит сайт работодателя.
+
+        Предпочитает ``SiteParserPort`` (issue #34);
+        fallback — прямой ``session.get()`` с regex.
+        """
+        if self._site_parser is not None:
+            try:
+                return self._site_parser.parse_site(url)
+            except Exception as ex:
+                logger.warning("SiteParserPort failed for %s: %s", url, ex)
+
+        # Legacy fallback
         with self.session.get(url, timeout=10) as r:
             val = lambda m: html.unescape(m.group(1)) if m else ""
 
@@ -682,15 +753,31 @@ class ApplyToVacanciesUseCase:
         test_link = vacancy.get("alternate_url")
         employer = vacancy.get("employer") or {}
         logger.info("Найдена вакансия с тестом: %s", test_link)
-        try:
-            with open("vacancies_with_tests.txt", "a", encoding="utf-8") as f:
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                f.write(
-                    f"[{timestamp}] {vacancy.get('name')} - "
-                    f"{employer.get('name')} - {test_link}\n"
+
+        if self._test_logger is not None:
+            try:
+                self._test_logger.log(
+                    vacancy.get("name", ""),
+                    employer.get("name", ""),
+                    test_link or "",
                 )
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"Не удалось записать вакансию с тестом в файл: {e}")
+            except Exception as ex:
+                logger.error("TestVacancyLoggerPort failed: %s", ex)
+        else:
+            # Legacy fallback
+            try:
+                with open(
+                    "vacancies_with_tests.txt", "a", encoding="utf-8"
+                ) as f:
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    f.write(
+                        f"[{timestamp}] {vacancy.get('name')} - "
+                        f"{employer.get('name')} - {test_link}\n"
+                    )
+            except Exception as e:  # noqa: BLE001
+                logger.error(
+                    "Не удалось записать вакансию с тестом в файл: %s", e
+                )
         self._notify(f"[TEST] ТРЕБУЕТСЯ ТЕСТ (пройдите вручную): {test_link}")
         self._save_skipped_vacancy(
             vacancy, "has_test_manual_required", resume_id
@@ -749,6 +836,23 @@ class ApplyToVacanciesUseCase:
                 raise
 
     async def _solve_captcha_async(self, captcha_url: str) -> bool:
+        """Решает капчу через ``CaptchaSolverPort`` (issue #38)
+        или legacy Playwright."""
+        if self._captcha_solver is not None:
+            try:
+                captcha_text = await self._captcha_solver.solve_captcha_url(
+                    captcha_url
+                )
+                if captcha_text:
+                    logger.info("CaptchaSolverPort solved: %s", captcha_text)
+                    return True
+                logger.error("CaptchaSolverPort returned empty text")
+                return False
+            except Exception as ex:
+                logger.error("CaptchaSolverPort failed: %s", ex)
+                return False
+
+        # Legacy fallback: inline Playwright
         from playwright.async_api import async_playwright
 
         async with async_playwright() as pw:
@@ -836,6 +940,16 @@ class ApplyToVacanciesUseCase:
             logger.error(f"Ошибка отправки письма: {ex}")
 
     def _send_email(self, to: str, subject: str, body: str) -> None:
+        """Отправляет email через ``EmailSenderPort`` (issue #36)
+        или legacy SMTP клиент."""
+        if self._email_sender is not None:
+            try:
+                self._email_sender.send_email(to, subject, body)
+                return
+            except Exception as ex:
+                logger.warning("EmailSenderPort failed: %s", ex)
+
+        # Legacy fallback
         if self.smtp is None or self.config is None:
             raise RuntimeError(
                 "SMTP клиент или конфиг не настроены "

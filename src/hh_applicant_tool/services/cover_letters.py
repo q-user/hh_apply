@@ -16,9 +16,12 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..utils.string import rand_text, strip_tags
+
+if TYPE_CHECKING:
+    from ..application.ports import VacancyDescriptionFetcherPort
 
 logger = logging.getLogger(__package__)
 
@@ -35,8 +38,10 @@ class CoverLetterService:
     """Генерация сопроводительного письма (AI или шаблон).
 
     Attributes:
-        api_client: HH API клиент (нужен для подгрузки полного описания
-            вакансии при AI-генерации).
+        api_client: HH API клиент (deprecated, используйте vacancy_fetcher).
+            Нужен для подгрузки полного описания вакансии при AI-генерации.
+        vacancy_fetcher: порт для загрузки описания вакансии
+            (предпочтительный способ, issue #33).
         ai_client: ``ChatOpenAI`` с system_prompt для генерации писем или
             ``None`` (тогда используется шаблон ``template``).
         template: шаблон письма с плейсхолдерами ``rand_text``. Если не
@@ -49,10 +54,12 @@ class CoverLetterService:
         ai_client: Any = None,
         *,
         template: str | None = None,
+        vacancy_fetcher: "VacancyDescriptionFetcherPort | None" = None,
     ):
         self.api_client = api_client
         self.ai_client = ai_client
         self.template = template or DEFAULT_LETTER_TEMPLATE
+        self._vacancy_fetcher = vacancy_fetcher
 
     def generate(
         self,
@@ -97,17 +104,7 @@ class CoverLetterService:
     ) -> str:
         """Генерирует письмо через LLM. При сбое парсинга JSON — отдаёт
         сырой ответ AI как fallback."""
-        try:
-            full_vacancy_data = self.api_client.get(
-                f"/vacancies/{vacancy['id']}"
-            )
-        except Exception as ex:
-            logger.warning(
-                "Не удалось получить полную вакансию %s для письма: %s",
-                vacancy.get("id"),
-                ex,
-            )
-            full_vacancy_data = None
+        full_vacancy_data = self._fetch_full_vacancy(vacancy)
 
         ai_context = {
             "job": {
@@ -137,6 +134,39 @@ class CoverLetterService:
         )
         raw_response = self.ai_client.complete(prompt_msg)
         return _parse_ai_letter_response(raw_response)
+
+    def _fetch_full_vacancy(
+        self, vacancy: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Загружает полное описание вакансии.
+
+        Предпочитает ``vacancy_fetcher`` (port, issue #33);
+        fallback — ``api_client.get()`` (deprecated).
+        """
+        vacancy_id = vacancy.get("id")
+        if vacancy_id is None:
+            return None
+
+        if self._vacancy_fetcher is not None:
+            try:
+                return self._vacancy_fetcher.fetch(str(vacancy_id))
+            except Exception as ex:
+                logger.warning(
+                    "vacancy_fetcher.fetch(%s) failed: %s",
+                    vacancy_id,
+                    ex,
+                )
+
+        # Deprecated fallback: прямой вызов api_client
+        try:
+            return self.api_client.get(f"/vacancies/{vacancy_id}")
+        except Exception as ex:
+            logger.warning(
+                "Не удалось получить полную вакансию %s для письма: %s",
+                vacancy_id,
+                ex,
+            )
+            return None
 
 
 def _parse_ai_letter_response(raw_response: str) -> str:
