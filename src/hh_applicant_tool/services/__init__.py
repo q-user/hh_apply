@@ -24,6 +24,7 @@ from .relevance import (
     build_filter_system_prompt_light,
     parse_ai_json_response,
 )
+from .review_flow import ReviewFlowService
 from .vacancy_search import VacancySearchService, build_search_params
 from .vacancy_tests import VacancyTestsService
 
@@ -37,6 +38,7 @@ __all__ = (
     "LAST_DIGEST_KEY",
     "RelevanceResult",
     "RelevanceService",
+    "ReviewFlowService",
     "VacancySearchService",
     "VacancyTestsService",
     "build_filter_system_prompt_heavy",
