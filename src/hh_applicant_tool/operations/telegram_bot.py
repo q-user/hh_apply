@@ -10,10 +10,15 @@ from __future__ import annotations
 
 import argparse
 import logging
+import time
 from typing import TYPE_CHECKING
 
 from ..main import BaseNamespace, BaseOperation
-from ..telegram import TelegramTransport, TelegramTransportConfig, TelegramTransportError
+from ..telegram import (
+    TelegramTransport,
+    TelegramTransportConfig,
+    TelegramTransportError,
+)
 
 if TYPE_CHECKING:
     from ..main import HHApplicantTool
@@ -63,19 +68,36 @@ class Operation(BaseOperation):
         print("🤖 Telegram bot started. Press Ctrl+C to stop.")
 
         offset: int | None = None
+        backoff = 1
         try:
             while True:
                 try:
                     updates = transport.get_updates(offset=offset)
+                    backoff = 1  # reset on success
                 except TelegramTransportError as exc:
                     logger.error("Polling error: %s", exc)
+                    time.sleep(min(backoff, 60))
+                    backoff *= 2
                     continue
 
                 for update in updates:
                     try:
                         self._handle_update(update, transport, tool)
+                    except (KeyboardInterrupt, SystemExit):
+                        raise
                     except Exception:
                         logger.exception("Error handling update: %s", update)
+                        # Try to notify user about the error
+                        message = update.get("message") or {}
+                        chat_id = message.get("chat", {}).get("id")
+                        if chat_id:
+                            try:
+                                transport.send_message(
+                                    chat_id,
+                                    "❌ Произошла ошибка при обработке команды.",
+                                )
+                            except TelegramTransportError:
+                                pass  # Best effort
 
                     update_id = update.get("update_id")
                     if update_id is not None:
@@ -101,12 +123,27 @@ class Operation(BaseOperation):
         if not chat_id or not user_id:
             return
 
-        if transport.allowed_user_ids and user_id not in transport.allowed_user_ids:
+        if (
+            transport.allowed_user_ids
+            and user_id not in transport.allowed_user_ids
+        ):
             logger.warning("Access denied for user %s", user_id)
             try:
                 transport.send_message(chat_id, "⛔ Доступ запрещён.")
             except TelegramTransportError as exc:
                 logger.error("Failed to send access denied message: %s", exc)
+            return
+
+        if not text:
+            # User sent non-text message (photo, sticker, voice, etc.)
+            logger.info("Received non-text message from user %s", user_id)
+            try:
+                transport.send_message(
+                    chat_id,
+                    "🤔 Я понимаю только текстовые команды. Используйте /help.",
+                )
+            except TelegramTransportError:
+                pass
             return
 
         if text == "/start":
@@ -116,6 +153,14 @@ class Operation(BaseOperation):
         elif text == "/status":
             reply = self._build_status_message(tool)
         else:
+            logger.info("Unknown command from user %s: %s", user_id, text)
+            try:
+                transport.send_message(
+                    chat_id,
+                    "❓ Неизвестная команда. Используйте /help для списка команд.",
+                )
+            except TelegramTransportError:
+                pass
             return
 
         try:
@@ -123,28 +168,27 @@ class Operation(BaseOperation):
         except TelegramTransportError as exc:
             logger.error("Failed to send message: %s", exc)
 
-    def _build_start_message(self) -> str:
+    def _build_commands_list(self) -> str:
         return (
-            "👋 Добро пожаловать в HH Applicant Tool Bot!\n\n"
             "Доступные команды:\n"
             "/start — приветствие и список команд\n"
             "/status — статистика из базы данных\n"
             "/help — список команд"
         )
 
+    def _build_start_message(self) -> str:
+        return f"👋 Добро пожаловать в HH Applicant Tool Bot!\n\n{self._build_commands_list()}"
+
     def _build_help_message(self) -> str:
-        return (
-            "Доступные команды:\n"
-            "/start — приветствие и список команд\n"
-            "/status — статистика из базы данных\n"
-            "/help — список команд"
-        )
+        return self._build_commands_list()
 
     def _build_status_message(self, tool: "HHApplicantTool") -> str:
         try:
             negotiations_count = tool.storage.negotiations.count_total()
             skipped_count = tool.storage.skipped_vacancies.count_total()
             drafts_count = tool.storage.application_drafts.count_total()
+        except (KeyboardInterrupt, SystemExit):
+            raise
         except Exception:
             logger.exception("Failed to get statistics")
             return "❌ Не удалось получить статистику."

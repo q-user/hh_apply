@@ -3,7 +3,10 @@ from __future__ import annotations
 from unittest.mock import MagicMock, Mock
 
 from hh_applicant_tool.operations.telegram_bot import Operation
-from hh_applicant_tool.telegram import TelegramTransport, TelegramTransportConfig
+from hh_applicant_tool.telegram import (
+    TelegramTransport,
+    TelegramTransportConfig,
+)
 
 
 def _transport(allowed: tuple[int, ...] = ()) -> TelegramTransport:
@@ -101,7 +104,7 @@ def test_access_denied_when_user_not_in_allowed_list():
     transport.send_message.assert_called_once_with(456, "⛔ Доступ запрещён.")  # type: ignore[unused-coroutine]
 
 
-def test_unknown_command_is_ignored():
+def test_unknown_command_sends_help():
     op = Operation()
     transport = _transport()
     transport.send_message = Mock()  # type: ignore[method-assign]
@@ -117,4 +120,26 @@ def test_unknown_command_is_ignored():
     }
 
     op._handle_update(update, transport, tool)
-    transport.send_message.assert_not_called()  # type: ignore[unused-coroutine]
+    transport.send_message.assert_called_once()  # type: ignore[unused-coroutine]
+    assert "Неизвестная команда" in transport.send_message.call_args[0][1]
+    assert "/help" in transport.send_message.call_args[0][1]
+
+
+def test_non_text_message():
+    op = Operation()
+    transport = _transport()
+    transport.send_message = Mock()  # type: ignore[method-assign]
+
+    tool = MagicMock()
+    update = {
+        "update_id": 6,
+        "message": {
+            "from": {"id": 123},
+            "chat": {"id": 456},
+            "photo": [{"file_id": "abc"}],
+        },
+    }
+
+    op._handle_update(update, transport, tool)
+    transport.send_message.assert_called_once()  # type: ignore[unused-coroutine]
+    assert "текстовые команды" in transport.send_message.call_args[0][1]
