@@ -11,6 +11,12 @@ from __future__ import annotations
 
 from .applications import ApplicationsService
 from .cover_letters import DEFAULT_LETTER_TEMPLATE, CoverLetterService
+from .daily_digest import (
+    LAST_DIGEST_KEY,
+    DailyDigestService,
+    DigestResult,
+    DraftGroup,
+)
 from .relevance import (
     RelevanceResult,
     RelevanceService,
@@ -25,6 +31,10 @@ __all__ = (
     "ApplicationsService",
     "CoverLetterService",
     "DEFAULT_LETTER_TEMPLATE",
+    "DailyDigestService",
+    "DigestResult",
+    "DraftGroup",
+    "LAST_DIGEST_KEY",
     "RelevanceResult",
     "RelevanceService",
     "VacancySearchService",
