@@ -1,36 +1,68 @@
+# Многосервисный деплой (issue #11).
+#
+# Базовый блок `x-hh-base` переиспользуется через YAML-якорь `<<: *hh-base`
+# в каждом из трёх сервисов. Сервисы делят один том `./config` (SQLite-файл,
+# config.json, токены, шаблоны писем). Параллельный доступ к SQLite безопасен
+# благодаря WAL-режиму (PRAGMA journal_mode=WAL) и busy_timeout, которые
+# выставляются в src/hh_applicant_tool/storage/utils.py:init_db.
+#
+# Сервисы:
+#   hh_collector    — cron + prepare-vacancies (раз в сутки утром)
+#   hh_tg_bot       — long-polling Telegram-бот для ревью черновиков
+#   hh_apply_worker — забирает одобренные черновики из очереди и шлёт отклики
+#
+# Никакие порты наружу не публикуются: бот работает в long polling,
+# вебхуков нет. Для multi-profile просто скопируйте тройку сервисов
+# с другими container_name и значениями HH_PROFILE_ID / RESUME_ID / SEARCH_QUERY.
+x-hh-base: &hh-base
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: hh_applicant_tool:latest
+  restart: unless-stopped
+  volumes:
+    # Общий конфиг и SQLite. Все три сервиса пишут в одну БД — WAL обязателен.
+    - ./config:/app/config
+    # Пробрасываем таймзону хоста, чтобы cron не уходил по UTC.
+    - /etc/localtime:/etc/localtime:ro
+  environment:
+    - CONFIG_DIR=/app/config
+    # === Профиль поиска (отредактируйте под себя) ===
+    - HH_PROFILE_ID=${HH_PROFILE_ID:-default}
+    - RESUME_ID=${RESUME_ID:-}
+    - SEARCH_QUERY=${SEARCH_QUERY:-}
+    # === Telegram-бот (для hh_tg_bot) ===
+    - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+    - TELEGRAM_ALLOWED_USER_IDS=${TELEGRAM_ALLOWED_USER_IDS:-}
+    # === OpenAI (для AI-черновиков и тестов) ===
+    - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    # Прокидываем TERM (для цветного вывода в `docker compose logs`)
+    - TERM=${TERM:-xterm}
+    # Если время на сервере отличается — раскомментируйте
+    # - TZ=Europe/Moscow
+
 services:
-  hh_applicant_tool:
-    container_name: hh_applicant_tool
-    image: hh_applicant_tool:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - .:/app
-      # Пробрасываем таймзону хоста
-      - /etc/localtime:/etc/localtime:ro
-    restart: unless-stopped
-    environment:
-      # Это не трогаем
-      - CONFIG_DIR=/app/config
-      # Смените или закомментируйте при проблемах
-      - TERM=${TERM}
-      # Если время на сервере отличается
-      # - TZ=Europe/Moscow
+  hh_collector:
+    <<: *hh-base
+    container_name: hh_collector
+    # cron не видит ENV главного процесса — экспортируем нужные переменные
+    # в /etc/environment, чтобы задачи из crontab их подхватили, иначе
+    # $RESUME_ID / $SEARCH_QUERY / $HH_PROFILE_ID будут пустыми.
+    command:
+      - sh
+      - -c
+      - |
+        printenv | grep -E '^(CONFIG_DIR|HH_PROFILE_ID|RESUME_ID|SEARCH_QUERY)=' >> /etc/environment &&
+        chown -R docker:docker /app/config &&
+        cron &&
+        tail -f /var/log/cron.log
 
-  stepansky_automation_hh:
-    extends: hh_applicant_tool
-    container_name: stepansky_automation_hh
-    environment:
-      - HH_PROFILE_ID=stepansky
-      - RESUME_ID=3b52b973ff103b3d1c0039ed1f6c6b6c596b56
-      - SEARCH_QUERY="n8n" OR "AI" OR "ИИ" OR "LLM" OR "GPT" OR "нейросети" OR "prompt" OR "промпт" OR "автоматизац*"
+  hh_tg_bot:
+    <<: *hh-base
+    container_name: hh_tg_bot
+    command: ["hh-applicant-tool", "telegram-bot"]
 
-  nataly_automation_hh:
-    extends: hh_applicant_tool
-    container_name: nataly_automation_hh
-    environment:
-      - HH_PROFILE_ID=nataly
-      - RESUME_ID=4f9eb4ceff1063dd760039ed1f58494648676b
-      - SEARCH_QUERY="CEO OR COO OR Managing Director OR Executive"
-
+  hh_apply_worker:
+    <<: *hh-base
+    container_name: hh_apply_worker
+    command: ["hh-applicant-tool", "apply-worker"]

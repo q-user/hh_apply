@@ -199,107 +199,157 @@ docker-compose run -u docker -it hh_applicant_tool \
 В случае успешной авторизации можно запускать рассылку откликов по крону:
 
 ```sh
-docker-compose up -d
+docker compose up -d
 ```
 
-Что будет делать?
+### Архитектура (issue #11): три сервиса
 
-- Рассылать отклики со всех опубликованных резюме.
-- Поднимать резюме.
+`docker-compose.yml` поднимает **три контейнера** с общей папкой `./config`
+(SQLite-файл, токены, `config.json`, шаблоны писем). Все они используют один
+и тот же образ `hh_applicant_tool:latest` (собирается из `Dockerfile`) и
+стартуют с `restart: unless-stopped`. Никакие порты наружу не публикуются —
+Telegram-бот работает в режиме long polling, вебхуков нет.
 
-Просмотр логов `cron`:
+| Сервис              | Команда                                 | Назначение |
+|---------------------|------------------------------------------|------------|
+| `hh_collector`      | `cron && tail -f /var/log/cron.log`      | По крону готовит черновики откликов (`prepare-vacancies`) раз в сутки утром, поднимает резюме, обновляет токен |
+| `hh_tg_bot`         | `hh-applicant-tool telegram-bot`         | Long-polling Telegram-бот: ревью черновиков, ежедневный дайджест, пометка «готово к отправке» |
+| `hh_apply_worker`   | `hh-applicant-tool apply-worker`         | Забирает одобренные черновики из очереди `apply_jobs` и отправляет отклики на hh.ru с rate-limit и ретраями |
+
+Поток данных:
+
+```
+hh_collector  --подготавливает-->  application_drafts
+                                       │
+                                       ▼
+                                Telegram-бот --одобряет--> apply_jobs
+                                                                    │
+                                                                    ▼
+                                                          hh_apply_worker
+```
+
+Все три процесса пишут в один файл SQLite. Параллельный доступ безопасен,
+потому что `storage/utils.py:init_db` выставляет `PRAGMA journal_mode=WAL`
+и `PRAGMA busy_timeout=5000` на каждом соединении (issue #1). Без WAL-режима
+при одновременной записи из бота и воркера возникали бы `database is locked`.
+
+Что будет делать `docker compose up -d`?
+
+- `hh_collector` по крону готовит черновики и поднимает резюме.
+- `hh_tg_bot` ждёт команд в Telegram и одобряет/правит черновики.
+- `hh_apply_worker` отправляет одобренные черновики на hh.ru.
+
+Просмотр логов всех сервисов сразу:
 
 ```sh
 docker compose logs -f
 ```
 
-В выводе должно быть что-то типа:
+Или по отдельности:
 
 ```sh
-hh_applicant_tool  | [Wed Jan 14 08:33:53 MSK 2026] Running startup tasks...
-hh_applicant_tool  | ℹ️ Токен не истек, обновление не требуется.
-hh_applicant_tool  | ✅ Обновлено Программист
+docker compose logs -f hh_collector      # cron + prepare-vacancies
+docker compose logs -f hh_tg_bot        # бот
+docker compose logs -f hh_apply_worker  # отправка откликов
+```
+
+В выводе `hh_collector` должно быть что-то типа:
+
+```sh
+hh_collector  | [Wed Jan 14 08:33:53 MSK 2026] Running startup tasks...
+hh_collector  | ℹ️ Токен не истек, обновление не требуется.
+hh_collector  | ✅ Обновлено Программист
 ```
 
 Чтобы прекратить просмотр логов, нажмите `Ctrl-C`.
 
-Информацию об ошибках можно посмотреть в файле `config/log.txt`, а контакты работодателей — в `config/data` с помощью `sqlite3`. В `config/config.json` хранятся токены, дающие доступ к аккаунту.
+Информацию об ошибках можно посмотреть в файле `config/log.txt`, а контакты работодателей — в `config/data` с помощью `sqlite3`. В `config/config.json` хранятся токены, дающие доступ к аккаунту. Черновики откликов лежат в `config/data` (таблицы `application_drafts` и `apply_jobs`).
 
 Также советую отредактировать файл `letter.txt`.
 
 Запущенные сервисы докер стартуют автоматически после перезагрузки. Остановить их можно выполнив:
 
 ```sh
-docker-compose down
+docker compose down
+```
+
+Остановить только один сервис (например, воркер на время отладки):
+
+```sh
+docker compose stop hh_apply_worker
 ```
 
 Чтобы обновить утилиту, в большинстве случаев достаточно в каталоге выполнить:
 
 ```sh
 git pull
-```
-
-В редких случаях нужно пересобрать все:
-
-```sh
 docker compose up -d --build
 ```
 
-Чтобы рассылать отклики с нескольких аккаунтов, нужно переписать `docker-compose.yml`:
+Ключ `--build` нужен, чтобы Docker пересобрал образ: с новым кодом поедут все
+три сервиса. Без `--build` запустятся контейнеры на старом образе.
+
+### Несколько профилей (несколько аккаунтов HH)
+
+`docker-compose.yml` рассчитан на один профиль поиска. Чтобы запустить
+несколько аккаунтов параллельно, скопируйте тройку сервисов и поменяйте
+`container_name` плюс значения `HH_PROFILE_ID` / `RESUME_ID` / `SEARCH_QUERY`
+(либо создайте отдельный `search_profiles` в БД и оставьте переменные
+пустыми — воркер возьмёт профили из таблицы):
 
 ```yaml
 services:
-  # Не меняем ничего тут
-  hh_applicant_tool:
-    # ...
+  # Профиль 1 (по умолчанию)
+  hh_collector: &hh-collector { ... }
+  hh_tg_bot:    &hh-tg-bot    { ... }
+  hh_apply_worker: &hh-worker { ... }
 
-  # Добавляем новые строки
-
-  # Просто копипастим, меняя имя сервиса, container_name и значение HH_PROFILE_ID
-  hh_second:
-    extends: hh_applicant_tool
-    container_name: hh_second
+  # Профиль 2: ещё один набор из трёх сервисов
+  hh_collector_2:
+    <<: *hh-collector
+    container_name: hh_collector_2
     environment:
       - HH_PROFILE_ID=second
-
-  hh_third:
-    extends: hh_applicant_tool
-    container_name: hh_third
+      - RESUME_ID=...
+  hh_tg_bot_2:
+    <<: *hh-tg_bot
+    container_name: hh_tg_bot_2
     environment:
-      - HH_PROFILE_ID=third
-
-  # Общий шаблон для новых профилей
-  уникальное_имя_сервиса:
-    extends: hh_applicant_tool
-    # может совпадать с именем сервиса
-    container_name: уникальное_имя_контейнера
+      - HH_PROFILE_ID=second
+  hh_apply_worker_2:
+    <<: *hh-worker
+    container_name: hh_apply_worker_2
     environment:
-      - HH_PROFILE_ID=название_профиля
+      - HH_PROFILE_ID=second
 ```
 
 > [!IMPORTANT]
 > В этом файле важны отступы!
 
+Каждый набор сервисов пишет в **ту же** папку `./config` (тот же SQLite-файл) —
+это нормально, благодаря WAL-режиму. Если нужна полная изоляция профилей
+(свои токены, свой SQLite), вынесите каждый профиль в отдельный каталог с
+отдельным `docker-compose.yml`.
+
 Обратите внимание на `HH_PROFILE_ID` — его значение указывается при авторизации, если профиль отличен от дефолтного. Далее нужно авторизоваться в каждом профиле:
 
 ```sh
 # Авторизуемся со второго профиля
-docker-compose exec -u docker -it hh_applicant_tool \
+docker compose run -u docker -it hh_collector \
   hh-applicant-tool --profile-id second auth -k
-
-# Авторизуемся с третьего профиля
-docker-compose exec -u docker -it hh_applicant_tool \
-  hh-applicant-tool --profile-id third auth -k
 
 # И так далее
 ```
 
-Ну и выполнить `docker-compose up -d`, чтобы запустить новые сервисы.
+> [!TIP]
+> Можно авторизоваться и через бота/воркер — в них те же ENV. Но удобнее
+> через `hh_collector`, потому что там же крутится `cron` и сразу видно,
+> что `prepare-vacancies` запускается под нужным профилем.
 
 [Команды](#описание-команд) можно потестировать в запущенном контейнере:
 
 ```sh
-$ docker-compose exec -u docker -it hh_applicant_tool bash
+$ docker compose exec -u docker -it hh_collector bash
 docker@1897bdd7c80b:/app$ hh-applicant-tool config -p
 /app/config/config.json
 docker@1897bdd7c80b:/app$ hh-applicant-tool refresh-token
@@ -308,20 +358,29 @@ docker@1897bdd7c80b:/app$
 ```
 
 > [!IMPORTANT]
-> Обратите внимание, что `docker-compose exec`/`docker-compose run` запускаются с аргументами `-u docker`. Только для пользователя `docker` установлен `chromium`, необходимый для авторизации, а также это избавляет от проблем с правами, когда созданные файлы для изменения требуют root-права.
+> Обратите внимание, что `docker compose exec`/`docker compose run` запускаются с аргументами `-u docker`. Только для пользователя `docker` установлен `chromium`, необходимый для авторизации, а также это избавляет от проблем с правами, когда созданные файлы для изменения требуют root-права.
 
-Если хотите команду `apply-vacancies` вызывать с какими-то аргументами, то создайте в корне файл `apply-vacancies.sh`:
+### Часовой пояс
 
-```sh
-#!/bin/bash
+`/etc/localtime` хоста пробрасывается в каждый контейнер, поэтому cron
+срабатывает по локальному времени сервера. Если время на сервере отличается
+от вашего — раскомментируйте `TZ=Europe/Moscow` (или свой регион) в
+`environment` секции `x-hh-base` в `docker-compose.yml` и пересоберите
+образ.
 
-# Пример с фильтрацией по исключаемым словам
-/usr/local/bin/python -m hh_applicant_tool apply-vacancies \
-  -l letter.txt \
-  --excluded-filter "fullstack|junior|php" # укажите любые аргументы
+### Переопределение аргументов `prepare-vacancies` / `apply-worker`
+
+`hh_collector` гонит `prepare-vacancies` из `config/crontab` с дефолтными
+аргументами. Если нужно добавить флаги (например, ограничить запуск одним
+профилем), отредактируйте строку в `config/crontab`:
+
+```cron
+0 8 * * * ... /usr/local/bin/python -u -m hh_applicant_tool prepare-vacancies --search-profile stepansky --ai
 ```
 
-В файлах `startup.sh` и `crontab` замените `/usr/local/bin/python -m hh_applicant_tool apply-vacancies` на `/bin/sh /app/apply-vacancies.sh`.
+Аналогично для `hh_apply_worker`: чтобы поменять `--max-jobs`, `--idle-sleep`
+и т. п., отредактируйте `command:` соответствующего сервиса в
+`docker-compose.yml` или вынесите CLI-флаги в entrypoint-скрипт.
 
 ---
 

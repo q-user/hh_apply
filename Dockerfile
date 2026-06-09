@@ -51,10 +51,11 @@ RUN touch /var/log/cron.log && chown docker:docker /var/log/cron.log && \
   chmod 0644 /app/config/crontab && \
   crontab -u docker /app/config/crontab
 
-# Запускаем крон и читаем лог
-# cron не видит переменные окружения, переданные главному процессу, точнее
-# он начинает новую сессию, где тот же $CONFIG_DIR пуст
-CMD printenv | grep -E 'CONFIG_DIR|HH_PROFILE_ID|RESUME_ID|SEARCH_QUERY' >> /etc/environment && \
-  chown -R docker:docker /app/config && \
-  cron && \
-  tail -f /var/log/cron.log
+# Дефолтный CMD — заглушка. Реальная команда задаётся в docker-compose.yml
+# для каждого сервиса (hh_collector: cron + tail, hh_tg_bot: telegram-bot,
+# hh_apply_worker: apply-worker).
+# cron не видит переменные окружения, переданные главному процессу — он
+# стартует новую сессию, где $CONFIG_DIR / $HH_PROFILE_ID / $RESUME_ID / $SEARCH_QUERY
+# могут быть пустыми. Сервис hh_collector пробрасывает нужные переменные в
+# /etc/environment в своём command (см. docker-compose.yml).
+CMD ["sh", "-c", "echo 'hh-applicant-tool image: override CMD via docker compose to start hh_collector / hh_tg_bot / hh_apply_worker.' && exit 1"]
