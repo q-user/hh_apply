@@ -1,0 +1,1 @@
+"""Shared configuration - settings management."""
