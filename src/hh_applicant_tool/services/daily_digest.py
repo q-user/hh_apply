@@ -326,7 +326,7 @@ class DailyDigestService:
         )
         try:
             return self._ai_client.complete(prompt).strip() or None
-        except Exception as ex:  # noqa: BLE001 — AI-внешний сервис
+        except Exception as ex:
             logger.warning("AI-аннотация для дайджеста не удалась: %s", ex)
             return None
 

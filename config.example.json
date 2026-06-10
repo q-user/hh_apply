@@ -1,0 +1,11 @@
+{
+  "client_id": "YOUR_HH_RU_OAUTH_CLIENT_ID",
+  "client_secret": "YOUR_HH_RU_OAUTH_CLIENT_SECRET",
+  "api_delay": 0.345,
+  "user_agent": "",
+  "token": {
+    "access_token": "",
+    "refresh_token": "",
+    "access_expires_at": 0
+  }
+}

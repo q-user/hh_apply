@@ -22,3 +22,5 @@ class ApplyJobModel(BaseModel):
     last_error: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
+    # chat_id для пер-драфтовых уведомлений (issue #43)
+    chat_id: int | None = None

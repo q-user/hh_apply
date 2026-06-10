@@ -510,69 +510,55 @@ def test_send_empty_db_sends_short_notice(storage: sqlite3.Connection):
     assert "Готово к ревью" not in text  # в коротком уведомлении этого нет
 
 
-def test_send_no_telegram_config_returns_skipped(
+@pytest.mark.parametrize(
+    "config,expected_sent,expected_skipped_reason,expected_chat_id",
+    [
+        # Error cases
+        ({"other_section": {}}, False, "no_telegram_config", None),
+        ({"telegram": {"bot_token": "x"}}, False, "no_chat_id", None),
+        # Success cases with chat_id resolution
+        ({"telegram": {"allowed_user_ids": [777, 888]}}, True, None, 777),
+        (
+            {"telegram": {"chat_id": 42, "allowed_user_ids": [999]}},
+            True,
+            None,
+            42,
+        ),
+        (
+            {
+                "telegram": {
+                    "digest_chat_id": 1,
+                    "chat_id": 2,
+                    "allowed_user_ids": [3],
+                }
+            },
+            True,
+            None,
+            1,
+        ),
+    ],
+)
+def test_send_chat_id_resolution(
     storage: sqlite3.Connection,
+    config: dict,
+    expected_sent: bool,
+    expected_skipped_reason: str | None,
+    expected_chat_id: int | None,
 ):
-    """Без секции ``telegram`` в конфиге — пропускаем без падения."""
+    """Chat ID resolution: error cases skip, success cases use fallback order."""
     transport = _make_transport()
-    svc = _make_service(
-        storage,
-        transport=transport,
-        config={"other_section": {}},
-    )
+    svc = _make_service(storage, transport=transport, config=config)
     result = svc.send()
 
-    assert result.sent is False
-    assert result.skipped_reason == "no_telegram_config"
-    transport.send_message.assert_not_called()
+    assert result.sent is expected_sent
+    assert result.skipped_reason == expected_skipped_reason
 
-
-def test_send_no_chat_id_returns_skipped(storage: sqlite3.Connection):
-    """Telegram-конфиг есть, но ``chat_id`` нигде не задан — пропускаем."""
-    transport = _make_transport()
-    svc = _make_service(
-        storage,
-        transport=transport,
-        config={"telegram": {"bot_token": "x"}},  # нет chat_id
-    )
-    result = svc.send()
-
-    assert result.sent is False
-    assert result.skipped_reason == "no_chat_id"
-    transport.send_message.assert_not_called()
-
-
-def test_send_chat_id_from_allowed_user_ids(storage: sqlite3.Connection):
-    """Если ``digest_chat_id`` не задан — берём первого из ``allowed_user_ids``."""
-    transport = _make_transport()
-    svc = _make_service(
-        storage,
-        transport=transport,
-        config={"telegram": {"allowed_user_ids": [777, 888]}},
-    )
-    result = svc.send()
-
-    assert result.sent is True
-    chat_id = transport.send_message.call_args.args[0]
-    assert chat_id == 777
-
-
-def test_send_chat_id_fallback_order(storage: sqlite3.Connection):
-    """``digest_chat_id`` имеет приоритет перед ``chat_id`` и ``allowed_user_ids``."""
-    transport = _make_transport()
-    svc = _make_service(
-        storage,
-        transport=transport,
-        config={
-            "telegram": {
-                "digest_chat_id": 1,
-                "chat_id": 2,
-                "allowed_user_ids": [3],
-            }
-        },
-    )
-    svc.send()
-    assert transport.send_message.call_args.args[0] == 1
+    if expected_sent:
+        transport.send_message.assert_called_once()
+        chat_id = transport.send_message.call_args.args[0]
+        assert chat_id == expected_chat_id
+    else:
+        transport.send_message.assert_not_called()
 
 
 def test_send_telegram_error_does_not_mark_settings(

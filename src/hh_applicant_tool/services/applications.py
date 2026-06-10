@@ -18,9 +18,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+
 from ..storage.facade import StorageFacade
 from ..storage.models.application_draft import ApplicationDraftModel
 from ..storage.models.search_profile import SearchProfileModel
+from ..storage.repositories.errors import RepositoryError
 from .relevance import RelevanceService
 
 logger = logging.getLogger(__package__)
@@ -213,7 +215,7 @@ class ApplicationsService:
                         str(resume_id or ""), int(vacancy_id or 0)
                     )
                 )
-            except Exception as ex:  # noqa: BLE001
+            except RepositoryError as ex:
                 logger.warning(
                     "Не удалось перечитать черновик для привязки "
                     "тест-ответов: %s",
@@ -225,7 +227,7 @@ class ApplicationsService:
                     answer.draft_id = saved_draft.id
                     try:
                         self.storage.application_test_answers.save(answer)
-                    except Exception as ex:  # noqa: BLE001
+                    except RepositoryError as ex:
                         logger.warning(
                             "Не удалось сохранить ответ на тест %s: %s",
                             getattr(answer, "task_id", "?"),

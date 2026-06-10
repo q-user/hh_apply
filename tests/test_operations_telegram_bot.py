@@ -339,7 +339,7 @@ def test_review_command_returns_placeholder(
 
     transport.send_message.assert_called_once()  # type: ignore[unused-coroutine]
     text = transport.send_message.call_args[0][1]  # type: ignore[attr-defined]
-    assert "Review flow coming soon" in text
+    assert "Режим ревью в разработке" in text
     assert "issue #9" in text
 
 
@@ -360,7 +360,7 @@ def test_cancel_command_returns_placeholder(
 
     transport.send_message.assert_called_once()  # type: ignore[unused-coroutine]
     text = transport.send_message.call_args[0][1]  # type: ignore[attr-defined]
-    assert "Review flow coming soon" in text
+    assert "Режим ревью в разработке" in text
     assert "issue #9" in text
 
 
@@ -427,7 +427,7 @@ def test_once_mode_calls_digest_send(
     digest = _make_digest_mock(sent=True, total_drafts=7)
     op._digest_service = digest  # type: ignore[attr-defined]
 
-    tool = _build_tool(storage)
+    tool = _build_tool(storage, digest_time="00:00")
     args = argparse.Namespace(
         once=True,
         send_digest_now=False,
@@ -455,7 +455,7 @@ def test_once_mode_without_send_digest_now_uses_force_false(
     digest = _make_digest_mock(sent=False, skipped_reason="already_sent")
     op._digest_service = digest  # type: ignore[attr-defined]
 
-    tool = _build_tool(storage)
+    tool = _build_tool(storage, digest_time="00:00")
     args = argparse.Namespace(
         once=True,
         send_digest_now=False,
@@ -486,7 +486,7 @@ def test_send_digest_now_triggers_force_send(
     digest = _make_digest_mock(sent=True, total_drafts=3)
     op._digest_service = digest  # type: ignore[attr-defined]
 
-    tool = _build_tool(storage)
+    tool = _build_tool(storage, digest_time="00:00")
     args = argparse.Namespace(
         once=True,
         send_digest_now=True,
@@ -546,10 +546,13 @@ def test_digest_not_sent_twice_same_day(
     tool = _build_tool(storage)
 
     # Прогоняем две итерации «руками» через helper-метод.
+    # Передаём фиксированное время после 10:00, чтобы дайджест точно сработал
+    fixed_now = datetime(2024, 1, 1, 12, 0, 0)
     for _ in range(2):
         op._maybe_send_digest(  # type: ignore[attr-defined]
             tool_config=tool.config,
             force=False,
+            now=fixed_now,
         )
 
     # Два вызова ``send()`` (на каждый цикл), оба с force=False.
@@ -569,9 +572,12 @@ def test_digest_force_send_can_override_idempotency(
     op._digest_service = digest  # type: ignore[attr-defined]
 
     tool = _build_tool(storage)
+    # Передаём фиксированное время после 10:00, чтобы дайджест точно сработал
+    fixed_now = datetime(2024, 1, 1, 12, 0, 0)
     op._maybe_send_digest(  # type: ignore[attr-defined]
         tool_config=tool.config,
         force=True,
+        now=fixed_now,
     )
 
     digest.send.assert_called_once_with(force=True)  # type: ignore[unused-coroutine]

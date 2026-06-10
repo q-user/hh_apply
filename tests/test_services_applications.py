@@ -5,6 +5,8 @@ from __future__ import annotations
 import sqlite3
 from unittest.mock import MagicMock
 
+import pytest
+
 from hh_applicant_tool.services.applications import ApplicationsService
 from hh_applicant_tool.services.relevance import RelevanceResult
 from hh_applicant_tool.storage.facade import StorageFacade
@@ -80,79 +82,64 @@ def _make_relevance_svc(suitable: bool, **kwargs) -> MagicMock:
     return svc
 
 
-def test_prepare_one_ai_heavy_rejected(storage: sqlite3.Connection):
+@pytest.mark.parametrize(
+    "mode,suitable,expected_status,score,reason",
+    [
+        ("heavy", False, "rejected", 20, "wrong stack"),
+        ("light", True, "prepared", 85, "matches stack"),
+    ],
+)
+def test_prepare_one_ai_filter_mode(
+    storage: sqlite3.Connection,
+    mode: str,
+    suitable: bool,
+    expected_status: str,
+    score: int,
+    reason: str,
+):
+    """AI filter: heavy rejects, light accepts based on relevance result."""
     facade = _make_facade(storage)
     relevance = _make_relevance_svc(
-        suitable=False, relevance_score=20, reason="wrong stack"
+        suitable=suitable, relevance_score=score, reason=reason
     )
     svc = ApplicationsService(facade, relevance=relevance)
 
     draft = svc.prepare_one(
         resume={"id": "r1", "title": "T"},
         vacancy={"id": 1, "name": "V", "employer": {"id": 42}},
-        ai_filter_mode="heavy",
+        ai_filter_mode=mode,
     )
     storage.commit()
 
     assert draft is not None
-    assert draft.status == "rejected"
-    assert draft.relevance_score == 20
-    assert draft.relevance_reason == "wrong stack"
+    assert draft.status == expected_status
+    assert draft.relevance_score == score
+    assert draft.relevance_reason == reason
     assert draft.cover_letter is None
     assert draft.cover_letter_status is None
     assert draft.analysis_json is not None
-    assert draft.analysis_json["suitable"] is False
+    assert draft.analysis_json["suitable"] is suitable
 
 
-def test_prepare_one_ai_light_accepted(storage: sqlite3.Connection):
-    facade = _make_facade(storage)
-    relevance = _make_relevance_svc(
-        suitable=True, relevance_score=85, reason="matches stack"
-    )
-    svc = ApplicationsService(facade, relevance=relevance)
-
-    draft = svc.prepare_one(
-        resume={"id": "r1", "title": "T"},
-        vacancy={"id": 1, "name": "V", "employer": {"id": 42}},
-        ai_filter_mode="light",
-    )
-    storage.commit()
-
-    assert draft is not None
-    assert draft.status == "prepared"
-    assert draft.relevance_score == 85
-    assert draft.relevance_reason == "matches stack"
-    assert draft.analysis_json is not None
-    assert draft.analysis_json["suitable"] is True
-
-
-def test_prepare_one_ai_filter_heavy_uses_heavy(storage: sqlite3.Connection):
-    """При mode=heavy вызывается is_suitable_heavy, не light."""
+@pytest.mark.parametrize(
+    "mode,called_method,not_called_method",
+    [
+        ("heavy", "is_suitable_heavy", "is_suitable_light"),
+        ("light", "is_suitable_light", "is_suitable_heavy"),
+    ],
+)
+def test_prepare_one_ai_filter_calls_correct_method(
+    storage: sqlite3.Connection,
+    mode: str,
+    called_method: str,
+    not_called_method: str,
+):
+    """AI filter calls the correct method for the given mode."""
     facade = _make_facade(storage)
     relevance = MagicMock()
+    # Both return suitable=True so the draft proceeds to prepared
     relevance.is_suitable_heavy.return_value = RelevanceResult(
         suitable=True, relevance_score=90, reason="ok"
-    )
-    relevance.is_suitable_light.return_value = RelevanceResult(
-        suitable=False, relevance_score=10, reason="no"
-    )
-    svc = ApplicationsService(facade, relevance=relevance)
-
-    svc.prepare_one(
-        resume={"id": "r1", "title": "T"},
-        vacancy={"id": 1, "name": "V"},
-        ai_filter_mode="heavy",
-    )
-
-    relevance.is_suitable_heavy.assert_called_once()
-    relevance.is_suitable_light.assert_not_called()
-
-
-def test_prepare_one_ai_filter_light_uses_light(storage: sqlite3.Connection):
-    facade = _make_facade(storage)
-    relevance = MagicMock()
-    relevance.is_suitable_heavy.return_value = RelevanceResult(
-        suitable=False, relevance_score=10, reason="no"
     )
     relevance.is_suitable_light.return_value = RelevanceResult(
         suitable=True, relevance_score=80, reason="ok"
@@ -162,11 +149,11 @@ def test_prepare_one_ai_filter_light_uses_light(storage: sqlite3.Connection):
     svc.prepare_one(
         resume={"id": "r1", "title": "T"},
         vacancy={"id": 1, "name": "V"},
-        ai_filter_mode="light",
+        ai_filter_mode=mode,
     )
 
-    relevance.is_suitable_light.assert_called_once()
-    relevance.is_suitable_heavy.assert_not_called()
+    getattr(relevance, called_method).assert_called_once()
+    getattr(relevance, not_called_method).assert_not_called()
 
 
 def test_prepare_one_no_ai_filter_skips_relevance(

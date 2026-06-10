@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS application_test_answers (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (draft_id, task_id)
 );
-/* ===================== apply_jobs ===================== */
+/* ===================== apply_jobs =====================
 -- Очередь асинхронной отправки откликов. Один job на черновик (UNIQUE draft_id).
 CREATE TABLE IF NOT EXISTS apply_jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS apply_jobs (
     last_error TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    chat_id INTEGER,
     UNIQUE (draft_id)
 );
 /* ===================== telegram_sessions ===================== */

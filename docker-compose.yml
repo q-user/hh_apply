@@ -26,12 +26,12 @@ x-hh-base: &hh-base
     # Пробрасываем таймзону хоста, чтобы cron не уходил по UTC.
     - /etc/localtime:/etc/localtime:ro
   environment:
-    - CONFIG_DIR=/app/config
-    # === Профиль поиска (отредактируйте под себя) ===
-    - HH_PROFILE_ID=${HH_PROFILE_ID:-default}
-    - RESUME_ID=${RESUME_ID:-}
-    - SEARCH_QUERY=${SEARCH_QUERY:-}
-    # === Telegram-бот (для hh_tg_bot) ===
+      - CONFIG_DIR=/app/config
+      # === Профиль поиска (отредактируйте под себя) ===
+      - HH_PROFILE_ID=${HH_PROFILE_ID:-default}
+      - RESUME_ID=${RESUME_ID:-}
+      # SEARCH_QUERY is legacy (not used) — prepare-vacancies uses search profiles from DB instead
+      # === Telegram-бот (для hh_tg_bot) ===
     - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
     - TELEGRAM_ALLOWED_USER_IDS=${TELEGRAM_ALLOWED_USER_IDS:-}
     # === OpenAI (для AI-черновиков и тестов) ===
@@ -61,8 +61,20 @@ services:
     <<: *hh-base
     container_name: hh_tg_bot
     command: ["hh-applicant-tool", "telegram-bot"]
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f telegram-bot"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   hh_apply_worker:
     <<: *hh-base
     container_name: hh_apply_worker
     command: ["hh-applicant-tool", "apply-worker"]
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f apply-worker"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

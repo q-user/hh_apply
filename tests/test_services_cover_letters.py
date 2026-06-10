@@ -61,17 +61,7 @@ def test_no_letter_when_not_required():
     assert out == ""
 
 
-def test_no_letter_when_not_required_explicitly():
-    svc = CoverLetterService(api_client=MagicMock())
-    out = svc.generate(
-        vacancy={"id": 1, "name": "X"},
-        placeholders={"first_name": "Иван"},
-        force=False,
-        required_by_vacancy=False,
-    )
-    assert out == ""
-
-
+# ─── AI-путь ────────────────────────────────────────────────────────
 def test_custom_template():
     """Кастомный шаблон через template=... используется."""
     svc = CoverLetterService(

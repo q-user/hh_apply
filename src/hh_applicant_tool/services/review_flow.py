@@ -558,8 +558,9 @@ class ReviewFlowService:
         draft.status = "queued"
         self._storage.application_drafts.save(draft)
         # Один job на черновик — UPSERT на draft_id.
+        # Сохраняем chat_id для пер-драфтовых уведомлений (issue #43).
         self._storage.apply_jobs.save(
-            ApplyJobModel(draft_id=draft.id, status="queued")
+            ApplyJobModel(draft_id=draft.id, status="queued", chat_id=chat_id)
         )
         self._commit()
         ack = OutgoingMessage(

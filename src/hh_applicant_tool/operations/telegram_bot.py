@@ -41,7 +41,7 @@ logger = logging.getLogger(__package__)
 DEFAULT_DIGEST_TIME = "10:00"
 
 # Сообщение-заглушка для фич review-flow (issue #9).
-_REVIEW_PLACEHOLDER = "🚧 Review flow coming soon (issue #9)"
+_REVIEW_PLACEHOLDER = "🚧 Review-флоу появится позже (issue #9)"
 
 
 class Namespace(BaseNamespace):

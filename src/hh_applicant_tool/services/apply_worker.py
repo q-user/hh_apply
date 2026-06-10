@@ -28,11 +28,14 @@ logger = logging.getLogger(__package__)
 
 # ─── Доменные ошибки и контракты ────────────────────────────────────
 
+
 class RetryableError(Exception):
     """Ошибка, после которой задачу можно повторить позже (сеть, 5xx, капча)."""
 
+
 class FatalError(Exception):
     """Ошибка, после которой повтор бессмыслен (400/403/404, баг)."""
+
 
 class ApplyOneDraftFn(Protocol):
     """Отправить один черновик на hh.ru.
@@ -42,6 +45,7 @@ class ApplyOneDraftFn(Protocol):
     """
 
     def __call__(self, draft: ApplicationDraftModel) -> Any: ...
+
 
 # ─── Backoff-стратегия ────────────────────────────────────────────────
 
@@ -59,13 +63,16 @@ DEFAULT_IDLE_SLEEP_SECONDS = 5.0
 # Залипший lock старше этого — подбираем (предыдущий воркер умер).
 LOCK_TIMEOUT_SECONDS = 30 * 60
 
+
 def _backoff_for_attempt(attempt: int) -> int:
     """Задержка по индексу attempt - 1 (с клипом на последний)."""
     if attempt < 1:
         return 0
     return _BACKOFF_SECONDS[min(attempt - 1, len(_BACKOFF_SECONDS) - 1)]
 
+
 # ─── DTO результатов ─────────────────────────────────────────────────
+
 
 @dataclass(frozen=True)
 class ProcessResult:
@@ -76,6 +83,7 @@ class ProcessResult:
     draft_id: int
     attempts: int
     last_error: str | None = None
+
 
 @dataclass
 class RunStats:
@@ -88,7 +96,9 @@ class RunStats:
     idle_loops: int = 0
     last_result: ProcessResult | None = None
 
+
 # ─── Сервис ───────────────────────────────────────────────────────────
+
 
 class ApplyWorkerService:
     """Фоновый воркер асинхронной отправки откликов (issue #10).
@@ -136,7 +146,7 @@ class ApplyWorkerService:
     def _default_worker_id() -> str:
         try:
             host = socket.gethostname()
-        except Exception:  # noqa: BLE001
+        except OSError:
             host = "worker"
         return f"{host}:{uuid.uuid4().hex[:8]}"
 
@@ -218,51 +228,38 @@ class ApplyWorkerService:
         return stats
 
     def _claim_next_job(self) -> ApplyJobModel | None:
-        """Выбрать и заблокировать очередную задачу.
+        """Атомарно выбрать и заблокировать очередную задачу (SELECT ... FOR UPDATE).
 
-        NULL в next_attempt_at = готова сразу (SQLite DEFAULT не
-        срабатывает, когда модель явно передаёт None).
+        Возвращает загруженную модель ApplyJobModel с обновлёнными locked_* полями,
+        или None, если подходящих задач нет.
         """
-        now_dt = self._now()
+        now_str = self._iso_now()
         cutoff_str = self._iso_now_minus(LOCK_TIMEOUT_SECONDS)
-        cutoff_dt = self._iso_to_dt(cutoff_str)
 
-        # Сначала — «свежие» (ни разу не locked).
-        for job in self._storage.apply_jobs.find(status="queued"):
-            if job.next_attempt_at is not None:
-                if self._iso_to_dt(job.next_attempt_at) > now_dt:
-                    continue
-            if job.locked_at is not None and (
-                job.locked_by == self._worker_id
-                or self._iso_to_dt(job.locked_at) >= cutoff_dt
-            ):
-                # Наш собственный lock или чужой ещё «свежий» — пропускаем.
-                continue
-            return self._lock_job(job)
+        # Используем SELECT ... FOR UPDATE для предотвращения race condition
+        # при параллельной работе нескольких воркеров (issue #44).
+        job = self._storage.apply_jobs.claim_next_job(
+            worker_id=self._worker_id,
+            now_str=now_str,
+            cutoff_str=cutoff_str,
+        )
+        if job is None:
+            return None
 
-        # Затем — залипшие locked_job'ы (предыдущий воркер умер).
-        for job in self._storage.apply_jobs.find(
-            status="running",
-            locked_at__lt=cutoff_str,
-        ):
-            return self._lock_job(job)
-
-        return None
-
-    def _lock_job(self, job: ApplyJobModel) -> ApplyJobModel:
-        """status=running, locked_*. attempts++ в _process_claimed_job."""
-        job.status = "running"
-        job.locked_at = self._iso_now()
-        job.locked_by = self._worker_id
-        self._storage.apply_jobs.save(job)
+        # Заблокировать job внутри той же транзакции
+        self._storage.apply_jobs.lock_job(
+            job_id=job.id,
+            worker_id=self._worker_id,
+            locked_at=now_str,
+        )
         self._commit()
-        return job
+
+        # Перезагрузить job с обновлёнными полями
+        return self._storage.apply_jobs.get(job.id)
 
     def _process_claimed_job(self, job: ApplyJobModel) -> ProcessResult:
         """Применить + обновить статусы job/draft."""
-        job.attempts = (job.attempts or 0) + 1  # ++ на каждой попытке
-        self._storage.apply_jobs.save(job)
-        self._commit()
+        # attempts уже инкрементирован в lock_job (issue #44)
 
         draft = self._load_draft(job.draft_id)
         if draft is None:
@@ -316,7 +313,7 @@ class ApplyWorkerService:
         self._storage.application_drafts.save(draft)
         self._commit()
 
-        self._notify_success(draft)
+        self._notify_success(draft, chat_id=job.chat_id)
         return ProcessResult(
             status="succeeded",
             job_id=job.id or 0,
@@ -342,7 +339,7 @@ class ApplyWorkerService:
             self._storage.application_drafts.save(draft)
         self._commit()
 
-        self._notify_failure(draft, error)
+        self._notify_failure(draft, error, chat_id=job.chat_id)
         return ProcessResult(
             status="failed",
             job_id=job.id or 0,
@@ -405,10 +402,21 @@ class ApplyWorkerService:
         return []
 
     def _notify(
-        self, kind: str, draft: ApplicationDraftModel | None, error: str
+        self,
+        kind: str,
+        draft: ApplicationDraftModel | None,
+        error: str,
+        chat_id: int | None = None,
     ) -> None:
-        """Единая отправка success/failure (Telegram-формат из issue)."""
-        chat_ids = self._resolve_notification_chat_ids()
+        """Единая отправка success/failure (Telegram-формат из issue).
+
+        Если передан chat_id — используем его (пер-драфтовое уведомление, issue #43).
+        Иначе — fallback на конфиг (_resolve_notification_chat_ids).
+        """
+        if chat_id is not None:
+            chat_ids = [chat_id]
+        else:
+            chat_ids = self._resolve_notification_chat_ids()
         if not chat_ids:
             return
         meta = self._vacancy_meta(draft) if draft is not None else None
@@ -432,13 +440,18 @@ class ApplyWorkerService:
                     ex,
                 )
 
-    def _notify_success(self, draft: ApplicationDraftModel) -> None:
-        self._notify("success", draft, "")
+    def _notify_success(
+        self, draft: ApplicationDraftModel, chat_id: int | None = None
+    ) -> None:
+        self._notify("success", draft, "", chat_id=chat_id)
 
     def _notify_failure(
-        self, draft: ApplicationDraftModel | None, error: str
+        self,
+        draft: ApplicationDraftModel | None,
+        error: str,
+        chat_id: int | None = None,
     ) -> None:
-        self._notify("failure", draft, error)
+        self._notify("failure", draft, error, chat_id=chat_id)
 
     @staticmethod
     def _vacancy_meta(draft: ApplicationDraftModel) -> dict[str, str]:
@@ -485,6 +498,7 @@ class ApplyWorkerService:
 
     def _iso_now_minus(self, seconds: int) -> str:
         return self._isoformat(self._now() - timedelta(seconds=seconds))
+
 
 # Реэкспорт для обратной совместимости: ``services/__init__.py`` и тесты
 # импортируют ``from .apply_worker import make_default_apply_one``,

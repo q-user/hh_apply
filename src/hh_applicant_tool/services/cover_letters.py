@@ -18,6 +18,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
+
 from ..utils.string import rand_text, strip_tags
 
 if TYPE_CHECKING:

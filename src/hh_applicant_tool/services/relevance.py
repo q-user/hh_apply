@@ -27,7 +27,11 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+import requests
+
 from ..ai.base import AIError
+from ..api import BadResponse
+from ..api.errors import ApiError
 from ..utils.string import strip_tags
 
 logger = logging.getLogger(__package__)
@@ -723,7 +727,7 @@ class RelevanceService:
                 full_vacancy = self.api_client.get(
                     f"/vacancies/{vacancy['id']}"
                 )
-            except Exception as ex:
+            except (requests.RequestException, ApiError, BadResponse) as ex:
                 logger.warning(
                     "Не удалось получить полную вакансию %s: %s",
                     vacancy.get("id"),

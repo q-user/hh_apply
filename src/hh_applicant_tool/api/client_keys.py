@@ -1,11 +1,21 @@
-ANDROID_CLIENT_ID = (
-    "HIOMIAS39CA9DICTA7JIO64LQKQJF5AGIK74G9ITJKLNEDAOH5FHS5G1JI7FOEGD"
-)
+from __future__ import annotations
 
-ANDROID_CLIENT_SECRET = (
-    "V9M870DE342BGHFRUJ5FTCGCUA1482AN0DI8C5TFI9ULMA89H10N60NOP8I4JMVS"
-)
+import os
+from functools import lru_cache
 
-# Используется для прямой авторизации. Этот способ мной не используется, так как
-# для отображения капчи все равно нужен webview.
-# K811HJNKQA8V1UN53I6PN1J1CMAD2L1M3LU6LPAU849BCT031KDSSM485FDPJ6UF
+
+@lru_cache(maxsize=1)
+def get_android_client_id() -> str | None:
+    """Get Android client ID from environment variable."""
+    return os.getenv("HH_ANDROID_CLIENT_ID")
+
+
+@lru_cache(maxsize=1)
+def get_android_client_secret() -> str | None:
+    """Get Android client secret from environment variable."""
+    return os.getenv("HH_ANDROID_CLIENT_SECRET")
+
+
+# Note: Users must provide their own hh.ru OAuth client credentials.
+# Set HH_ANDROID_CLIENT_ID and HH_ANDROID_CLIENT_SECRET environment variables
+# or provide client_id and client_secret in the config.json file.

@@ -101,7 +101,13 @@ class Operation(BaseOperation):
 
         # apply_one шлёт один черновик; ApplyToVacanciesUseCase
         # оперирует списком вакансий, поэтому отдельная обёртка.
-        apply_one = make_default_apply_one(tool.api_client)
+        # Передаём session, xsrf_token и AI-клиент для поддержки тестов.
+        apply_one = make_default_apply_one(
+            tool.api_client,
+            session=tool.session,
+            xsrf_token=tool.xsrf_token,
+            ai_client=tool.get_cover_letter_ai(),
+        )
         transport = self._build_transport(tool, args)
 
         worker = ApplyWorkerService(
@@ -192,7 +198,9 @@ class Operation(BaseOperation):
                 )
             )
         except TelegramTransportError as ex:
-            logger.warning("apply-worker: TelegramTransport init failed: %s", ex)
+            logger.warning(
+                "apply-worker: TelegramTransport init failed: %s", ex
+            )
             return None
 
 
