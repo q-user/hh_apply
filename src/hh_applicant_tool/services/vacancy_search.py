@@ -1,17 +1,22 @@
-"""Поиск вакансий через HH API.
+"""Поиск вакансий через HH API (DEPRECATED).
 
 Извлечено из ``operations/apply_vacancies.py`` (issue #3). Сервис инкапсулирует:
 - построение query-параметров ``/vacancies`` / ``/resumes/{id}/similar_vacancies``;
 - пагинацию и выбор эндпоинта по наличию ``text`` (поиск) или его отсутствию
   (рекомендации).
 
-Зависимости (api_client, per_page, total_pages) передаются явно в конструктор,
+Зависимости (api_client, per_page, total_pages) передаются явно в конструкторе,
 что упрощает юнит-тестирование и переиспользование в ``prepare-vacancies``.
+
+.. deprecated:: 1.0
+   Use ``job_bot.vacancy_search.VacancySearchSlice`` instead.
+   This service will be removed in a future version.
 """
 
 from __future__ import annotations
 
 import logging
+import warnings
 from collections.abc import Iterator, Mapping
 from typing import Any
 
@@ -19,6 +24,12 @@ from ..api.datatypes import PaginatedItems, SearchVacancy
 from ..utils.string import bool2str
 
 logger = logging.getLogger(__package__)
+
+warnings.warn(
+    "VacancySearchService is deprecated, use job_bot.vacancy_search.VacancySearchSlice instead",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 def build_search_params(

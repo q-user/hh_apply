@@ -95,6 +95,8 @@ class PrepareVacanciesUseCase:
         # Phase 2 ports (optional, backward compatible)
         cancellation: "CancellationToken | None" = None,
         clock: "Clock | None" = None,
+        # Vacancy search service (optional, for VSA wiring)
+        vacancy_search_service_factory: Any = None,
     ) -> None:
         self.api_client = api_client
         self.session = session
@@ -107,6 +109,9 @@ class PrepareVacanciesUseCase:
         # Phase 2 ports
         self._cancellation = cancellation
         self._clock = clock
+
+        # Внедрённый сервис поиска вакансов (VSA wiring)
+        self._injected_vacancy_search_service_factory = vacancy_search_service_factory
 
         # Состояние, заполняемое в execute().
         self.command: PrepareVacanciesCommand | None = None
@@ -268,11 +273,17 @@ class PrepareVacanciesUseCase:
         per_page = self._profile_per_page(profile, command.per_page)
         total_pages = self._profile_total_pages(profile, command.total_pages)
 
-        search_service = VacancySearchService(
-            self.api_client,
-            per_page=per_page,
-            total_pages=total_pages,
-        )
+        # Use injected vacancy search service factory (VSA wiring) or fall back to old service
+        if self._injected_vacancy_search_service_factory is not None:
+            search_service = self._injected_vacancy_search_service_factory(
+                per_page, total_pages
+            )
+        else:
+            search_service = VacancySearchService(
+                self.api_client,
+                per_page=per_page,
+                total_pages=total_pages,
+            )
 
         try:
             vacancies = list(

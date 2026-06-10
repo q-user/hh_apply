@@ -23,7 +23,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Iterator, Mapping
+from typing import TYPE_CHECKING, Any
 
 from .application import ApplyToVacanciesUseCase, PrepareVacanciesUseCase
 
@@ -46,6 +47,8 @@ class AppContainer:
         self._site_parser = None
         self._email_sender = None
         self._test_logger = None
+        # Vacancy Search slice (VSA)
+        self._vacancy_search_slice = None
 
     # ─── Phase 2 port factories (lazy) ───────────────────────────
 
@@ -75,6 +78,50 @@ class AppContainer:
 
             self._test_logger = FileTestVacancyLogger()
         return self._test_logger
+
+    # ─── Vacancy Search Slice (VSA) ────────────────────────────────
+
+    def _get_vacancy_search_slice(self):
+        """Get or create the VacancySearchSlice instance."""
+        if self._vacancy_search_slice is None:
+            from job_bot.shared.config.settings import Settings
+            from job_bot.shared.storage.database import create_database
+            from job_bot.vacancy_search.slice import create_vacancy_search_slice
+
+            tool = self._tool
+            # Build shared kernel Settings from tool's config
+            config = tool.config
+            settings = Settings()
+            settings.database.path = tool.db_path
+
+            hh_config = config.get("hh_api", {})
+            settings.hh_api.base_url = hh_config.get(
+                "base_url", "https://api.hh.ru"
+            )
+            settings.hh_api.user_agent = hh_config.get(
+                "user_agent", "job_bot/0.1.0"
+            )
+            settings.hh_api.timeout = hh_config.get("timeout", 30)
+            settings.hh_api.client_id = config.get("client_id")
+            settings.hh_api.client_secret = config.get("client_secret")
+
+            # Create slice with shared kernel components
+            self._vacancy_search_slice = create_vacancy_search_slice(
+                settings=settings,
+                database=create_database(settings.database.path),
+            )
+        return self._vacancy_search_slice
+
+    def create_vacancy_search_adapter(self, per_page: int, total_pages: int):
+        """Create an adapter that provides the old VacancySearchService interface
+        but delegates to the new VacancySearchSlice.
+        """
+        return _VacancySearchAdapter(
+            slice=self._get_vacancy_search_slice(),
+            tool=self._tool,
+            per_page=per_page,
+            total_pages=total_pages,
+        )
 
     # ─── Use case factories ──────────────────────────────────────
 
@@ -113,6 +160,8 @@ class AppContainer:
             site_parser=self._get_site_parser(),
             email_sender=(self._get_email_sender() if send_email else None),
             test_logger=self._get_test_logger(),
+            # Vacancy search service factory (VSA wiring)
+            vacancy_search_service_factory=lambda per_page, total_pages: self.create_vacancy_search_adapter(per_page, total_pages),
         )
 
     def prepare_vacancies_use_case(
@@ -145,4 +194,84 @@ class AppContainer:
             cover_letter_ai=cover_letter_ai,
             vacancy_filter_ai_factory=tool.get_vacancy_filter_ai,
             test_ai=cover_letter_ai,
+            # Vacancy search service factory (VSA wiring)
+            vacancy_search_service_factory=lambda per_page, total_pages: self.create_vacancy_search_adapter(per_page, total_pages),
         )
+
+
+class _VacancySearchAdapter:
+    """Adapter that wraps the new VacancySearchSlice to provide the old
+    VacancySearchService interface.
+    """
+
+    def __init__(
+        self,
+        slice: Any,  # VacancySearchSlice
+        tool: "HHApplicantTool",
+        per_page: int,
+        total_pages: int,
+    ) -> None:
+        self._slice = slice
+        self._tool = tool
+        self._per_page = per_page
+        self._total_pages = total_pages
+
+    def search(
+        self,
+        search_params: Mapping[str, Any],
+        *,
+        resume_id: str | None = None,
+    ) -> Iterator[Any]:  # SearchVacancy
+        """Search vacancies using the new slice for text search,
+        falling back to old service for similar_vacancies.
+        """
+        has_text = bool(search_params.get("text"))
+
+        if has_text:
+            # Use new slice for text-based search
+            yield from self._search_via_slice(search_params)
+        else:
+            # Fall back to old service for similar_vacancies (emits deprecation warning)
+            yield from self._search_via_old_service(search_params, resume_id)
+
+    def _search_via_slice(
+        self, search_params: Mapping[str, Any]
+    ) -> Iterator[Any]:
+        """Search using the new VacancySearchSlice."""
+        # Get current access token from tool's api_client
+        access_token = self._tool.api_client.access_token
+        if not access_token:
+            # If no token, fall back to old service
+            yield from self._search_via_old_service(search_params, None)
+            return
+
+        # Set token on slice's search port
+        search_port = self._slice.search
+        search_port.set_access_token(access_token)
+
+        # Call new slice's search_vacancies_raw
+        vacancies = search_port.search_vacancies_raw(
+            dict(search_params),
+            access_token,
+            max_pages=self._total_pages,
+        )
+
+        # Convert Vacancy list to SearchVacancy iterator
+        # The Vacancy model has raw_data which matches SearchVacancy structure
+        for vacancy in vacancies:
+            yield vacancy.raw_data
+
+    def _search_via_old_service(
+        self,
+        search_params: Mapping[str, Any],
+        resume_id: str | None,
+    ) -> Iterator[Any]:
+        """Fall back to old VacancySearchService (emits deprecation warning)."""
+        from .services import VacancySearchService
+
+        service = VacancySearchService(
+            self._tool.api_client,
+            per_page=self._per_page,
+            total_pages=self._total_pages,
+        )
+        yield from service.search(search_params, resume_id=resume_id)

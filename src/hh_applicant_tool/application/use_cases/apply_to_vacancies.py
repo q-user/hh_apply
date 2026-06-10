@@ -121,6 +121,8 @@ class ApplyToVacanciesUseCase:
         cancellation: "CancellationToken | None" = None,
         clock: "Clock | None" = None,
         test_logger: "TestVacancyLoggerPort | None" = None,
+        # Vacancy search service (optional, for VSA wiring)
+        vacancy_search_service_factory: Any = None,
     ) -> None:
         self.api_client = api_client
         self.session = session
@@ -148,6 +150,9 @@ class ApplyToVacanciesUseCase:
         self.cover_letter_service: CoverLetterService | None = None
         self.vacancy_search_service: VacancySearchService | None = None
         self.relevance_service: RelevanceService | None = None
+
+        # Внедрённый сервис поиска вакансов (VSA wiring)
+        self._injected_vacancy_search_service_factory = vacancy_search_service_factory
 
         # Кеш/инструменты.
         self.json_decoder = JSONDecoder()
@@ -187,11 +192,17 @@ class ApplyToVacanciesUseCase:
             self.cover_letter_ai,
             template=cover_letter_template,
         )
-        self.vacancy_search_service = VacancySearchService(
-            self.api_client,
-            per_page=command.per_page,
-            total_pages=command.total_pages,
-        )
+        # Use injected vacancy search service factory (VSA wiring) or fall back to old service
+        if self._injected_vacancy_search_service_factory is not None:
+            self.vacancy_search_service = self._injected_vacancy_search_service_factory(
+                command.per_page, command.total_pages
+            )
+        else:
+            self.vacancy_search_service = VacancySearchService(
+                self.api_client,
+                per_page=command.per_page,
+                total_pages=command.total_pages,
+            )
         self.relevance_service = RelevanceService(
             self.api_client,
             ai_client=None,
