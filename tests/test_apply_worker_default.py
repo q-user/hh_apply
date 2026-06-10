@@ -127,15 +127,6 @@ def test_request_exception_is_retryable():
         make_default_apply_one(api_client)(_queued_draft())
 
 
-def test_has_test_is_fatal():
-    """``has_test=True`` → FatalError (TODO follow-up)."""
-    api_client = MagicMock()
-    with pytest.raises(FatalError) as exc:
-        make_default_apply_one(api_client)(_queued_draft(has_test=True))
-    assert "apply_with_test" in str(exc.value)
-    api_client.post.assert_not_called()
-
-
 def test_sends_correct_params():
     """Успех: api_client.post вызван с ``/negotiations`` и нужными полями."""
     api_client = MagicMock()

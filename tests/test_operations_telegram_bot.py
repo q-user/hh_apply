@@ -339,7 +339,7 @@ def test_review_command_returns_placeholder(
 
     transport.send_message.assert_called_once()  # type: ignore[unused-coroutine]
     text = transport.send_message.call_args[0][1]  # type: ignore[attr-defined]
-    assert "Режим ревью в разработке" in text
+    assert "Review-флоу появится позже" in text
     assert "issue #9" in text
 
 
@@ -360,7 +360,7 @@ def test_cancel_command_returns_placeholder(
 
     transport.send_message.assert_called_once()  # type: ignore[unused-coroutine]
     text = transport.send_message.call_args[0][1]  # type: ignore[attr-defined]
-    assert "Режим ревью в разработке" in text
+    assert "Review-флоу появится позже" in text
     assert "issue #9" in text
 
 

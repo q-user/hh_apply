@@ -1,7 +1,7 @@
 PRAGMA foreign_keys = OFF;
 -- На всякий случай выключаем проверки
 BEGIN;
-/* ===================== application_drafts ===================== */
+-- ===================== application_drafts =====================
 -- Подготовленные черновики откликов: один на пару (resume_id, vacancy_id).
 -- Разделяет фазы подготовки (prepare-vacancies) и отправки (apply-worker).
 CREATE TABLE IF NOT EXISTS application_drafts (
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS application_drafts (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (resume_id, vacancy_id)
 );
-/* ===================== application_test_answers ===================== */
+-- ===================== application_test_answers =====================
 -- Сгенерированные/отредактированные ответы на тесты HH, привязанные к черновику.
 CREATE TABLE IF NOT EXISTS application_test_answers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS application_test_answers (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (draft_id, task_id)
 );
-/* ===================== apply_jobs =====================
+-- ===================== apply_jobs =====================
 -- Очередь асинхронной отправки откликов. Один job на черновик (UNIQUE draft_id).
 CREATE TABLE IF NOT EXISTS apply_jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS apply_jobs (
     chat_id INTEGER,
     UNIQUE (draft_id)
 );
-/* ===================== telegram_sessions ===================== */
+-- ===================== telegram_sessions =====================
 -- Состояние FSM интерактивного ревью в Telegram: по одной записи на chat_id.
 CREATE TABLE IF NOT EXISTS telegram_sessions (
     chat_id INTEGER PRIMARY KEY,
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS telegram_sessions (
     payload_json TEXT,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-/* ===================== employers ===================== */
+-- ===================== employers =====================
 CREATE TABLE IF NOT EXISTS employers (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS employers (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-/* ===================== contacts ===================== */
+-- ===================== contacts =====================
 CREATE TABLE IF NOT EXISTS vacancy_contacts (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))) NOT NULL,
     vacancy_id INTEGER NOT NULL,
@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS vacancy_contacts (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (vacancy_id, email)
 );
-/* ===================== vacancies ===================== */
+-- ===================== vacancies =====================
 CREATE TABLE IF NOT EXISTS vacancies (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -126,7 +126,7 @@ CREATE TABLE IF NOT EXISTS vacancies (
     professional_roles TEXT,
     alternate_url TEXT
 );
-/* ===================== negotiations ===================== */
+-- ===================== negotiations =====================
 CREATE TABLE IF NOT EXISTS negotiations (
     id INTEGER PRIMARY KEY,
     state TEXT NOT NULL,
@@ -138,12 +138,12 @@ CREATE TABLE IF NOT EXISTS negotiations (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-/* ===================== settings ===================== */
+-- ===================== settings =====================
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-/* ===================== resumes ===================== */
+-- ===================== resumes =====================
 CREATE TABLE IF NOT EXISTS resumes (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
@@ -157,7 +157,7 @@ CREATE TABLE IF NOT EXISTS resumes (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-/* ===================== search_profiles ===================== */
+-- ===================== search_profiles =====================
 -- Сохранённый профиль поиска вакансий. Определяет, какие вакансии искать,
 -- какое резюме использовать, какие правила релевантности и AI-фильтрации
 -- применять. Источник истины для prepare-vacancies (issue #5) и
@@ -173,12 +173,12 @@ CREATE TABLE IF NOT EXISTS search_profiles (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-/* ===================== ИНДЕКСЫ ДЛЯ СТАТИСТИКИ ===================== */
+-- ===================== ИНДЕКСЫ ДЛЯ СТАТИСТИКИ =====================
 -- Чтобы выборка для отправки на сервер по updated_at не тормозила
 CREATE INDEX IF NOT EXISTS idx_vac_upd ON vacancies(updated_at);
 CREATE INDEX IF NOT EXISTS idx_emp_upd ON employers(updated_at);
 CREATE INDEX IF NOT EXISTS idx_neg_upd ON negotiations(updated_at);
-/* ===================== ТРИГГЕРЫ (Всегда обновляют дату) ===================== */
+-- ===================== ТРИГГЕРЫ (Всегда обновляют дату) =====================
 -- Убрал условие WHEN. Теперь при любом UPDATE дата актуализируется принудительно.
 CREATE TRIGGER IF NOT EXISTS trg_resumes_updated
 AFTER
@@ -215,7 +215,7 @@ UPDATE negotiations
 SET updated_at = CURRENT_TIMESTAMP
 WHERE id = OLD.id;
 END;
-/* ===================== employer_sites ===================== */
+-- ===================== employer_sites =====================
 CREATE TABLE IF NOT EXISTS employer_sites (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     employer_id INTEGER NOT NULL,
@@ -234,7 +234,7 @@ CREATE TABLE IF NOT EXISTS employer_sites (
     UNIQUE (employer_id, site_url)
 );
 
-/* ===================== skipped_vacancies ===================== */
+-- ===================== skipped_vacancies =====================
 CREATE TABLE IF NOT EXISTS skipped_vacancies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     resume_id TEXT NOT NULL DEFAULT '',
@@ -246,7 +246,7 @@ CREATE TABLE IF NOT EXISTS skipped_vacancies (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (resume_id, vacancy_id)
 );
-/* ===================== ИНДЕКСЫ ===================== */
+-- ===================== ИНДЕКСЫ =====================
 CREATE INDEX IF NOT EXISTS idx_emp_site_upd ON employer_sites(updated_at);
 CREATE INDEX IF NOT EXISTS idx_skipped_vac_resume ON skipped_vacancies(resume_id, vacancy_id);
 
@@ -261,7 +261,7 @@ CREATE INDEX IF NOT EXISTS idx_apply_jobs_queue ON apply_jobs(status, next_attem
 -- Поиск активных профилей для prepare-vacancies
 CREATE INDEX IF NOT EXISTS idx_search_profiles_enabled ON search_profiles(enabled);
 
-/* ===================== ТРИГГЕРЫ ===================== */
+-- ===================== ТРИГГЕРЫ =====================
 CREATE TRIGGER IF NOT EXISTS trg_employer_sites_updated
 AFTER UPDATE ON employer_sites
 BEGIN
