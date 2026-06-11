@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the migration from Clean Architecture (horizontal layers) to Vertical Slice Architecture (feature-based) for the hh_apply project.
+This document describes the migration from Clean Architecture (horizontal layers) to Vertical Slice Architecture (feature-based) for the HH Applicant Tool project.
 
 ## Current Architecture (Clean Architecture)
 
