@@ -19,11 +19,15 @@ share/python-wheels/
 
 # Environments
 .env
-.env.*
+.env.local
+.env.*.local
 .venv/
 env/
 venv/
 ENV/
+
+# Docker Compose local overrides
+docker-compose.override.yml
 
 # Testing
 htmlcov/

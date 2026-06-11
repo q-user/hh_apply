@@ -385,6 +385,166 @@ docker@1897bdd7c80b:/app$
 
 ---
 
+## Локальная разработка (Local Development Stack) {#local-dev}
+
+> **New in v1.8.11** (issue #49): Полный стек для локальной разработки с PostgreSQL, Redis, MailHog, MinIO и горячей перезагрузкой.
+
+### Быстрый старт
+
+```bash
+# 1. Клонируйте репозиторий
+ git clone https://github.com/s3rgeym/hh-applicant-tool
+ cd hh-applicant-tool
+
+# 2. Настройте переменные окружения
+ cp .env.example .env
+ # Отредактируйте .env под свои нужды
+
+# 3. Запустите dev-стек (app + redis)
+ make up
+
+# 4. Откройте шелл в контейнере приложения
+ make shell
+
+# 5. Запустите тесты
+ make test
+```
+
+### Доступные сервисы
+
+| Сервис | Порт | Описание | Профиль |
+|--------|------|----------|---------|
+| **app** | 8000 | Основное приложение с hot reload | `dev` (по умолчанию) |
+| **redis** | 6379 | Кэш и очередь | `dev`, `redis` |
+| **postgres** | 5432 | PostgreSQL БД | `postgres` |
+| **mailhog** | 1025 (SMTP), 8025 (UI) | Тестирование email | `mailhog` |
+| **minio** | 9000 (S3), 9001 (Console) | S3-совместимое хранилище | `minio` |
+| **hh_collector** | — | Cron для сбора вакансий | `prod` |
+| **hh_tg_bot** | — | Telegram-бот для ревью | `prod` |
+| **hh_apply_worker** | — | Воркер для отправки откликов | `prod` |
+
+### Команды Makefile
+
+```bash
+make help          # Показать все доступные команды
+make up            # Запустить dev-стек (app + redis)
+make up-all        # Запустить все сервисы
+make down          # Остановить и удалить контейнеры
+make logs          # Просмотр логов
+make shell         # Шелл в контейнере app
+make test          # Запуск тестов
+make test-cov      # Тесты с покрытием
+make lint          # Проверка кода (ruff)
+make lint-fix      # Автоисправление lint
+make migrate       # Миграции БД
+make db-shell      # PostgreSQL шелл
+make redis-shell   # Redis CLI
+make build         # Пересборка образов
+make clean         # Полная очистка
+make prod-up       # Запуск продакшн-сервисов
+make prod-down     # Остановка продакшн-сервисов
+```
+
+### Горячая перезагрузка (Hot Reload)
+
+Контейнер `app` монтирует исходный код как volume. Для hot reload:
+
+```bash
+# Внутри контейнера app:
+watchfiles --filter python hh-applicant-tool
+
+# Или через docker compose exec:
+docker compose exec app watchfiles --filter python hh-applicant-tool
+```
+
+### PostgreSQL для разработки
+
+```bash
+# Запуск с PostgreSQL
+make up-all
+# или
+docker compose --profile postgres up -d
+
+# Подключение к БД
+make db-shell
+```
+
+По умолчанию приложение использует SQLite (`sqlite:///app/config/hh_applicant_tool.db`).
+Для использования PostgreSQL установите в `.env`:
+
+```env
+DATABASE_URL=postgresql://hh_user:hh_password@postgres:5432/hh_applicant_tool
+```
+
+### Тестирование email с MailHog
+
+```bash
+# Запуск с MailHog
+docker compose --profile mailhog up -d
+
+# Web UI: http://localhost:8025
+# SMTP: localhost:1025
+```
+
+Настройте в `.env`:
+```env
+SMTP_HOST=mailhog
+SMTP_PORT=1025
+SMTP_SSL=false
+```
+
+### S3-хранилище с MinIO
+
+```bash
+# Запуск с MinIO
+docker compose --profile minio up -d
+
+# S3 API: http://localhost:9000
+# Console: http://localhost:9001 (minioadmin/minioadmin)
+```
+
+Настройте в `.env`:
+```env
+MINIO_ENDPOINT=minio:9000
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
+MINIO_BUCKET=hh-applicant-tool
+MINIO_SECURE=false
+```
+
+### Переопределение настроек
+
+Создайте `docker-compose.override.yml` на основе примера:
+
+```bash
+cp docker-compose.override.yml.example docker-compose.override.yml
+```
+
+Этот файл игнорируется git и позволяет переопределять любые настройки без изменения основного `docker-compose.yml`.
+
+### Полный цикл разработки
+
+```bash
+# 1. Запуск окружения
+make up
+
+# 2. Работа в контейнере
+make shell
+# Внутри контейнера:
+hh-applicant-tool -vv auth -k
+hh-applicant-tool prepare-vacancies
+hh-applicant-tool apply-worker --dry-run
+
+# 3. Запуск тестов перед коммитом
+make test
+make lint
+
+# 4. Остановка
+make down
+```
+
+---
+
 ## Стандартная установка
 
 ### Установка утилиты
