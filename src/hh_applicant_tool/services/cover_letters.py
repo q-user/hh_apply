@@ -1,5 +1,12 @@
 """Генерация сопроводительных писем (AI или шаблон).
 
+.. deprecated:: 1.8
+   Use :class:`job_bot.application_prep.handlers.CoverLetterHandler`
+   (or :attr:`job_bot.application_prep.slice.ApplicationPrepSlice.cover_letters`)
+   instead. This module is part of the VSA switchover (issue #54) and
+   **planned for removal in version 2.0**. New code should depend on
+   the new slice; this shim is kept for backward compatibility only.
+
 Извлечено из ``operations/apply_vacancies.py`` (issue #3). Сервис инкапсулирует
 выбор стратегии:
 - если передан ``ai_client`` — генерируем письмо через LLM;

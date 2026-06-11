@@ -10,7 +10,7 @@
 
 .. deprecated:: 1.0
    Use ``job_bot.vacancy_search.VacancySearchSlice`` instead.
-   This service will be removed in a future version.
+   This service is **planned for removal in version 2.0** (VSA switchover).
 """
 
 from __future__ import annotations
