@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import platform
+import warnings
 from functools import cache
 from os import getenv
 from pathlib import Path
@@ -8,6 +9,13 @@ from threading import Lock
 from typing import Any
 
 from . import json
+
+# Deprecation warning for VSA migration
+warnings.warn(
+    "hh_applicant_tool.utils.config is deprecated, use job_bot.config_auth instead",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 @cache

@@ -49,6 +49,9 @@ class AppContainer:
         self._test_logger = None
         # Vacancy Search slice (VSA)
         self._vacancy_search_slice = None
+        # Config Auth slice (VSA)
+        self._config_auth_slice = None
+        self._config_adapter = None
 
     # ─── Phase 2 port factories (lazy) ───────────────────────────
 
@@ -123,6 +126,50 @@ class AppContainer:
             total_pages=total_pages,
         )
 
+    # ─── Config Auth Slice (VSA) ───────────────────────────────────
+
+    def _get_config_auth_slice(self):
+        """Get or create the ConfigAuthSlice instance."""
+        if self._config_auth_slice is None:
+            from job_bot.config_auth.slice import create_config_auth_slice
+            from job_bot.shared.config.settings import Settings
+            from job_bot.shared.storage.database import create_database
+
+            tool = self._tool
+            # Build shared kernel Settings from tool's config
+            config = tool.config
+            settings = Settings()
+            settings.database.path = tool.db_path
+
+            hh_config = config.get("hh_api", {})
+            settings.hh_api.base_url = hh_config.get(
+                "base_url", "https://api.hh.ru"
+            )
+            settings.hh_api.user_agent = hh_config.get(
+                "user_agent", "job_bot/0.1.0"
+            )
+            settings.hh_api.timeout = hh_config.get("timeout", 30)
+            settings.hh_api.client_id = config.get("client_id")
+            settings.hh_api.client_secret = config.get("client_secret")
+
+            # Create slice with shared kernel components
+            self._config_auth_slice = create_config_auth_slice(
+                settings=settings,
+                database=create_database(settings.database.path),
+            )
+        return self._config_auth_slice
+
+    def create_config_adapter(self):
+        """Create a config adapter that provides the old dict-like interface
+        but delegates to the new ConfigAuthSlice.
+        """
+        if self._config_adapter is None:
+            self._config_adapter = _ConfigAdapter(
+                slice=self._get_config_auth_slice(),
+                tool=self._tool,
+            )
+        return self._config_adapter
+
     # ─── Use case factories ──────────────────────────────────────
 
     def apply_to_vacancies_use_case(
@@ -161,7 +208,10 @@ class AppContainer:
             email_sender=(self._get_email_sender() if send_email else None),
             test_logger=self._get_test_logger(),
             # Vacancy search service factory (VSA wiring)
-            vacancy_search_service_factory=lambda per_page, total_pages: self.create_vacancy_search_adapter(per_page, total_pages),
+            vacancy_search_service_factory=lambda per_page,
+            total_pages: self.create_vacancy_search_adapter(
+                per_page, total_pages
+            ),
         )
 
     def prepare_vacancies_use_case(
@@ -195,7 +245,10 @@ class AppContainer:
             vacancy_filter_ai_factory=tool.get_vacancy_filter_ai,
             test_ai=cover_letter_ai,
             # Vacancy search service factory (VSA wiring)
-            vacancy_search_service_factory=lambda per_page, total_pages: self.create_vacancy_search_adapter(per_page, total_pages),
+            vacancy_search_service_factory=lambda per_page,
+            total_pages: self.create_vacancy_search_adapter(
+                per_page, total_pages
+            ),
         )
 
 
@@ -275,3 +328,193 @@ class _VacancySearchAdapter:
             total_pages=self._total_pages,
         )
         yield from service.search(search_params, resume_id=resume_id)
+
+
+class _ConfigAdapter:
+    """Adapter that wraps the new ConfigAuthSlice to provide the old
+    dict-like config interface.
+    """
+
+    def __init__(
+        self,
+        slice: Any,  # ConfigAuthSlice
+        tool: "HHApplicantTool",
+    ) -> None:
+        self._slice = slice
+        self._tool = tool
+        self._config_handler = slice.config
+        self._config_path = slice.config_path
+        self._cached_config: dict[str, Any] | None = None
+
+    def _load_config(self) -> dict[str, Any]:
+        """Load config from the new slice and convert to flat dict.
+
+        The old config format was flat with keys like:
+        - client_id, client_secret, user_agent, api_delay
+        - token (with access_token, refresh_token, access_expires_at)
+        - hh_api (with base_url, timeout, etc.)
+        - telegram, ai, max, smtp (nested)
+
+        The new format is nested under section names (hh, telegram, etc.).
+        This method flattens the new format to match the old interface.
+        """
+        if self._cached_config is None:
+            app_config = self._config_handler.load(self._config_path)
+            new_format = app_config.to_dict()
+
+            # Flatten to old format
+            flat = {}
+
+            # HH config -> top level keys (legacy)
+            hh = new_format.get("hh", {})
+            if hh:
+                flat["client_id"] = hh.get("client_id")
+                flat["client_secret"] = hh.get("client_secret")
+                flat["user_agent"] = hh.get("user_agent")
+                flat["api_delay"] = hh.get("api_delay", 0.345)
+                flat["redirect_uri"] = hh.get("redirect_uri")
+                flat["scope"] = hh.get("scope")
+                # hh_api section for base_url, timeout
+                flat["hh_api"] = {
+                    "base_url": hh.get("base_url", "https://api.hh.ru"),
+                    "timeout": hh.get("timeout", 30),
+                }
+
+            # Telegram config
+            telegram = new_format.get("telegram", {})
+            if telegram:
+                flat["telegram"] = telegram
+
+            # AI config
+            ai = new_format.get("ai", {})
+            if ai:
+                flat["ai"] = ai
+                # Also support openai_cover_letter etc. as aliases
+                flat["openai_cover_letter"] = ai
+
+            # MAX config
+            max_cfg = new_format.get("max", {})
+            if max_cfg:
+                flat["max"] = max_cfg
+
+            # SMTP config
+            smtp = new_format.get("smtp", {})
+            if smtp:
+                flat["smtp"] = smtp
+
+            # Profiles
+            profiles = new_format.get("profiles", {})
+            if profiles:
+                flat["profiles"] = profiles
+
+            # Active profile
+            active_profile = new_format.get("active_profile")
+            if active_profile:
+                flat["active_profile"] = active_profile
+
+            # Token is not in AppConfig (handled by auth_handler)
+            # But we provide empty token dict for compatibility
+            flat["token"] = {}
+
+            self._cached_config = flat
+        return self._cached_config
+
+    def _invalidate_cache(self) -> None:
+        """Invalidate the cached config."""
+        self._cached_config = None
+
+    # Dict-like interface
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get a config value by key (supports nested keys with dots)."""
+        config = self._load_config()
+        # Handle nested keys like 'telegram.bot_token'
+        if "." in key:
+            parts = key.split(".")
+            value = config
+            for part in parts:
+                if isinstance(value, dict) and part in value:
+                    value = value[part]
+                else:
+                    return default
+            return value
+        return config.get(key, default)
+
+    def __getitem__(self, key: str) -> Any:
+        """Dict-style access."""
+        value = self.get(key)
+        if value is None and key not in self._load_config():
+            raise KeyError(key)
+        return value
+
+    def __contains__(self, key: str) -> bool:
+        """Check if key exists in config."""
+        config = self._load_config()
+        if "." in key:
+            parts = key.split(".")
+            value = config
+            for part in parts:
+                if isinstance(value, dict) and part in value:
+                    value = value[part]
+                else:
+                    return False
+            return True
+        return key in config
+
+    def __iter__(self):
+        """Iterate over config keys."""
+        return iter(self._load_config())
+
+    def __len__(self) -> int:
+        """Return number of top-level config keys."""
+        return len(self._load_config())
+
+    def __repr__(self) -> str:
+        """String representation."""
+        return f"_ConfigAdapter({self._config_path})"
+
+    # Config methods
+    def load(self) -> None:
+        """Reload config from disk (invalidates cache)."""
+        self._invalidate_cache()
+        self._load_config()
+
+    def save(self, **kwargs: Any) -> None:
+        """Save config updates to disk.
+
+        Accepts keyword arguments that can be either:
+        - Top-level keys: client_id, client_secret, etc.
+        - Nested dicts: telegram={'bot_token': '...'}, smtp={...}, etc.
+        """
+        # Load current config
+        app_config = self._config_handler.load(self._config_path)
+        current_dict = app_config.to_dict()
+
+        # Merge updates
+        for key, value in kwargs.items():
+            if (
+                isinstance(value, dict)
+                and key in current_dict
+                and isinstance(current_dict[key], dict)
+            ):
+                # Merge nested dict
+                current_dict[key].update(value)
+            else:
+                # Replace or add top-level key
+                current_dict[key] = value
+
+        # Convert back to AppConfig and save
+        from job_bot.config_auth.models.config import AppConfig
+
+        new_config = AppConfig.from_dict(current_dict)
+        self._config_handler.save(new_config, self._config_path, backup=True)
+        self._invalidate_cache()
+
+    # For compatibility with dict()
+    def keys(self):
+        return self._load_config().keys()
+
+    def values(self):
+        return self._load_config().values()
+
+    def items(self):
+        return self._load_config().items()
