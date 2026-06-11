@@ -214,13 +214,16 @@ class CommandHandler:
 
     def _status_text(self) -> str:
         try:
-            # Use the storage facade to keep the slice DB-agnostic.
-            from hh_applicant_tool.storage import StorageFacade
-
-            facade = StorageFacade(self._storage)  # type: ignore[arg-type]
-            negotiations_count = facade.negotiations.count_total()
-            skipped_count = facade.skipped_vacancies.count_total()
-            drafts_count = facade.application_drafts.count_total()
+            # The injected ``StoragePort`` already exposes the same
+            # repository properties (``negotiations``,
+            # ``skipped_vacancies``, ``application_drafts``) as the
+            # legacy ``StorageFacade``; use it directly instead of
+            # wrapping it again. Keeps the slice DB-agnostic and
+            # removes the ``# type: ignore[arg-type]`` on the facade
+            # constructor (issue #74).
+            negotiations_count = self._storage.negotiations.count_total()
+            skipped_count = self._storage.skipped_vacancies.count_total()
+            drafts_count = self._storage.application_drafts.count_total()
         except Exception:  # noqa: BLE001
             logger.exception("Failed to get statistics")
             return "❌ Не удалось получить статистику."
