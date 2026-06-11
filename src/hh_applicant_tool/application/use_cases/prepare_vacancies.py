@@ -97,6 +97,8 @@ class PrepareVacanciesUseCase:
         clock: "Clock | None" = None,
         # Vacancy search service (optional, for VSA wiring)
         vacancy_search_service_factory: Any = None,
+        # Application Prep service factory (VSA wiring, issue #54)
+        application_prep_service_factory: Any = None,
     ) -> None:
         self.api_client = api_client
         self.session = session
@@ -112,6 +114,13 @@ class PrepareVacanciesUseCase:
 
         # Внедрённый сервис поиска вакансов (VSA wiring)
         self._injected_vacancy_search_service_factory = vacancy_search_service_factory
+
+        # Внедрённый сервис подготовки черновиков (VSA wiring, issue #54)
+        # Когда задан — use case делегирует ``ApplicationsService.prepare_one``
+        # этому адаптеру (который внутри использует ``ApplicationPrepSlice``).
+        self._injected_application_prep_service_factory = (
+            application_prep_service_factory
+        )
 
         # Состояние, заполняемое в execute().
         self.command: PrepareVacanciesCommand | None = None
@@ -252,18 +261,26 @@ class PrepareVacanciesUseCase:
             f"→ резюме {resume.get('title')!r}"
         )
 
-        relevance = self._build_relevance_service(profile, resume)
-        cover_letter = CoverLetterService(
-            self.api_client,
-            self.cover_letter_ai,
-            template=self.letter_template,
-        )
-        vacancy_tests = VacancyTestsService(
-            self.session, self.test_ai or self.cover_letter_ai
-        )
-        applications = ApplicationsService(
-            self.storage, relevance, cover_letter, vacancy_tests
-        )
+        # VSA wiring (issue #54): if a new-style application prep service
+        # is injected, use it instead of building the legacy
+        # ``ApplicationsService`` + ``RelevanceService`` + ``CoverLetterService``
+        # trio. The adapter still writes to ``self.storage`` so downstream
+        # code keeps working.
+        if self._injected_application_prep_service_factory is not None:
+            applications = self._injected_application_prep_service_factory()
+        else:
+            relevance = self._build_relevance_service(profile, resume)
+            cover_letter = CoverLetterService(
+                self.api_client,
+                self.cover_letter_ai,
+                template=self.letter_template,
+            )
+            vacancy_tests = VacancyTestsService(
+                self.session, self.test_ai or self.cover_letter_ai
+            )
+            applications = ApplicationsService(
+                self.storage, relevance, cover_letter, vacancy_tests
+            )
 
         # ``search_params`` хранится в профиле; ``per_page``/``total_pages``
         # из команды имеют приоритет. Ключи ``per_page``/``total_pages``

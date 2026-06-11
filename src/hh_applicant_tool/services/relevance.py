@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import warnings
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -35,6 +36,10 @@ from ..api.errors import ApiError
 from ..utils.string import strip_tags
 
 logger = logging.getLogger(__package__)
+
+# Issue #54: RelevanceService is deprecated. The deprecation warning
+# is emitted on instantiation (not at import time) so that just
+# importing the module for re-exports doesn't pollute every test run.
 
 # Максимум попыток переспросить AI, если JSON невалидный
 MAX_RETRIES = 3
@@ -578,6 +583,13 @@ class RelevanceService:
         ai_failure_mode: str = "permissive",
         vacancy_fetcher: Any = None,
     ):
+        warnings.warn(
+            "RelevanceService is deprecated; use "
+            "job_bot.application_prep.handlers.RelevanceHandler instead "
+            "(issue #54).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if ai_failure_mode not in ("permissive", "strict", "raise"):
             raise ValueError(
                 f"ai_failure_mode must be 'permissive', 'strict', or 'raise', "

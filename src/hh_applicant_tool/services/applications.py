@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from typing import Any
 
 
@@ -26,6 +27,10 @@ from ..storage.repositories.errors import RepositoryError
 from .relevance import RelevanceService
 
 logger = logging.getLogger(__package__)
+
+# Issue #54: ApplicationsService is deprecated. The deprecation warning
+# is emitted on instantiation (not at import time) so that just
+# importing the module for re-exports doesn't pollute every test run.
 
 
 class ApplicationsService:
@@ -46,6 +51,13 @@ class ApplicationsService:
         cover_letter: Any | None = None,
         vacancy_tests: Any | None = None,
     ):
+        warnings.warn(
+            "ApplicationsService is deprecated; use "
+            "job_bot.application_prep.handlers.ApplicationHandler instead "
+            "(issue #54).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.storage = storage
         self.relevance = relevance
         self.cover_letter = cover_letter

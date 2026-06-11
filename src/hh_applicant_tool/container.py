@@ -52,6 +52,9 @@ class AppContainer:
         # Config Auth slice (VSA)
         self._config_auth_slice = None
         self._config_adapter = None
+        # Application Prep slice (VSA) — issue #54
+        self._application_prep_slice = None
+        self._application_prep_adapter = None
 
     # ─── Phase 2 port factories (lazy) ───────────────────────────
 
@@ -170,6 +173,84 @@ class AppContainer:
             )
         return self._config_adapter
 
+    # ─── Application Prep Slice (VSA) ──────────────────────────────
+
+    def _get_application_prep_slice(
+        self, cover_letter_ai: Any | None = None
+    ):
+        """Get or create the ApplicationPrepSlice instance (issue #54).
+
+        Args:
+            cover_letter_ai: AI client for cover-letter generation. Only
+                used on the first call (slice is memoised). If you need
+                a slice with a different AI client, invalidate
+                ``self._application_prep_slice`` first.
+        """
+        if self._application_prep_slice is None:
+            from job_bot.application_prep.slice import (
+                create_application_prep_slice,
+            )
+            from job_bot.shared.api.client import HHApiClient, HHApiConfig
+            from job_bot.shared.config.settings import Settings
+            from job_bot.shared.storage.database import create_database
+
+            tool = self._tool
+            config = tool.config
+            settings = Settings()
+            settings.database.path = tool.db_path
+
+            hh_config = config.get("hh_api", {})
+            settings.hh_api.base_url = hh_config.get(
+                "base_url", "https://api.hh.ru"
+            )
+            settings.hh_api.user_agent = hh_config.get(
+                "user_agent", "job_bot/0.1.0"
+            )
+            settings.hh_api.timeout = hh_config.get("timeout", 30)
+
+            api_config = HHApiConfig(
+                base_url=settings.hh_api.base_url,
+                user_agent=settings.hh_api.user_agent,
+                timeout=settings.hh_api.timeout,
+            )
+            api_client = HHApiClient(config=api_config)
+
+            self._application_prep_slice = create_application_prep_slice(
+                settings=settings,
+                database=create_database(settings.database.path),
+                api_client=api_client,
+                ai_client=cover_letter_ai,
+            )
+        return self._application_prep_slice
+
+    def create_application_prep_service(
+        self, cover_letter_ai: Any | None = None
+    ):
+        """Create an adapter that wraps the new ApplicationPrepSlice and
+        provides the old ``ApplicationsService``-style interface
+        (``prepare_one``) for use by ``PrepareVacanciesUseCase`` (issue #54).
+
+        The adapter still writes to the legacy storage facade so that
+        existing tests (and downstream code) that read from
+        ``storage.application_drafts`` / ``storage.application_test_answers``
+        keep working without migration.
+
+        Args:
+            cover_letter_ai: AI client used by the new
+                ``CoverLetterHandler`` for AI-generated letters. If ``None``
+                (the default), the slice uses template-based letters.
+                Passed through from ``prepare_vacancies_use_case`` so the
+                ``--use-ai`` CLI flag is honoured.
+        """
+        if self._application_prep_adapter is None:
+            self._application_prep_adapter = _ApplicationPrepAdapter(
+                slice=self._get_application_prep_slice(
+                    cover_letter_ai=cover_letter_ai
+                ),
+                storage=self._tool.storage,
+            )
+        return self._application_prep_adapter
+
     # ─── Use case factories ──────────────────────────────────────
 
     def apply_to_vacancies_use_case(
@@ -248,6 +329,15 @@ class AppContainer:
             vacancy_search_service_factory=lambda per_page,
             total_pages: self.create_vacancy_search_adapter(
                 per_page, total_pages
+            ),
+            # Application Prep service factory (VSA wiring, issue #54).
+            # The factory closes over ``cover_letter_ai`` so that the
+            # underlying ApplicationPrepSlice actually receives the AI
+            # client when ``--use-ai`` is passed on the CLI (without
+            # this, ``use_ai=True`` would be silently dropped because
+            # the adapter would build a no-AI slice).
+            application_prep_service_factory=lambda: self.create_application_prep_service(
+                cover_letter_ai=cover_letter_ai
             ),
         )
 
@@ -328,6 +418,168 @@ class _VacancySearchAdapter:
             total_pages=self._total_pages,
         )
         yield from service.search(search_params, resume_id=resume_id)
+
+
+class _ApplicationPrepAdapter:
+    """Adapter that wraps the new ``ApplicationPrepSlice`` and provides the
+    old ``ApplicationsService``-style interface for use by
+    ``PrepareVacanciesUseCase`` (issue #54).
+
+    The adapter is intentionally minimal: it forwards AI-filter and
+    cover-letter calls to the new slice's ports (``relevance`` /
+    ``cover_letters``) while continuing to write the resulting
+    ``ApplicationDraftModel`` to the legacy ``StorageFacade`` so that
+    downstream code (and the existing test suite) keeps working without
+    a storage migration.
+
+    The orchestration itself is intentionally a thin mirror of
+    :class:`hh_applicant_tool.services.applications.ApplicationsService.prepare_one`
+    — its single purpose is to prove that the new slice is actually
+    invoked at runtime in the prepare-vacancies pipeline (acceptance
+    criteria of issue #54).
+    """
+
+    def __init__(self, slice: Any, storage: Any) -> None:
+        self._slice = slice
+        self._storage = storage
+
+    def prepare_one(
+        self,
+        *,
+        resume: dict[str, Any],
+        vacancy: dict[str, Any],
+        search_profile: Any | None = None,
+        resume_analysis: str = "",
+        ai_filter_mode: str | None = None,
+        placeholders: dict[str, Any] | None = None,
+        force_message: bool = False,
+        response_url: str | None = None,
+    ) -> Any:
+        """Prepare a single application draft using the new slice.
+
+        Returns an ``ApplicationDraftModel`` (legacy model) saved into
+        the legacy storage, so that callers that re-read the draft via
+        ``storage.application_drafts`` keep working.
+        """
+        # Local import to avoid circular import at module-load time.
+        from hh_applicant_tool.storage.models.application_draft import (
+            ApplicationDraftModel,
+        )
+
+        resume_id = resume.get("id")
+        vacancy_id = vacancy.get("id")
+        employer = vacancy.get("employer") or {}
+        employer_id = employer.get("id")
+
+        # 1. AI relevance filtering (new slice port)
+        relevance_score: int | None = None
+        relevance_reason: str | None = None
+        analysis_json: dict | None = None
+        status = "prepared"
+
+        relevance = getattr(self._slice, "relevance", None)
+        if relevance is not None and ai_filter_mode in ("heavy", "light"):
+            if ai_filter_mode == "heavy":
+                result = relevance.is_suitable_heavy(vacancy)
+            else:
+                result = relevance.is_suitable_light(vacancy)
+            relevance_score = result.score
+            relevance_reason = result.reason
+            analysis_json = _analysis_to_dict(result)
+            if not result.suitable:
+                status = "rejected"
+
+        # If vacancy rejected by AI - save rejected-draft and exit
+        if status == "rejected":
+            draft = ApplicationDraftModel(
+                search_profile_id=(
+                    search_profile.id if search_profile else None
+                ),
+                resume_id=str(resume_id) if resume_id else "",
+                vacancy_id=int(vacancy_id) if vacancy_id else 0,
+                employer_id=int(employer_id) if employer_id else None,
+                status=status,
+                relevance_score=relevance_score,
+                relevance_reason=relevance_reason,
+                analysis_json=analysis_json,
+                full_vacancy_json=vacancy,
+                cover_letter=None,
+                cover_letter_status=None,
+                has_test=bool(vacancy.get("has_test")),
+                test_status=None,
+            )
+            self._storage.application_drafts.save(draft)
+            return draft
+
+        # 2. Cover letter generation (new slice port)
+        cover_letter: str | None = None
+        cover_letter_status: str | None = None
+        cover_letters = getattr(self._slice, "cover_letters", None)
+        if cover_letters is not None:
+            try:
+                cover_letter = cover_letters.generate_cover_letter(
+                    vacancy,
+                    placeholders or {},
+                    resume_analysis=resume_analysis,
+                    resume=resume,
+                    force=force_message,
+                    required_by_vacancy=bool(
+                        vacancy.get("response_letter_required")
+                    ),
+                )
+                cover_letter_status = "generated"
+            except Exception:
+                cover_letter_status = "failed"
+
+        # 3. Tests placeholder (handled by application_submit slice; we
+        #    only mirror the manual_required marker so the legacy
+        #    ApplicationDraftModel keeps the same surface).
+        has_test = bool(vacancy.get("has_test"))
+        test_status: str | None = None
+        if has_test and not response_url:
+            test_status = "manual_required"
+
+        # 4. Save draft to legacy storage
+        draft = ApplicationDraftModel(
+            search_profile_id=(
+                search_profile.id if search_profile else None
+            ),
+            resume_id=str(resume_id) if resume_id else "",
+            vacancy_id=int(vacancy_id) if vacancy_id else 0,
+            employer_id=int(employer_id) if employer_id else None,
+            status=status,
+            relevance_score=relevance_score,
+            relevance_reason=relevance_reason,
+            analysis_json=analysis_json,
+            full_vacancy_json=vacancy,
+            cover_letter=cover_letter,
+            cover_letter_status=cover_letter_status,
+            has_test=has_test,
+            test_status=test_status,
+        )
+        self._storage.application_drafts.save(draft)
+        return draft
+
+
+def _analysis_to_dict(result: Any) -> dict:
+    """Convert ``RelevanceResult`` (new slice model) to dict for
+    ``application_drafts.analysis_json`` (issue #54).
+
+    Duck-typed on purpose: accepts any object with ``suitable``/``score``/
+    ``reason``/``raw_response`` attributes, regardless of which model
+    class produced it.
+    """
+    out: dict = {"suitable": bool(getattr(result, "suitable", False))}
+    score = getattr(result, "score", None)
+    if score is not None:
+        out["score"] = score
+    reason = getattr(result, "reason", None)
+    if reason is not None:
+        out["reason"] = reason
+    raw = getattr(result, "raw_response", None)
+    if raw is not None:
+        out["raw_response"] = raw
+    return out
 
 
 class _ConfigAdapter:

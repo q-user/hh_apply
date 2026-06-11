@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import warnings
 from typing import TYPE_CHECKING, Any
 
 
@@ -25,6 +26,10 @@ if TYPE_CHECKING:
     from ..application.ports import VacancyDescriptionFetcherPort
 
 logger = logging.getLogger(__package__)
+
+# Issue #54: CoverLetterService is deprecated. The deprecation warning
+# is emitted on instantiation (not at import time) so that just
+# importing the module for re-exports doesn't pollute every test run.
 
 
 # Дефолтный шаблон (тот же, что был в apply_vacancies.Operation)
@@ -37,6 +42,13 @@ DEFAULT_LETTER_TEMPLATE = (
 
 class CoverLetterService:
     """Генерация сопроводительного письма (AI или шаблон).
+
+    .. deprecated::
+        Use :class:`job_bot.application_prep.handlers.CoverLetterHandler`
+        (or :attr:`job_bot.application_prep.slice.ApplicationPrepSlice.cover_letters`)
+        instead. This shim is kept for backward compatibility with
+        :class:`hh_applicant_tool.services.applications.ApplicationsService`
+        and will be removed in a future release (issue #54).
 
     Attributes:
         api_client: HH API клиент (deprecated, используйте vacancy_fetcher).
@@ -57,6 +69,13 @@ class CoverLetterService:
         template: str | None = None,
         vacancy_fetcher: "VacancyDescriptionFetcherPort | None" = None,
     ):
+        warnings.warn(
+            "CoverLetterService is deprecated; use "
+            "job_bot.application_prep.handlers.CoverLetterHandler instead "
+            "(issue #54).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.api_client = api_client
         self.ai_client = ai_client
         self.template = template or DEFAULT_LETTER_TEMPLATE
