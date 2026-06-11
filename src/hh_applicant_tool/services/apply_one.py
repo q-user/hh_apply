@@ -8,12 +8,24 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Any
 
 from ..storage.models.application_draft import ApplicationDraftModel
 
 if TYPE_CHECKING:
     from .apply_worker import ApplyOneDraftFn
+
+# Deprecation warning: the legacy ``services.apply_one`` is being replaced
+# by ``job_bot.application_submit.slice.ApplicationSubmitSlice.apply_one``
+# (issue #55). Kept callable for backward compatibility; new code should
+# construct :class:`ApplicationSubmitSlice` instead.
+warnings.warn(
+    "hh_applicant_tool.services.apply_one is deprecated; "
+    "use job_bot.application_submit.slice.ApplicationSubmitSlice.apply_one instead",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 def make_default_apply_one(

@@ -60,6 +60,9 @@ class AppContainer:
         # Application Prep slice (VSA) — issue #54
         self._application_prep_slice = None
         self._application_prep_adapter = None
+        # Application Submit slice (VSA) — issue #55
+        self._application_submit_slice = None
+        self._application_submit_adapter = None
 
     # ─── Phase 2 port factories (lazy) ───────────────────────────
 
@@ -255,6 +258,47 @@ class AppContainer:
                 storage=self._tool.storage,
             )
         return self._application_prep_adapter
+
+    # ─── Application Submit Slice (VSA) ────────────────────────
+
+    def _get_application_submit_slice(self):
+        """Get or create the ApplicationSubmitSlice instance (issue #55).
+
+        Wires the slice against the existing ``tool.session`` /
+        ``tool.api_client`` / ``tool.xsrf_token`` so the legacy and
+        VSA code paths share the same live connections (no extra
+        ``sqlite3.Connection`` is created).
+        """
+        if self._application_submit_slice is None:
+            from job_bot.application_submit.slice import (
+                create_application_submit_slice,
+            )
+
+            self._application_submit_slice = create_application_submit_slice(
+                storage_conn=self._tool.db,
+                api_client=self._tool.api_client,
+                session=self._tool.session,
+                xsrf_token=self._tool.xsrf_token,
+            )
+        return self._application_submit_slice
+
+    def create_application_submit_adapter(self):
+        """Create an adapter that wraps the new ``ApplicationSubmitSlice``
+        and provides the legacy ``apply_one(resume_id, vacancy_id, cover_letter)``
+        interface for use by ``ApplyToVacanciesUseCase`` (issue #55).
+
+        The adapter builds an ``ApplicationDraftModel`` from the legacy
+        ``params`` dict, saves it to the legacy storage, then delegates
+        the actual sending to the slice's :class:`ApplyOnePort`. Returns
+        ``True`` on success and ``False`` on ``FatalError`` /
+        ``RetryableError`` — matching the legacy boolean contract.
+        """
+        if self._application_submit_adapter is None:
+            self._application_submit_adapter = _ApplicationSubmitAdapter(
+                slice=self._get_application_submit_slice(),
+                storage=self._tool.storage,
+            )
+        return self._application_submit_adapter
 
     # ─── Use case factories ──────────────────────────────────────
 
@@ -620,6 +664,84 @@ class _ApplicationPrepAdapter:
         )
         self._storage.application_drafts.save(draft)
         return draft
+
+
+class _ApplicationSubmitAdapter:
+    """Adapter that wraps the new ``ApplicationSubmitSlice`` and provides
+    the legacy ``apply_one(resume_id, vacancy_id, cover_letter)``
+    interface for use by ``ApplyToVacanciesUseCase`` (issue #55).
+
+    Builds an ``ApplicationDraftModel`` from the legacy ``params`` dict,
+    saves it to the legacy storage facade, then delegates the actual
+    sending to the slice's :class:`ApplyOnePort`
+    (``slice.apply_one`` → :class:`ApplyOneHandler`). Translates the
+    slice's exception contract (``FatalError`` → ``False``,
+    ``RetryableError`` → ``False`` with warning) into the boolean
+    contract expected by the legacy ``_send_apply_request`` path.
+    """
+
+    def __init__(self, slice: Any, storage: Any) -> None:
+        self._slice = slice
+        self._storage = storage
+
+    def apply_one(
+        self,
+        *,
+        resume_id: str,
+        vacancy_id: str | int,
+        cover_letter: str = "",
+        vacancy: dict[str, Any] | None = None,
+        search_profile_id: int | None = None,
+    ) -> bool:
+        """Submit a single draft via the new slice.
+
+        Returns ``True`` on success, ``False`` on
+        :class:`RetryableError` (caller may retry). Re-raises
+        :class:`FatalError`, :class:`CaptchaRequired`,
+        :class:`LimitExceeded` and other :class:`ApiError` so the
+        surrounding ``_apply_to_resume`` loop's exception handlers
+        (limit-break, captcha-retry) fire — matches the legacy
+        ``api_client.post`` contract.
+        """
+        from hh_applicant_tool.storage.models.application_draft import (
+            ApplicationDraftModel,
+        )
+        from hh_applicant_tool.services.apply_worker import (
+            FatalError,
+            RetryableError,
+        )
+
+        draft = ApplicationDraftModel(
+            search_profile_id=search_profile_id,
+            resume_id=str(resume_id) if resume_id else "",
+            vacancy_id=int(vacancy_id) if vacancy_id else 0,
+            status="applied",
+            cover_letter=cover_letter,
+            full_vacancy_json=vacancy or {},
+            has_test=bool((vacancy or {}).get("has_test")),
+        )
+        if draft.hh_response_url is None:
+            draft.hh_response_url = f"https://hh.ru/vacancy/{draft.vacancy_id}"
+
+        try:
+            self._slice.apply_one(draft)
+        except FatalError:
+            # Re-raise: legacy contract re-raised FatalError / ApiError
+            # so the surrounding loop's exception handlers fire.
+            raise
+        except RetryableError as ex:
+            logger.warning(
+                "application_submit adapter: RetryableError: %s", ex
+            )
+            return False
+        except Exception:
+            # Unexpected — let the legacy path's broader catch handle it.
+            raise
+
+        # Save the draft once on success (no pre-save dead state).
+        self._storage.application_drafts.save(draft)
+        self._storage.application_drafts.commit()
+        return True
 
 
 def _analysis_to_dict(result: Any) -> dict:

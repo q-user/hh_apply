@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import socket
 import uuid
+import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -23,6 +24,17 @@ from ..telegram.transport import TelegramTransport, TelegramTransportError
 
 if TYPE_CHECKING:
     from ..application.ports import Clock, DelayPort
+
+# Deprecation warning: the legacy ``services.apply_worker`` is being
+# replaced by ``job_bot.application_submit.slice.ApplicationSubmitSlice.worker``
+# (issue #55). Kept callable for backward compatibility; new code should
+# construct :class:`ApplicationSubmitSlice` instead.
+warnings.warn(
+    "hh_applicant_tool.services.apply_worker is deprecated; "
+    "use job_bot.application_submit.slice.ApplicationSubmitSlice.worker instead",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 logger = logging.getLogger(__package__)
 

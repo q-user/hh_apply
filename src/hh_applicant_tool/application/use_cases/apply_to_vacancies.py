@@ -123,6 +123,8 @@ class ApplyToVacanciesUseCase:
         test_logger: "TestVacancyLoggerPort | None" = None,
         # Vacancy search service (optional, for VSA wiring)
         vacancy_search_service_factory: Any = None,
+        # Application submit adapter (optional, for VSA wiring — issue #55)
+        application_submit_adapter: Any = None,
     ) -> None:
         self.api_client = api_client
         self.session = session
@@ -153,6 +155,11 @@ class ApplyToVacanciesUseCase:
 
         # Внедрённый сервис поиска вакансов (VSA wiring)
         self._injected_vacancy_search_service_factory = vacancy_search_service_factory
+
+        # Внедрённый адаптер отправки откликов (VSA wiring, issue #55).
+        # Если не передан — используется legacy-путь в
+        # :meth:`_send_apply_request` (прямой ``api_client.post``).
+        self._application_submit_adapter = application_submit_adapter
 
         # Кеш/инструменты.
         self.json_decoder = JSONDecoder()
@@ -807,6 +814,25 @@ class ApplyToVacanciesUseCase:
         """
         if self.command.dry_run:  # type: ignore[union-attr]
             return False
+        # VSA wiring (issue #55): если в use case инжектирован адаптер
+        # нового ``ApplicationSubmitSlice`` — делегируем отправку ему.
+        # Fallback на legacy ``api_client.post`` ниже — для обратной
+        # совместимости с конфигурациями, где слайс ещё не подключён.
+        if self._application_submit_adapter is not None:
+            try:
+                return self._application_submit_adapter.apply_one(
+                    resume_id=params["resume_id"],
+                    vacancy_id=params["vacancy_id"],
+                    cover_letter=params.get("message", ""),
+                    vacancy=vacancy,
+                )
+            except Exception as ex:  # noqa: BLE001
+                # Адаптер упал — не валим рассылку, логируем и идём
+                # по legacy-пути (как и было до подключения VSA).
+                logger.warning(
+                    "application_submit adapter failed, falling back to "
+                    "legacy api_client.post: %s", ex,
+                )
         try:
             res = self.api_client.post(
                 "/negotiations",

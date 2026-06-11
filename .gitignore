@@ -70,3 +70,5 @@ data/
 *.sqlite
 *.sqlite3
 *.db
+MagicMock/
+logs/
