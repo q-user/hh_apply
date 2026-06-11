@@ -826,9 +826,11 @@ class ApplyToVacanciesUseCase:
                     cover_letter=params.get("message", ""),
                     vacancy=vacancy,
                 )
-            except Exception as ex:  # noqa: BLE001
-                # Адаптер упал — не валим рассылку, логируем и идём
-                # по legacy-пути (как и было до подключения VSA).
+            except ApiError as ex:
+                # Адаптер упал с API-ошибкой — не валим рассылку, логируем
+                # и идём по legacy-пути (как и было до подключения VSA).
+                # Программные ошибки (ValueError, AttributeError, ...) — пусть
+                # пропагируются: это баги адаптера, а не runtime-фейлы HH.
                 logger.warning(
                     "application_submit adapter failed, falling back to "
                     "legacy api_client.post: %s", ex,
