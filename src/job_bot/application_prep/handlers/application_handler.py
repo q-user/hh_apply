@@ -95,7 +95,7 @@ class ApplicationHandler:
         # 1. AI relevance filtering (if enabled)
         relevance_score: int | None = None
         relevance_reason: str | None = None
-        analysis_json: dict | None = None
+        analysis_json: dict[str, Any] | None = None
         status = "prepared"
 
         relevance_result: RelevanceResult | None = None
@@ -248,13 +248,13 @@ class ApplicationHandler:
         return self._draft_repo.delete(draft_id)
 
 
-def _analysis_to_dict(result: Any) -> dict:
+def _analysis_to_dict(result: Any) -> dict[str, Any]:
     """Convert RelevanceResult to dict for analysis_json.
 
     Doesn't import RelevanceResult directly to avoid circular dependencies
     and accept any duck-typed object (dataclass / NamedTuple).
     """
-    out: dict = {"suitable": bool(getattr(result, "suitable", False))}
+    out: dict[str, Any] = {"suitable": bool(getattr(result, "suitable", False))}
     score = getattr(result, "score", None)
     if score is not None:
         out["score"] = score

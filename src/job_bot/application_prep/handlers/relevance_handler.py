@@ -58,6 +58,22 @@ class RelevanceHandler:
         # Cache for heavy resume analysis
         self._resume_analysis_cache: dict[tuple[str | None, str], str] = {}
 
+    @property
+    def ai_client(self) -> "AIClient | None":
+        """Currently configured AI client (``None`` disables filtering).
+
+        Issue #54: the per-profile filter AI client is set via this
+        property by ``PrepareVacanciesUseCase`` so that the new
+        ``ApplicationPrepSlice`` path (which doesn't rebuild the handler
+        per profile) can still inject the system-prompted AI client
+        created by ``vacancy_filter_ai_factory``.
+        """
+        return self._ai_client
+
+    @ai_client.setter
+    def ai_client(self, value: "AIClient | None") -> None:
+        self._ai_client = value
+
     # ─── Resume analysis (with cache) ─────────────────────────
 
     def analyze_resume_heavy(self, resume: dict[str, Any]) -> str:
@@ -462,7 +478,7 @@ def parse_ai_json_response(response: str) -> RelevanceResult | None:
     return None
 
 
-def _result_from_dict(data: dict, raw: str) -> RelevanceResult:
+def _result_from_dict(data: dict[str, Any], raw: str) -> RelevanceResult:
     """Build RelevanceResult from AI response dict.
 
     Legacy field score is treated as alias relevance_score (issue #4).

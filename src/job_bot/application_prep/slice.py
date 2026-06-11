@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from job_bot.application_prep.handlers.application_handler import (
     ApplicationHandler,
@@ -25,6 +25,7 @@ from job_bot.shared.storage.database import Database, create_database
 
 if TYPE_CHECKING:
     from job_bot.shared.ai.client import AIClient, AIConfig
+    from job_bot.vacancy_search.ports.vacancy_port import VacancyPort
 
 
 class ApplicationPrepSlice:
@@ -42,10 +43,10 @@ class ApplicationPrepSlice:
         api_client: HHApiClient | None = None,
         ai_client: "AIClient | None" = None,
         *,
-        relevance_rules: dict | None = None,
+        relevance_rules: dict[str, Any] | None = None,
         ai_failure_mode: str = "permissive",
         cover_letter_template: str | None = None,
-        vacancy_port=None,
+        vacancy_port: "VacancyPort | None" = None,
     ) -> None:
         self._database = database
         self._api_client = api_client or HHApiClient()
@@ -111,10 +112,10 @@ def create_application_prep_slice(
     ai_client: "AIClient | None" = None,
     ai_config: "AIConfig | None" = None,
     *,
-    relevance_rules: dict | None = None,
+    relevance_rules: dict[str, Any] | None = None,
     ai_failure_mode: str = "permissive",
     cover_letter_template: str | None = None,
-    vacancy_port=None,
+    vacancy_port: "VacancyPort | None" = None,
 ) -> ApplicationPrepSlice:
     """Factory function to create an ApplicationPrepSlice.
 

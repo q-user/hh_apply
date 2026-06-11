@@ -11,6 +11,9 @@ import logging
 from typing import Any
 
 from hh_applicant_tool.telegram.transport import TelegramTransportError
+from job_bot.shared.storage.ports import StoragePort
+from job_bot.telegram_bot.ports.review_port import ReviewFlowPort
+from job_bot.telegram_bot.ports.transport_port import TelegramTransportPort
 
 logger = logging.getLogger(__package__)
 
@@ -21,9 +24,9 @@ class ReviewHandler:
     def __init__(
         self,
         *,
-        storage: Any,
-        transport: Any,
-        review_service: Any,
+        storage: StoragePort,
+        transport: TelegramTransportPort,
+        review_service: ReviewFlowPort,
     ) -> None:
         self._storage = storage
         self._transport = transport
@@ -42,20 +45,15 @@ class ReviewHandler:
         return messages
 
     def resume_session(self, chat_id: int) -> list[Any]:
-        """Resume a session for ``chat_id`` (used on bot startup)."""
+        """Resume a paused session and ship any pending messages."""
         messages = self._review.resume_session(chat_id)
         self._deliver(messages)
         return messages
 
-    # ─── Internal ─────────────────────────────────────────────
-
     def _deliver(self, messages: list[Any]) -> None:
+        """Ship all outgoing messages via the transport."""
         for msg in messages:
-            text = getattr(msg, "text", "")
-            chat_id = getattr(msg, "chat_id", None)
-            if chat_id is None:
-                continue
             try:
-                self._transport.send_message(chat_id, text)
+                self._transport.send_message(msg.chat_id, msg.text)
             except TelegramTransportError as exc:
-                logger.error("Failed to send review message: %s", exc)
+                logger.error("Failed to send message: %s", exc)

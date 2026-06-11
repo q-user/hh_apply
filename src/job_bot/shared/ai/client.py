@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-import openai
+if TYPE_CHECKING:
+    import openai
+    from openai.types.chat import (
+        ChatCompletionMessageParam,
+    )
 
 
 @dataclass
@@ -38,7 +43,7 @@ class AIClient:
         max_tokens: int | None = None,
     ) -> str:
         """Generate completion for a prompt."""
-        messages = []
+        messages: list[ChatCompletionMessageParam] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
@@ -59,7 +64,7 @@ class AIClient:
         max_tokens: int | None = None,
     ) -> str:
         """Generate completion for a prompt (async)."""
-        messages = []
+        messages: list[ChatCompletionMessageParam] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
