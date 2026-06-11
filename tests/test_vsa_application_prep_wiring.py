@@ -500,10 +500,13 @@ class TestPerProfileAIInjection:
         finally:
             _safe_unlink(db_path)
 
-    def test_prepare_filter_ai_client_no_mode_returns_none(self):
+    def test_prepare_filter_ai_client_no_ai_filter_mode_returns_none(self):
         """If ``ai_filter_mode`` is ``None`` (or empty), no AI client is
         built and the relevance handler is explicitly cleared (real
-        handler assertion)."""
+        handler assertion).
+
+        Name per polish item #2 (issue #54).
+        """
         from hh_applicant_tool.container import AppContainer
         from job_bot.application_prep.handlers.relevance_handler import (
             RelevanceHandler,
@@ -536,13 +539,9 @@ class TestPerProfileAIInjection:
         finally:
             _safe_unlink(db_path)
 
-    def test_prepare_filter_ai_client_no_ai_filter_mode_returns_none(self):
+    def test_prepare_filter_ai_client_no_factory_returns_none(self):
         """If ``factory`` is ``None``, no AI client is built and the
-        relevance handler is explicitly cleared (real handler).
-
-        Renamed from ``test_prepare_filter_ai_client_no_factory_returns_none``
-        per polish item #2 (issue #54).
-        """
+        relevance handler is explicitly cleared (real handler)."""
         from hh_applicant_tool.container import AppContainer
         from job_bot.application_prep.handlers.relevance_handler import (
             RelevanceHandler,

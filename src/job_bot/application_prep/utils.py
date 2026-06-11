@@ -13,7 +13,6 @@ import logging
 from typing import Any, Callable
 
 from job_bot.application_prep.handlers.relevance_handler import (
-    AIError,
     build_filter_system_prompt_heavy,
     build_filter_system_prompt_light,
 )
@@ -118,7 +117,7 @@ def build_filter_ai_client(
 
     try:
         ai_client = factory(system_prompt)
-    except (ValueError, TypeError, AIError, RuntimeError) as ex:
+    except (ValueError, TypeError, RuntimeError) as ex:
         logger.warning("Не удалось создать AI-клиент фильтра: %s", ex)
         relevance_obj.ai_client = None
         return None
