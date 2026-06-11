@@ -19,6 +19,10 @@ Public API::
 
 from __future__ import annotations
 
+from job_bot.telegram_bot.adapter import (
+    TelegramBotAdapter,
+    create_telegram_bot_adapter,
+)
 from job_bot.telegram_bot.handlers.command_handler import CommandHandler
 from job_bot.telegram_bot.handlers.digest_handler import DigestHandler
 from job_bot.telegram_bot.handlers.review_handler import ReviewHandler
@@ -38,6 +42,9 @@ __all__ = [
     "create_telegram_bot_slice",
     # Service
     "BotService",
+    # Adapter (operation-facing)
+    "TelegramBotAdapter",
+    "create_telegram_bot_adapter",
     # Handlers
     "CommandHandler",
     "DigestHandler",

@@ -1,14 +1,20 @@
-"""Тесты CLI-операции ``telegram-bot`` (issue #7).
+"""Tests for the CLI ``telegram-bot`` operation (issue #7; rewritten on
+top of the VSA ``TelegramBotSlice`` in issue #56).
 
-Покрывает:
-* CLI-флаги ``--once`` и ``--send-digest-now`` (argparse);
-* новые команды ``/stats``, ``/review``, ``/cancel``;
-* режим ``--once`` (один цикл polling → выход);
-* флаг ``--send-digest-now`` (force=True → реальный ``send``);
-* идемпотентность дайджеста (повторный ``send`` в тот же день — no-op).
+Covers the CLI surface that the ``Operation`` class still owns:
+  * argparse flags ``--once`` and ``--send-digest-now``;
+  * the ``--once`` polling cycle (one batch, then exit);
+  * the ``--send-digest-now`` flag (forces ``send(force=True)`` on the
+    slice's daily-digest service);
+  * idempotency of the daily digest (re-calls within the same day are
+    a no-op);
+  * the time-of-day gate (no ``send()`` before ``daily_digest_time``);
+  * missing bot_token → exit code 1.
 
-``DailyDigestService`` инжектируется через ``Operation._digest_service``,
-чтобы не дёргать реальный ``TelegramTransport`` и не упираться в сеть.
+The Operation no longer owns command routing or reply building — those
+are owned by ``job_bot.telegram_bot.handlers.CommandHandler`` and
+covered by ``tests/test_telegram_bot.py``. Here we only test the
+``Operation`` shell.
 """
 
 from __future__ import annotations
@@ -16,30 +22,27 @@ from __future__ import annotations
 import argparse
 import sqlite3
 from datetime import datetime
+from typing import Any
 from unittest.mock import MagicMock, Mock
 
 import pytest
 
 from hh_applicant_tool.operations.telegram_bot import Operation
-from hh_applicant_tool.services.daily_digest import DigestResult, DraftGroup
+from hh_applicant_tool.services.daily_digest import DigestResult
 from hh_applicant_tool.storage.facade import StorageFacade
-from hh_applicant_tool.storage.models.application_draft import (
-    ApplicationDraftModel,
-)
-from hh_applicant_tool.storage.models.search_profile import SearchProfileModel
 from hh_applicant_tool.telegram.transport import (
     TelegramTransport,
     TelegramTransportConfig,
 )
 
-# ─── Хелперы ─────────────────────────────────────────────────────────
+# ─── Helpers ─────────────────────────────────────────────────────────
 
 
 def _make_transport(
     allowed: tuple[int, ...] = (123,),
     updates: list | None = None,
 ) -> TelegramTransport:
-    """Реальный ``TelegramTransport`` без сети; ``get_updates`` мокается."""
+    """Build a real ``TelegramTransport``; ``get_updates`` is mocked."""
     config = TelegramTransportConfig(
         bot_token="test-token",
         poll_timeout=30,
@@ -51,99 +54,26 @@ def _make_transport(
     return transport
 
 
-@pytest.fixture
-def mock_telegram_transport(monkeypatch: pytest.MonkeyPatch):
-    """Подменяет ``TelegramTransport`` в модуле бота на мок.
-
-    Нужно для тестов ``Operation.run``: бот сам инстанцирует
-    ``TelegramTransport(config=...)``, и без подмены класса мы улетим
-    в реальный HTTP-вызов.
-    """
-    from hh_applicant_tool.operations import telegram_bot as bot_mod
-
-    created: list[MagicMock] = []
-
-    def _factory(*, config):  # noqa: ARG001
-        mock = MagicMock(spec=TelegramTransport)
-        mock.config = config
-        mock.allowed_user_ids = config.allowed_user_ids
-        mock.poll_timeout = config.poll_timeout
-        mock.get_updates = Mock(return_value=[])
-        mock.send_message = Mock()
-        created.append(mock)
-        return mock
-
-    monkeypatch.setattr(bot_mod, "TelegramTransport", _factory)
-    return created
-
-
-def _build_tool(
-    storage_conn: sqlite3.Connection,
+def _make_tool(
+    storage_conn: sqlite3.Connection | None = None,
     *,
-    digest_chat_id: int = 42,
     digest_time: str = "10:00",
     bot_token: str = "test-token",
 ) -> MagicMock:
-    """Минимальный мок ``HHApplicantTool``.
-
-    ``.config`` — обычный dict (как и в проде: ``Config(dict-subclass)``),
-    ``.storage`` — настоящая :class:`StorageFacade` поверх фикстуры.
-    """
+    """Build a minimal mock ``HHApplicantTool``."""
     tool = MagicMock()
     tool.config = {
         "telegram": {
             "bot_token": bot_token,
             "poll_timeout": 30,
             "allowed_user_ids": [123],
-            "digest_chat_id": digest_chat_id,
+            "digest_chat_id": 42,
             "daily_digest_time": digest_time,
         },
     }
-    tool.storage = StorageFacade(storage_conn)
+    if storage_conn is not None:
+        tool.storage = StorageFacade(storage_conn)
     return tool
-
-
-def _save_profile(facade: StorageFacade, pid: str, name: str) -> None:
-    facade.search_profiles.save(
-        SearchProfileModel(
-            id=pid,
-            name=name,
-            resume_id="r1",
-            enabled=True,
-        ),
-    )
-
-
-def _save_draft(
-    facade: StorageFacade,
-    *,
-    profile_id: str | None,
-    vacancy_id: int,
-    has_test: bool = False,
-    relevance_score: int | None = None,
-    status: str = "prepared",
-) -> None:
-    facade.application_drafts.save(
-        ApplicationDraftModel(
-            search_profile_id=profile_id,
-            resume_id="r1",
-            vacancy_id=vacancy_id,
-            status=status,
-            has_test=has_test,
-            relevance_score=relevance_score,
-        ),
-    )
-
-
-def _make_update(text: str, user_id: int = 123, chat_id: int = 456) -> dict:
-    return {
-        "update_id": 1,
-        "message": {
-            "from": {"id": user_id},
-            "chat": {"id": chat_id},
-            "text": text,
-        },
-    }
 
 
 def _make_digest_mock(
@@ -151,10 +81,8 @@ def _make_digest_mock(
     sent: bool = True,
     total_drafts: int = 0,
     skipped_reason: str | None = None,
-    groups: list[DraftGroup] | None = None,
-    already_sent: bool = False,
 ) -> MagicMock:
-    """Мок ``DailyDigestService`` с дефолтным поведением."""
+    """Build a mock digest service with the legacy boolean contract."""
     digest = MagicMock()
     digest.send.return_value = DigestResult(
         sent=sent,
@@ -162,33 +90,65 @@ def _make_digest_mock(
         total_drafts=total_drafts,
         message="",
     )
-    digest.collect_groups.return_value = groups if groups is not None else []
-    digest.already_sent_today.return_value = already_sent
     return digest
 
 
-def _build_op_with_real_digest(
-    storage: sqlite3.Connection,
-) -> Operation:
-    """Операция с настоящим ``DailyDigestService`` поверх in-memory БД.
+def _make_bot_adapter(
+    *,
+    updates: list | None = None,
+    digest: MagicMock | None = None,
+    transport: TelegramTransport | None = None,
+) -> Any:
+    """Build a stub ``TelegramBotAdapter`` with the operation-facing surface.
 
-    Удобно для тестов, где хочется видеть реальные данные из ``collect_groups``
-    (без ручного заполнения ``DraftGroup``).
+    Returns an object with ``.transport``, ``.dispatch_update`` and
+    ``.send_digest`` so the ``Operation`` can run without touching the
+    real ``AppContainer`` / ``TelegramBotSlice``.
     """
-    op = Operation()
-    transport = _make_transport()
-    op._digest_service = op._build_digest_service(  # type: ignore[attr-defined]
-        _build_tool(storage),
-        transport,
+    if transport is None:
+        transport = _make_transport(
+            updates=updates if updates is not None else []
+        )
+    adapter = MagicMock()
+    adapter.transport = transport
+    adapter.dispatch_update = MagicMock()
+    adapter.send_digest = MagicMock(
+        return_value=(
+            digest.send.return_value
+            if digest is not None
+            else DigestResult(
+                sent=False, skipped_reason="no-op", total_drafts=0, message=""
+            )
+        ),
     )
-    return op
+    return adapter
 
 
-# ─── CLI: парсинг аргументов ─────────────────────────────────────────
+def _make_args(
+    *,
+    once: bool = False,
+    send_digest_now: bool = False,
+) -> argparse.Namespace:
+    """Build an ``argparse.Namespace`` for ``Operation.run``."""
+    return argparse.Namespace(
+        once=once,
+        send_digest_now=send_digest_now,
+        profile_id="default",
+        config_dir=None,
+        verbosity=0,
+        api_delay=None,
+        user_agent=None,
+        proxy_url=None,
+        openai_proxy_url=None,
+        operation_run=None,
+    )
+
+
+# ─── CLI: argument parsing ───────────────────────────────────────────
 
 
 class _ParserHost:
-    """Минимальный хост для :meth:`Operation.setup_parser`."""
+    """Minimal host for :meth:`Operation.setup_parser`."""
 
     def __init__(self) -> None:
         self.parser = argparse.ArgumentParser()
@@ -196,338 +156,101 @@ class _ParserHost:
 
 
 def test_cli_flag_once_is_store_true() -> None:
-    """``--once`` — булев флаг, по умолчанию False."""
+    """``--once`` is a boolean flag, default ``False``."""
     host = _ParserHost()
-    args = host.parser.parse_args([])
-    assert args.once is False
-
-    args = host.parser.parse_args(["--once"])
-    assert args.once is True
+    assert host.parser.parse_args([]).once is False
+    assert host.parser.parse_args(["--once"]).once is True
 
 
 def test_cli_flag_send_digest_now_is_store_true() -> None:
-    """``--send-digest-now`` — булев флаг, по умолчанию False."""
+    """``--send-digest-now`` is a boolean flag, default ``False``."""
     host = _ParserHost()
-    args = host.parser.parse_args([])
-    assert args.send_digest_now is False
-
-    args = host.parser.parse_args(["--send-digest-now"])
-    assert args.send_digest_now is True
+    assert host.parser.parse_args([]).send_digest_now is False
+    assert host.parser.parse_args(["--send-digest-now"]).send_digest_now is True
 
 
 def test_cli_flags_can_be_combined() -> None:
-    """``--once`` и ``--send-digest-now`` совместимы (cron-кейс)."""
+    """``--once`` and ``--send-digest-now`` compose (cron use case)."""
     host = _ParserHost()
     args = host.parser.parse_args(["--once", "--send-digest-now"])
     assert args.once is True
     assert args.send_digest_now is True
 
 
-# ─── /stats ───────────────────────────────────────────────────────────
+# ─── --once: one polling cycle and exit ──────────────────────────────
 
 
-def test_stats_command_shows_grouped_counts(
-    storage: sqlite3.Connection,
-) -> None:
-    """``/stats`` возвращает отформатированный счётчик по профилям."""
-    facade = StorageFacade(storage)
-    _save_profile(facade, "p1", "Python Backend")
-    _save_profile(facade, "p2", "Data Engineer")
-    _save_draft(facade, profile_id="p1", vacancy_id=1, has_test=True)
-    _save_draft(facade, profile_id="p1", vacancy_id=2, has_test=False)
-    _save_draft(facade, profile_id="p2", vacancy_id=3, has_test=False)
+def test_once_mode_exits_after_one_cycle(storage: sqlite3.Connection) -> None:
+    """``--once`` runs one batch and returns 0; ``get_updates`` once."""
+    adapter = _make_bot_adapter(updates=[])
+    op = Operation(bot_adapter=adapter)
 
-    op = _build_op_with_real_digest(storage)
-    transport = _make_transport()
-    transport.send_message = Mock()  # type: ignore[method-assign]
-    tool = _build_tool(storage)
-
-    op._handle_update(  # type: ignore[attr-defined]
-        _make_update("/stats"),
-        transport,
-        tool,
-    )
-
-    transport.send_message.assert_called_once()  # type: ignore[unused-coroutine]
-    text = transport.send_message.call_args[0][1]  # type: ignore[attr-defined]
-    assert "Черновики к ревью: 3" in text
-    assert "Python Backend: 2" in text
-    assert "Data Engineer: 1" in text
-    assert "с тестами: 1" in text
-    assert "без: 1" in text
-
-
-def test_stats_command_when_no_drafts(storage: sqlite3.Connection) -> None:
-    """Пустая БД → короткое сообщение «нет черновиков»."""
-    op = _build_op_with_real_digest(storage)
-    transport = _make_transport()
-    transport.send_message = Mock()  # type: ignore[method-assign]
-    tool = _build_tool(storage)
-
-    op._handle_update(  # type: ignore[attr-defined]
-        _make_update("/stats"),
-        transport,
-        tool,
-    )
-
-    transport.send_message.assert_called_once()  # type: ignore[unused-coroutine]
-    text = transport.send_message.call_args[0][1]  # type: ignore[attr-defined]
-    assert "Нет подготовленных черновиков" in text
-
-
-def test_stats_command_handles_digest_service_failure(
-    storage: sqlite3.Connection,
-) -> None:
-    """Падение ``collect_groups`` не валит бот — отвечаем «❌ …»."""
-    op = Operation()
-    digest = MagicMock()
-    digest.collect_groups.side_effect = RuntimeError("DB is on fire")
-    op._digest_service = digest  # type: ignore[attr-defined]
-
-    transport = _make_transport()
-    transport.send_message = Mock()  # type: ignore[method-assign]
-    tool = _build_tool(storage)
-
-    op._handle_update(  # type: ignore[attr-defined]
-        _make_update("/stats"),
-        transport,
-        tool,
-    )
-
-    transport.send_message.assert_called_once()  # type: ignore[unused-coroutine]
-    text = transport.send_message.call_args[0][1]  # type: ignore[attr-defined]
-    assert "Не удалось получить статистику черновиков" in text
-
-
-def test_stats_command_without_digest_service(
-    storage: sqlite3.Connection,
-) -> None:
-    """Без инжектированного ``_digest_service`` сообщаем об ошибке."""
-    op = Operation()  # _digest_service == None
-    transport = _make_transport()
-    transport.send_message = Mock()  # type: ignore[method-assign]
-    tool = _build_tool(storage)
-
-    op._handle_update(  # type: ignore[attr-defined]
-        _make_update("/stats"),
-        transport,
-        tool,
-    )
-
-    transport.send_message.assert_called_once()  # type: ignore[unused-coroutine]
-    text = transport.send_message.call_args[0][1]  # type: ignore[attr-defined]
-    assert "Сервис дайджеста не инициализирован" in text
-
-
-# ─── /review и /cancel (плейсхолдеры) ───────────────────────────────
-
-
-def test_review_command_returns_placeholder(
-    storage: sqlite3.Connection,
-) -> None:
-    """``/review`` отвечает заглушкой (полный flow — issue #9)."""
-    op = _build_op_with_real_digest(storage)
-    transport = _make_transport()
-    transport.send_message = Mock()  # type: ignore[method-assign]
-    tool = _build_tool(storage)
-
-    op._handle_update(  # type: ignore[attr-defined]
-        _make_update("/review"),
-        transport,
-        tool,
-    )
-
-    transport.send_message.assert_called_once()  # type: ignore[unused-coroutine]
-    text = transport.send_message.call_args[0][1]  # type: ignore[attr-defined]
-    assert "Review-флоу появится позже" in text
-    assert "issue #9" in text
-
-
-def test_cancel_command_returns_placeholder(
-    storage: sqlite3.Connection,
-) -> None:
-    """``/cancel`` отвечает той же заглушкой (отмена появится в issue #9)."""
-    op = _build_op_with_real_digest(storage)
-    transport = _make_transport()
-    transport.send_message = Mock()  # type: ignore[method-assign]
-    tool = _build_tool(storage)
-
-    op._handle_update(  # type: ignore[attr-defined]
-        _make_update("/cancel"),
-        transport,
-        tool,
-    )
-
-    transport.send_message.assert_called_once()  # type: ignore[unused-coroutine]
-    text = transport.send_message.call_args[0][1]  # type: ignore[attr-defined]
-    assert "Review-флоу появится позже" in text
-    assert "issue #9" in text
-
-
-def test_help_lists_new_commands(storage: sqlite3.Connection) -> None:
-    """``/help`` упоминает ``/stats``, ``/review``, ``/cancel``."""
-    op = _build_op_with_real_digest(storage)
-    transport = _make_transport()
-    transport.send_message = Mock()  # type: ignore[method-assign]
-    tool = _build_tool(storage)
-
-    op._handle_update(  # type: ignore[attr-defined]
-        _make_update("/help"),
-        transport,
-        tool,
-    )
-
-    transport.send_message.assert_called_once()  # type: ignore[unused-coroutine]
-    text = transport.send_message.call_args[0][1]  # type: ignore[attr-defined]
-    assert "/stats" in text
-    assert "/review" in text
-    assert "/cancel" in text
-
-
-# ─── Режим --once: один цикл и выход ────────────────────────────────
-
-
-def test_once_mode_exits_after_one_cycle(
-    storage: sqlite3.Connection,
-    mock_telegram_transport: list[MagicMock],
-) -> None:
-    """``--once`` обрабатывает один batch и возвращает 0; ``get_updates``
-    дёргается ровно один раз."""
-    op = Operation()
-    op._digest_service = _make_digest_mock(sent=True, total_drafts=5)  # type: ignore[attr-defined]
-
-    tool = _build_tool(storage)
-    args = argparse.Namespace(
-        once=True,
-        send_digest_now=False,
-        profile_id="default",
-        config_dir=None,
-        verbosity=0,
-        api_delay=None,
-        user_agent=None,
-        proxy_url=None,
-        openai_proxy_url=None,
-        operation_run=None,
-    )
-
-    rc = op.run(tool, args)  # type: ignore[arg-type]
+    tool = _make_tool(storage)
+    rc = op.run(tool, _make_args(once=True))  # type: ignore[arg-type]
 
     assert rc == 0
-    assert len(mock_telegram_transport) == 1
-    transport = mock_telegram_transport[0]
-    transport.get_updates.assert_called_once()  # type: ignore[unused-coroutine]
+    adapter.transport.get_updates.assert_called_once()  # type: ignore[attr-defined]
+    adapter.dispatch_update.assert_not_called()  # empty batch
 
 
-def test_once_mode_calls_digest_send(
-    storage: sqlite3.Connection,
-    mock_telegram_transport: list[MagicMock],
-) -> None:
-    """``--once`` запускает ровно одну проверку дайджеста."""
-    op = Operation()
-    digest = _make_digest_mock(sent=True, total_drafts=7)
-    op._digest_service = digest  # type: ignore[attr-defined]
+def test_once_mode_dispatches_each_update(storage: sqlite3.Connection) -> None:
+    """``--once`` dispatches every update from the polling batch."""
+    updates = [
+        {"update_id": 1, "message": {"text": "/start"}},
+        {"update_id": 2, "message": {"text": "/help"}},
+    ]
+    adapter = _make_bot_adapter(updates=updates)
+    op = Operation(bot_adapter=adapter)
 
-    tool = _build_tool(storage, digest_time="00:00")
-    args = argparse.Namespace(
-        once=True,
-        send_digest_now=False,
-        profile_id="default",
-        config_dir=None,
-        verbosity=0,
-        api_delay=None,
-        user_agent=None,
-        proxy_url=None,
-        openai_proxy_url=None,
-        operation_run=None,
-    )
+    tool = _make_tool(storage)
+    rc = op.run(tool, _make_args(once=True))  # type: ignore[arg-type]
 
-    op.run(tool, args)  # type: ignore[arg-type]
-
-    digest.send.assert_called_once()  # type: ignore[unused-coroutine]
+    assert rc == 0
+    assert adapter.dispatch_update.call_count == 2  # type: ignore[attr-defined]
 
 
-def test_once_mode_without_send_digest_now_uses_force_false(
-    storage: sqlite3.Connection,
-    mock_telegram_transport: list[MagicMock],
-) -> None:
-    """Без ``--send-digest-now`` дайджест вызывается с ``force=False``."""
-    op = Operation()
-    digest = _make_digest_mock(sent=False, skipped_reason="already_sent")
-    op._digest_service = digest  # type: ignore[attr-defined]
-
-    tool = _build_tool(storage, digest_time="00:00")
-    args = argparse.Namespace(
-        once=True,
-        send_digest_now=False,
-        profile_id="default",
-        config_dir=None,
-        verbosity=0,
-        api_delay=None,
-        user_agent=None,
-        proxy_url=None,
-        openai_proxy_url=None,
-        operation_run=None,
-    )
-
-    op.run(tool, args)  # type: ignore[arg-type]
-
-    digest.send.assert_called_once_with(force=False)  # type: ignore[unused-coroutine]
-
-
-# ─── --send-digest-now ──────────────────────────────────────────────
+# ─── --send-digest-now → force=True ─────────────────────────────────
 
 
 def test_send_digest_now_triggers_force_send(
     storage: sqlite3.Connection,
-    mock_telegram_transport: list[MagicMock],
 ) -> None:
-    """``--send-digest-now`` пробрасывает ``force=True`` в ``send()``."""
-    op = Operation()
+    """``--send-digest-now`` forces ``adapter.send_digest(force=True)``."""
     digest = _make_digest_mock(sent=True, total_drafts=3)
-    op._digest_service = digest  # type: ignore[attr-defined]
+    adapter = _make_bot_adapter(digest=digest)
+    op = Operation(bot_adapter=adapter)
 
-    tool = _build_tool(storage, digest_time="00:00")
-    args = argparse.Namespace(
-        once=True,
-        send_digest_now=True,
-        profile_id="default",
-        config_dir=None,
-        verbosity=0,
-        api_delay=None,
-        user_agent=None,
-        proxy_url=None,
-        openai_proxy_url=None,
-        operation_run=None,
-    )
+    tool = _make_tool(storage, digest_time="00:00")
+    rc = op.run(tool, _make_args(once=True, send_digest_now=True))  # type: ignore[arg-type]
 
-    rc = op.run(tool, args)  # type: ignore[arg-type]
     assert rc == 0
-    digest.send.assert_called_once_with(force=True)  # type: ignore[unused-coroutine]
+    adapter.send_digest.assert_called_once_with(force=True)  # type: ignore[attr-defined]
 
 
-# ─── Идемпотентность дайджеста ──────────────────────────────────────
-
-
-def test_digest_not_sent_twice_same_day(
+def test_without_send_digest_now_uses_force_false(
     storage: sqlite3.Connection,
 ) -> None:
-    """``send(force=False)`` дважды → реально отправляем только один раз.
+    """Without ``--send-digest-now`` the digest is called with ``force=False``."""
+    digest = _make_digest_mock(sent=False, skipped_reason="already_sent")
+    adapter = _make_bot_adapter(digest=digest)
+    op = Operation(bot_adapter=adapter)
 
-    Бот не должен обходить идемпотентность сервиса: даже если он зовёт
-    ``send()`` на каждом цикле, мок сервиса возвращает ``already_sent``,
-    и ``send_message`` транспорта не дёргается повторно.
-    """
-    op = Operation()
+    tool = _make_tool(storage, digest_time="00:00")
+    op.run(tool, _make_args(once=True, send_digest_now=False))  # type: ignore[arg-type]
 
-    # Мок сервиса, который симулирует same-day идемпотентность: на первый
-    # вызов ``send()`` отдаёт ``sent=True``, на второй — ``already_sent``.
+    adapter.send_digest.assert_called_once_with(force=False)  # type: ignore[attr-defined]
+
+
+# ─── Idempotency of the daily digest ────────────────────────────────
+
+
+def test_digest_not_sent_twice_same_day(storage: sqlite3.Connection) -> None:
+    """Two ``_maybe_send_digest`` cycles in the same day: the adapter
+    is called once with ``force=False`` each time; the service's
+    ``already_sent_today`` flag handles deduplication downstream."""
     digest = MagicMock()
     digest.send.side_effect = [
-        DigestResult(
-            sent=True,
-            total_drafts=4,
-            message="ok",
-        ),
+        DigestResult(sent=True, total_drafts=4, message="ok"),
         DigestResult(
             sent=False,
             skipped_reason="already_sent",
@@ -535,187 +258,167 @@ def test_digest_not_sent_twice_same_day(
             message="ok",
         ),
     ]
-    op._digest_service = digest  # type: ignore[attr-defined]
+    adapter = _make_bot_adapter(digest=digest)
+    op = Operation(bot_adapter=adapter)
 
-    transport = _make_transport(updates=[])
-    transport.send_message = Mock()  # type: ignore[method-assign]
-    # ``_resolve_chat_id`` сервиса мы не вызываем — в боте ``send_message``
-    # транспорта — это низкоуровневый вызов, который делает сам сервис.
-    # Здесь мы тестируем именно бота: на каждый цикл он зовёт ``send()``,
-    # и если сервис говорит ``sent=False``, бот не пытается слать сам.
-    tool = _build_tool(storage)
-
-    # Прогоняем две итерации «руками» через helper-метод.
-    # Передаём фиксированное время после 10:00, чтобы дайджест точно сработал
+    tool = _make_tool(storage)
     fixed_now = datetime(2024, 1, 1, 12, 0, 0)
     for _ in range(2):
         op._maybe_send_digest(  # type: ignore[attr-defined]
             tool_config=tool.config,
             force=False,
+            adapter=adapter,
             now=fixed_now,
         )
 
-    # Два вызова ``send()`` (на каждый цикл), оба с force=False.
-    assert digest.send.call_count == 2
-    digest.send.assert_called_with(force=False)
-
-    # Бот НЕ слал сообщения напрямую — этим занимается сервис внутри.
-    transport.send_message.assert_not_called()  # type: ignore[unused-coroutine]
+    assert adapter.send_digest.call_count == 2  # type: ignore[attr-defined]
+    adapter.send_digest.assert_called_with(force=False)  # type: ignore[attr-defined]
 
 
 def test_digest_force_send_can_override_idempotency(
     storage: sqlite3.Connection,
 ) -> None:
-    """``force=True`` доходит до ``send()`` и не «съедается» ботом."""
-    op = Operation()
+    """``force=True`` reaches the slice's ``send()``."""
     digest = _make_digest_mock(sent=True, total_drafts=2)
-    op._digest_service = digest  # type: ignore[attr-defined]
+    adapter = _make_bot_adapter(digest=digest)
+    op = Operation(bot_adapter=adapter)
 
-    tool = _build_tool(storage)
-    # Передаём фиксированное время после 10:00, чтобы дайджест точно сработал
+    tool = _make_tool(storage)
     fixed_now = datetime(2024, 1, 1, 12, 0, 0)
     op._maybe_send_digest(  # type: ignore[attr-defined]
         tool_config=tool.config,
         force=True,
+        adapter=adapter,
         now=fixed_now,
     )
 
-    digest.send.assert_called_once_with(force=True)  # type: ignore[unused-coroutine]
+    adapter.send_digest.assert_called_once_with(force=True)  # type: ignore[attr-defined]
 
 
-# ─── Time-of-day гейт ───────────────────────────────────────────────
+# ─── Time-of-day gate ───────────────────────────────────────────────
 
 
 def test_digest_not_sent_before_configured_time(
     storage: sqlite3.Connection,
 ) -> None:
-    """До ``daily_digest_time`` ``send()`` не вызывается."""
-    op = Operation()
+    """Before ``daily_digest_time`` ``send_digest()`` is not called."""
     digest = _make_digest_mock()
-    op._digest_service = digest  # type: ignore[attr-defined]
+    adapter = _make_bot_adapter(digest=digest)
+    op = Operation(bot_adapter=adapter)
 
-    tool = _build_tool(storage, digest_time="10:00")
-
-    # Время 09:00 — раньше таргета.
+    tool = _make_tool(storage, digest_time="10:00")
     op._maybe_send_digest(  # type: ignore[attr-defined]
         tool_config=tool.config,
         force=False,
+        adapter=adapter,
         now=datetime(2026, 6, 9, 9, 0, 0),
     )
-    digest.send.assert_not_called()  # type: ignore[unused-coroutine]
+
+    adapter.send_digest.assert_not_called()  # type: ignore[attr-defined]
 
 
 def test_digest_sent_at_or_after_configured_time(
     storage: sqlite3.Connection,
 ) -> None:
-    """В ``daily_digest_time`` и позже ``send()`` зовётся."""
-    op = Operation()
+    """At and after ``daily_digest_time`` ``send_digest()`` is called."""
     digest = _make_digest_mock(sent=True, total_drafts=1)
-    op._digest_service = digest  # type: ignore[attr-defined]
+    adapter = _make_bot_adapter(digest=digest)
+    op = Operation(bot_adapter=adapter)
 
-    tool = _build_tool(storage, digest_time="10:00")
+    tool = _make_tool(storage, digest_time="10:00")
 
-    # Ровно 10:00 — должно сработать (``>=``).
+    # Exactly 10:00 — must trigger (``>=``).
     op._maybe_send_digest(  # type: ignore[attr-defined]
         tool_config=tool.config,
         force=False,
+        adapter=adapter,
         now=datetime(2026, 6, 9, 10, 0, 0),
     )
-    digest.send.assert_called_once()  # type: ignore[unused-coroutine]
+    adapter.send_digest.assert_called_once()  # type: ignore[attr-defined]
 
-    digest.send.reset_mock()  # type: ignore[attr-defined]
-    # 11:30 — точно после.
+    adapter.send_digest.reset_mock()  # type: ignore[attr-defined]
+    # 11:30 — must trigger.
     op._maybe_send_digest(  # type: ignore[attr-defined]
         tool_config=tool.config,
         force=False,
+        adapter=adapter,
         now=datetime(2026, 6, 9, 11, 30, 0),
     )
-    digest.send.assert_called_once()  # type: ignore[unused-coroutine]
+    adapter.send_digest.assert_called_once()  # type: ignore[attr-defined]
 
 
 def test_digest_skipped_without_telegram_config(
     storage: sqlite3.Connection,
 ) -> None:
-    """Без секции ``telegram`` в конфиге дайджест не трогается."""
-    op = Operation()
+    """Without a ``telegram`` config the digest is not called."""
     digest = _make_digest_mock()
-    op._digest_service = digest  # type: ignore[attr-defined]
+    adapter = _make_bot_adapter(digest=digest)
+    op = Operation(bot_adapter=adapter)
 
     op._maybe_send_digest(  # type: ignore[attr-defined]
         tool_config={},
         force=False,
+        adapter=adapter,
         now=datetime(2026, 6, 9, 12, 0, 0),
     )
-    digest.send.assert_not_called()  # type: ignore[unused-coroutine]
+    adapter.send_digest.assert_not_called()  # type: ignore[attr-defined]
 
 
 def test_digest_send_failure_does_not_propagate(
     storage: sqlite3.Connection,
 ) -> None:
-    """Исключение из ``send()`` логируется, но не валит polling-цикл."""
-    op = Operation()
+    """``send_digest()`` raising must not crash the polling cycle."""
     digest = MagicMock()
     digest.send.side_effect = RuntimeError("telegram down")
-    op._digest_service = digest  # type: ignore[attr-defined]
+    adapter = _make_bot_adapter(digest=digest)
+    op = Operation(bot_adapter=adapter)
 
-    tool = _build_tool(storage)
-    # Должно проглотить исключение и вернуть ``None``.
+    tool = _make_tool(storage)
     result = op._maybe_send_digest(  # type: ignore[attr-defined]
         tool_config=tool.config,
         force=False,
+        adapter=adapter,
         now=datetime(2026, 6, 9, 12, 0, 0),
     )
     assert result is None
 
 
-# ─── /stats / /review / /cancel: обратная совместимость ─────────────
+# ─── Bot without bot_token → clean exit code 1 ──────────────────────
 
 
-def test_existing_commands_still_work(
-    storage: sqlite3.Connection,
-) -> None:
-    """``/start``, ``/help``, ``/status`` работают без digest-сервиса."""
-    op = Operation()  # _digest_service == None
-    transport = _make_transport()
-    transport.send_message = Mock()  # type: ignore[method-assign]
-    tool = MagicMock()
-    tool.storage.negotiations.count_total.return_value = 10
-    tool.storage.skipped_vacancies.count_total.return_value = 5
-    tool.storage.application_drafts.count_total.return_value = 3
+def test_run_returns_1_without_bot_token(storage: sqlite3.Connection) -> None:
+    """No ``telegram.bot_token`` → exit code 1, no polling."""
+    adapter = _make_bot_adapter()
+    op = Operation(bot_adapter=adapter)
 
-    for cmd in ("/start", "/help", "/status"):
-        transport.send_message.reset_mock()  # type: ignore[attr-defined]
-        op._handle_update(  # type: ignore[attr-defined]
-            _make_update(cmd),
-            transport,
-            tool,
+    tool = _make_tool(storage, bot_token="")
+    rc = op.run(tool, _make_args())  # type: ignore[arg-type]
+
+    assert rc == 1
+    adapter.transport.get_updates.assert_not_called()  # type: ignore[attr-defined]
+
+
+# ─── DI: pre-built adapter is reused, not rebuilt ───────────────────
+
+
+def test_pre_built_adapter_is_reused(storage: sqlite3.Connection) -> None:
+    """``Operation(bot_adapter=...)`` is honoured — the container
+    factory is *not* called on the run path."""
+    adapter = _make_bot_adapter(updates=[])
+    op = Operation(bot_adapter=adapter)
+
+    # Patch ``AppContainer.create_telegram_bot_adapter`` to detect any
+    # accidental rebuilding of the adapter. It must NOT be called.
+    from hh_applicant_tool import container as container_mod
+
+    factory = MagicMock(side_effect=AssertionError("container factory called"))
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            container_mod.AppContainer,
+            "create_telegram_bot_adapter",
+            factory,
         )
-        transport.send_message.assert_called_once()  # type: ignore[unused-coroutine]
+        rc = op.run(_make_tool(storage), _make_args(once=True))  # type: ignore[arg-type]
 
-
-# ─── Бот без bot_token — корректный exit code ───────────────────────
-
-
-def test_run_returns_1_without_bot_token(
-    storage: sqlite3.Connection,
-    mock_telegram_transport: list[MagicMock],
-) -> None:
-    """Без ``telegram.bot_token`` бот сразу выходит с кодом 1."""
-    op = Operation()
-    tool = _build_tool(storage, bot_token="")
-    args = argparse.Namespace(
-        once=False,
-        send_digest_now=False,
-        profile_id="default",
-        config_dir=None,
-        verbosity=0,
-        api_delay=None,
-        user_agent=None,
-        proxy_url=None,
-        openai_proxy_url=None,
-        operation_run=None,
-    )
-
-    assert op.run(tool, args) == 1  # type: ignore[arg-type]
-    # Бот не должен был даже пытаться создать транспорт.
-    assert mock_telegram_transport == []
+    assert rc == 0
+    factory.assert_not_called()

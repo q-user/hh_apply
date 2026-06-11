@@ -63,6 +63,13 @@ class AppContainer:
         # Application Submit slice (VSA) — issue #55
         self._application_submit_slice = None
         self._application_submit_adapter = None
+        # MAX Bot slice (VSA) — issue #58
+        self._max_bot_slice = None
+        # Telegram Bot slice (VSA) — issue #56
+        self._telegram_bot_slice = None
+        self._telegram_bot_adapter = None
+        # Channel Monitoring slice (VSA) — issue #57
+        self._channel_monitor_slice = None
 
     # ─── Phase 2 port factories (lazy) ───────────────────────────
 
@@ -283,8 +290,8 @@ class AppContainer:
         return self._application_submit_slice
 
     def create_application_submit_adapter(self):
-        """Create an adapter that wraps the new ``ApplicationSubmitSlice``
-        and provides the legacy ``apply_one(resume_id, vacancy_id, cover_letter)``
+        """Create an adapter that wraps the new ``ApplicationSubmitSlice`` and
+        provides the legacy ``apply_one(resume_id, vacancy_id, cover_letter)``
         interface for use by ``ApplyToVacanciesUseCase`` (issue #55).
 
         The adapter builds an ``ApplicationDraftModel`` from the legacy
@@ -299,6 +306,139 @@ class AppContainer:
                 storage=self._tool.storage,
             )
         return self._application_submit_adapter
+
+    # ─── MAX Bot Slice (VSA) ────────────────────────────────
+
+    def _get_max_bot_slice(self):
+        """Get or create the :class:`MaxBotSlice` instance (issue #58).
+
+        The slice is intentionally cheap to build (no DB connection, no
+        heavy I/O) — we memoise it on the container for symmetry with
+        the other slices, even though the operation could rebuild it
+        on every run.
+        """
+        if self._max_bot_slice is None:
+            from job_bot.max_bot.requests_transport import RequestsMaxTransport
+            from job_bot.max_bot.slice import create_max_bot_slice
+
+            max_cfg = (self._tool.config or {}).get("max") or {}
+            bot_token = max_cfg.get("bot_token") or ""
+            api_url = max_cfg.get("api_url") or RequestsMaxTransport.DEFAULT_API_URL
+
+            transport = RequestsMaxTransport(
+                session=self._tool.session,
+                bot_token=bot_token,
+                api_url=api_url,
+            )
+            self._max_bot_slice = create_max_bot_slice(transport=transport)
+        return self._max_bot_slice
+
+    def create_max_bot_adapter(self):
+        """Create a ``MaxBotSlice`` adapter for the ``max-bot`` CLI operation.
+
+        The adapter exposes the same surface the operation expects
+        (``transport``, ``handler``, ``send_message``) — it's just the
+        :class:`MaxBotSlice` itself, since the slice's public API is
+        already operation-shaped (issue #58). Memoisation is owned by
+        :meth:`_get_max_bot_slice`.
+        """
+        return self._get_max_bot_slice()
+
+    # ─── Telegram Bot Slice (VSA) ───────────────────────────
+
+    def _get_telegram_bot_slice(self):
+        """Get or create the :class:`TelegramBotSlice` instance (issue #56).
+
+        Wires the slice against the existing ``tool.session`` /
+        ``tool.db`` / ``tool.config`` so the legacy and VSA code paths
+        share the same live connections (no extra ``sqlite3.Connection``
+        is created). Raises :class:`RuntimeError` mentioning
+        ``bot_token`` when the config is missing the field — the
+        acceptance test ``test_no_bot_token_raises_clear_error`` relies
+        on this.
+        """
+        if self._telegram_bot_slice is None:
+            from job_bot.telegram_bot.slice import create_telegram_bot_slice
+            from hh_applicant_tool.telegram.transport import (
+                TelegramTransport,
+                TelegramTransportConfig,
+            )
+
+            telegram_cfg = (self._tool.config or {}).get("telegram") or {}
+            bot_token = telegram_cfg.get("bot_token") or ""
+            if not bot_token:
+                raise RuntimeError(
+                    "telegram.bot_token is required to build TelegramBotSlice",
+                )
+
+            raw_timeout = telegram_cfg.get("poll_timeout", 30)
+            try:
+                poll_timeout = int(raw_timeout)
+            except (ValueError, TypeError):
+                poll_timeout = 30
+            allowed_raw = telegram_cfg.get("allowed_user_ids") or []
+            allowed_user_ids = tuple(int(uid) for uid in allowed_raw)
+            proxy_url = telegram_cfg.get("proxy_url")
+
+            transport = TelegramTransport(
+                config=TelegramTransportConfig(
+                    bot_token=bot_token,
+                    poll_timeout=poll_timeout,
+                    allowed_user_ids=allowed_user_ids,
+                    proxy_url=proxy_url,
+                ),
+                session=self._tool.session,
+            )
+
+            self._telegram_bot_slice = create_telegram_bot_slice(
+                database=self._tool.db,
+                transport=transport,
+                config=self._tool.config,
+            )
+        return self._telegram_bot_slice
+
+    def create_telegram_bot_adapter(self):
+        """Create a :class:`TelegramBotAdapter` for the ``telegram-bot`` CLI.
+
+        The adapter exposes the operation-facing surface
+        (``transport``, ``dispatch_update``, ``send_digest``, ``close``,
+        ``bot_service``, ``slice``) and is memoised across calls.
+        """
+        if self._telegram_bot_adapter is None:
+            from job_bot.telegram_bot.adapter import create_telegram_bot_adapter
+
+            self._telegram_bot_adapter = create_telegram_bot_adapter(
+                slice_=self._get_telegram_bot_slice()
+            )
+        return self._telegram_bot_adapter
+
+    # ─── Channel Monitoring Slice (VSA) ─────────────────────────────
+
+    def _get_channel_monitor_slice(self):
+        """Get or create the :class:`ChannelMonitorSlice` instance (issue #57).
+
+        The slice is intentionally cheap to build (a single
+        :class:`ChannelHandler` over ``tool.db``) — memoised for
+        symmetry with the other slices.
+        """
+        if self._channel_monitor_slice is None:
+            from job_bot.channel_monitoring.slice import (
+                create_channel_monitor_slice,
+            )
+
+            self._channel_monitor_slice = create_channel_monitor_slice(
+                conn=self._tool.db,
+            )
+        return self._channel_monitor_slice
+
+    def create_channel_monitor_slice(self):
+        """Return the :class:`ChannelMonitorSlice` for the ``channel-monitor`` CLI."""
+        # Rationale: the slice is already operation-shaped (exposes
+        # ``channels`` / ``handler``), so no wrapping adapter is needed —
+        # unlike ``create_telegram_bot_adapter`` / ``create_max_bot_adapter``
+        # which return thin adapters to match the legacy CLI surface.
+        return self._get_channel_monitor_slice()
+
 
     # ─── Use case factories ──────────────────────────────────────
 

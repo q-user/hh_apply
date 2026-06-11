@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from job_bot.channel_monitoring.models.channel import Channel, ChannelCreate
 from job_bot.channel_monitoring.models.vacancy_link import VacancyLink
 
 
+@runtime_checkable
 class ChannelPort(Protocol):
     """Port exposing channel-monitoring operations to other slices."""
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 
 from .repositories.application_drafts import ApplicationDraftsRepository
 from .repositories.application_test_answers import (
@@ -38,3 +39,19 @@ class StorageFacade:
         self.telegram_sessions = TelegramSessionsRepository(conn)
         self.vacancies = VacanciesRepository(conn)
         self.vacancy_contacts = VacancyContactsRepository(conn)
+
+    @classmethod
+    def create(cls, db_path: str | Path) -> "StorageFacade":
+        """Factory to satisfy :class:`StoragePort.create`.
+
+        Issue #56 followup: the slice handlers (and tests) consume a
+        ``StoragePort``; this classmethod lets ``StorageFacade`` be
+        used as a drop-in implementation. Opens a fresh SQLite
+        connection (caller owns it).
+        """
+        from pathlib import Path as _P
+
+        path = _P(db_path) if not isinstance(db_path, _P) else db_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(path, check_same_thread=False)
+        return cls(conn)

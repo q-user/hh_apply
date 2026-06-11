@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,19 @@ import requests
 
 from hh_applicant_tool.constants import CONFIG_DIR, CONFIG_FILENAME
 from hh_applicant_tool.utils.config import Config
+
+# Deprecation warning: the legacy ``hh_applicant_tool.telegram.transport``
+# is being replaced by the VSA ``job_bot.telegram_bot`` slice
+# (issue #56). Kept callable for backward compatibility; new code should
+# construct :class:`job_bot.telegram_bot.slice.TelegramBotSlice` and
+# :class:`hh_applicant_tool.telegram.TelegramTransport` together via
+# :class:`hh_applicant_tool.container.AppContainer.create_telegram_bot_adapter`.
+warnings.warn(
+    "hh_applicant_tool.telegram.transport is deprecated; "
+    "use job_bot.telegram_bot.slice.TelegramBotSlice instead",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 TELEGRAM_API_BASE_URL = "https://api.telegram.org"
 DEFAULT_POLL_TIMEOUT = 30

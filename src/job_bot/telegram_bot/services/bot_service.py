@@ -34,10 +34,32 @@ _TEXT_INPUT_STATES = frozenset(
 )
 
 
+def _as_facade(storage: Any) -> Any:
+    """Return a :class:`StorageFacade` for ``storage``, wrapping if needed.
+
+    Idempotent: if ``storage`` is already a :class:`StorageFacade`, it
+    is returned as-is. Single source of truth for the wrap-once
+    contract (issue #56 followup) — used by both :class:`BotService`
+    and :func:`_session_state_for` so the wrapping logic lives in one
+    place.
+    """
+    from hh_applicant_tool.storage import StorageFacade
+
+    return storage if isinstance(storage, StorageFacade) else StorageFacade(storage)
+
+
 def _session_state_for(storage: Any, chat_id: int) -> str:
-    """Return the FSM state for ``chat_id``; ``"idle"`` if no session yet."""
+    """Return the FSM state for ``chat_id``; ``"idle"`` if no session yet.
+
+    Accepts either a raw ``sqlite3.Connection`` or a
+    :class:`StorageFacade` (the latter happens when the bot's
+    :class:`BotService` already wrapped the connection — wrapping it
+    again would try to pass a ``StorageFacade`` to a repository
+    constructor, which fails). Issue #56 followup.
+    """
     try:
-        session = StorageFacade(storage).telegram_sessions.get(chat_id)
+        facade = _as_facade(storage)
+        session = facade.telegram_sessions.get(chat_id)
     except Exception:  # noqa: BLE001
         return "idle"
     if session is None:
@@ -74,21 +96,31 @@ class BotService:
         digest_service: Any,
         review_service: Any,
     ) -> None:
+        # Public ``storage`` property returns whatever was passed in
+        # (raw ``sqlite3.Connection`` or ``StorageFacade``) — this is
+        # the contract ``tests/vsa/test_telegram_bot_slice.py::test_create_service``
+        # pins. Internally the handlers need the ``StorageFacade``-style
+        # repository access (``.negotiations`` / ``.skipped_vacancies``
+        # / ``.application_drafts``), so we build it once as a private
+        # helper and forward it to the handlers. The classmethod
+        # ``StorageFacade.create`` (issue #56 followup) keeps this
+        # pattern ``StoragePort``-compatible.
         self._storage = storage
+        self._facade: StorageFacade = _as_facade(storage)
         self._transport = transport
         self._commands = CommandHandler(
-            storage=storage,
+            storage=self._facade,
             transport=transport,
             digest_service=digest_service,
             review_service=review_service,
         )
         self._digest = DigestHandler(
-            storage=storage,
+            storage=self._facade,
             transport=transport,
             digest_service=digest_service,
         )
         self._review = ReviewHandler(
-            storage=storage,
+            storage=self._facade,
             transport=transport,
             review_service=review_service,
         )
