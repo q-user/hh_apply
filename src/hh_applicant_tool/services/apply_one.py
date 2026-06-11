@@ -34,6 +34,7 @@ def make_default_apply_one(
     session: Any | None = None,
     xsrf_token: str | None = None,
     ai_client: Any | None = None,
+    convert_errors: bool = True,
 ) -> "ApplyOneDraftFn":
     """Собирает дефолтный ``apply_one`` callable.
 
@@ -52,6 +53,12 @@ def make_default_apply_one(
         xsrf_token: XSRF-токен для отправки ответов на тесты.
             Если не задан — пытается извлечь из сессии.
         ai_client: AI-клиент для генерации ответов на тесты (опционально).
+        convert_errors: если ``True`` (default, обратная совместимость)
+            — оборачивает :class:`CaptchaRequired` и :class:`LimitExceeded`
+            в :class:`RetryableError`. Если ``False`` — пробрасывает
+            оригинальные исключения как есть (issue #73: VSA
+            ``ApplicationSubmitAdapter`` ожидает их для корректной
+            обработки капчи и остановки рассылки при дневном лимите).
     """
     # Импортируем лениво, чтобы не циклить services ↔ api/errors.
     from requests import RequestException
@@ -152,8 +159,14 @@ def make_default_apply_one(
         try:
             response = api_client.post("/negotiations", params)
         except CaptchaRequired as ex:
-            raise RetryableError(f"captcha required: {ex.captcha_url}") from ex
+            if not convert_errors:
+                raise
+            raise RetryableError(
+                f"captcha required: {ex.captcha_url}"
+            ) from ex
         except LimitExceeded as ex:
+            if not convert_errors:
+                raise
             raise RetryableError("hh limit exceeded") from ex
         except ApiError as ex:
             status = getattr(ex, "status_code", None)

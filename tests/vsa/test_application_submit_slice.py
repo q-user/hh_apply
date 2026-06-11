@@ -729,6 +729,66 @@ class TestApplyOneHandler:
                 )
             )
 
+    def test_convert_errors_false_propagates_captcha_required(self) -> None:
+        """``convert_errors=False`` -> ``CaptchaRequired`` propagates as-is (issue #73)."""
+        from hh_applicant_tool.api.errors import CaptchaRequired
+        from hh_applicant_tool.services.apply_one import make_default_apply_one
+        from hh_applicant_tool.services.apply_worker import RetryableError
+        from hh_applicant_tool.storage.models.application_draft import (
+            ApplicationDraftModel,
+        )
+
+        api_client = MagicMock()
+        fake_resp = MagicMock()
+        fake_resp.status_code = 403
+        fake_resp.request = MagicMock()
+        api_client.post.side_effect = CaptchaRequired(
+            fake_resp,
+            {
+                "errors": [
+                    {
+                        "type": "captcha_required",
+                        "value": "captcha_required",
+                        "captcha_url": "https://hh.ru/captcha?x=1",
+                    }
+                ]
+            },
+        )
+
+        wrapped_fn = make_default_apply_one(api_client, convert_errors=True)
+        with pytest.raises(RetryableError):
+            wrapped_fn(ApplicationDraftModel(resume_id="r1", vacancy_id=1, status="queued"))
+
+        direct_fn = make_default_apply_one(api_client, convert_errors=False)
+        with pytest.raises(CaptchaRequired):
+            direct_fn(ApplicationDraftModel(resume_id="r1", vacancy_id=1, status="queued"))
+
+    def test_convert_errors_false_propagates_limit_exceeded(self) -> None:
+        """``convert_errors=False`` -> ``LimitExceeded`` propagates as-is (issue #73)."""
+        from hh_applicant_tool.api.errors import LimitExceeded
+        from hh_applicant_tool.services.apply_one import make_default_apply_one
+        from hh_applicant_tool.services.apply_worker import RetryableError
+        from hh_applicant_tool.storage.models.application_draft import (
+            ApplicationDraftModel,
+        )
+
+        api_client = MagicMock()
+        fake_resp = MagicMock()
+        fake_resp.status_code = 400
+        fake_resp.request = MagicMock()
+        api_client.post.side_effect = LimitExceeded(
+            fake_resp,
+            {"errors": [{"type": "limit", "value": "limit_exceeded"}]},
+        )
+
+        wrapped_fn = make_default_apply_one(api_client, convert_errors=True)
+        with pytest.raises(RetryableError):
+            wrapped_fn(ApplicationDraftModel(resume_id="r1", vacancy_id=1, status="queued"))
+
+        direct_fn = make_default_apply_one(api_client, convert_errors=False)
+        with pytest.raises(LimitExceeded):
+            direct_fn(ApplicationDraftModel(resume_id="r1", vacancy_id=1, status="queued"))
+
     def test_call_passes_session_and_xsrf(self) -> None:
         """When a test draft is used, the session/xsrf are forwarded."""
         from hh_applicant_tool.services.apply_worker import FatalError
