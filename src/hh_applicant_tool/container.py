@@ -27,6 +27,8 @@ import logging
 from collections.abc import Iterator, Mapping
 from typing import TYPE_CHECKING, Any
 
+from job_bot.application_prep.utils import build_filter_ai_client
+
 from .application import ApplyToVacanciesUseCase, PrepareVacanciesUseCase
 
 if TYPE_CHECKING:
@@ -482,85 +484,27 @@ class _ApplicationPrepAdapter:
         *,
         rate_limit: Any = None,
     ) -> Any:
-        """Build the per-profile filter AI client (same logic as the
-        legacy :class:`RelevanceService` flow) and inject it into the
+        """Build the per-profile filter AI client and inject it into the
         slice's :class:`RelevanceHandler` via :meth:`set_filter_ai_client`.
 
+        Thin wrapper over
+        :func:`job_bot.application_prep.utils.build_filter_ai_client`
+        (issue #54 dedupe) — both the legacy ``RelevanceService`` path
+        and the new VSA path share the same logic.
+
         Returns the AI client (or ``None`` if no filter is needed /
-        available). Mirrors ``PrepareVacanciesUseCase._build_relevance_service``
-        but targets the new slice instead of the legacy ``RelevanceService``.
-
-        The resume analysis is delegated to the slice's
-        :class:`RelevanceHandler` (which has its own cached implementation),
-        and the system prompt is built with the same helpers the old
-        flow uses, so the two paths behave identically.
+        available).
         """
-        from job_bot.application_prep.handlers.relevance_handler import (
-            build_filter_system_prompt_heavy,
-            build_filter_system_prompt_light,
-        )
-
         relevance = getattr(self._slice, "relevance", None)
         if relevance is None:
             return None
-
-        mode = getattr(profile, "ai_filter_mode", None)
-        relevance_rules = getattr(profile, "relevance_rules", None)
-        if not mode:
-            self.set_filter_ai_client(None)
-            return None
-        if mode not in ("heavy", "light"):
-            logger.warning(
-                "Неизвестный ai_filter_mode=%r для профиля %s — "
-                "AI-фильтр пропущен",
-                mode,
-                getattr(profile, "id", "?"),
-            )
-            self.set_filter_ai_client(None)
-            return None
-        if factory is None:
-            logger.warning(
-                "ai_filter_mode=%r, но vacancy_filter_ai_factory не задан",
-                mode,
-            )
-            self.set_filter_ai_client(None)
-            return None
-
-        # Build resume analysis + system prompt (identical to the
-        # legacy path so behaviour is unchanged for the same profile).
-        if mode == "heavy":
-            resume_analysis = relevance.analyze_resume_heavy(resume)
-            system_prompt = build_filter_system_prompt_heavy(
-                resume_analysis, relevance_rules=relevance_rules
-            )
-        else:
-            resume_analysis = relevance.analyze_resume_light(resume)
-            system_prompt = build_filter_system_prompt_light(
-                resume_analysis, relevance_rules=relevance_rules
-            )
-
-        try:
-            ai_client = factory(system_prompt)
-        except (ValueError, TypeError, RuntimeError) as ex:
-            logger.warning("Не удалось создать AI-клиент фильтра: %s", ex)
-            self.set_filter_ai_client(None)
-            return None
-        except Exception as ex:  # noqa: BLE001
-            logger.warning(
-                "Неожиданная ошибка при создании AI-клиента фильтра: %s",
-                ex,
-            )
-            self.set_filter_ai_client(None)
-            return None
-
-        if rate_limit is not None:
-            try:
-                ai_client.rate_limit = rate_limit
-            except Exception as ex:  # noqa: BLE001
-                logger.debug("rate_limit assignment failed: %s", ex)
-
-        self.set_filter_ai_client(ai_client)
-        return ai_client
+        return build_filter_ai_client(
+            profile,
+            resume,
+            relevance,
+            factory,
+            rate_limit=rate_limit,
+        )
 
     def prepare_one(
         self,

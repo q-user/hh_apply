@@ -22,7 +22,8 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 import requests
 
-from ...ai.base import AIError
+from job_bot.application_prep.utils import build_filter_ai_client
+
 from ...api import BadResponse
 from ...api.errors import ApiError
 from ...services import (
@@ -32,8 +33,6 @@ from ...services import (
     RelevanceService,
     VacancySearchService,
     VacancyTestsService,
-    build_filter_system_prompt_heavy,
-    build_filter_system_prompt_light,
 )
 from ...storage.models.search_profile import SearchProfileModel
 from ...storage.repositories.errors import RepositoryError
@@ -592,56 +591,27 @@ class PrepareVacanciesUseCase:
         на профиль). Сам AI-клиент устанавливается в
         :class:`ApplicationsService` через ``relevance.ai_client`` уже после
         того, как factory вернёт инстанс.
+
+        Делегирует построение AI-клиента общему хелперу
+        :func:`job_bot.application_prep.utils.build_filter_ai_client` —
+        единая логика для legacy- и VSA-пути (issue #54).
         """
         relevance = RelevanceService(
             self.api_client,
             ai_client=None,
             relevance_rules=profile.relevance_rules,
         )
-
-        mode = profile.ai_filter_mode
-        if not mode:
-            return relevance
-        if mode not in ("heavy", "light"):
-            logger.warning(
-                "Неизвестный ai_filter_mode=%r для профиля %s — "
-                "AI-фильтр пропущен",
-                mode,
-                profile.id,
-            )
-            return relevance
-        if self.vacancy_filter_ai_factory is None:
-            logger.warning(
-                "ai_filter_mode=%r, но vacancy_filter_ai_factory не задан",
-                mode,
-            )
-            return relevance
-
-        if mode == "heavy":
-            resume_analysis = relevance.analyze_resume_heavy(resume)
-            system_prompt = build_filter_system_prompt_heavy(
-                resume_analysis, relevance_rules=profile.relevance_rules
-            )
-        else:  # light
-            resume_analysis = relevance.analyze_resume_light(resume)
-            system_prompt = build_filter_system_prompt_light(
-                resume_analysis, relevance_rules=profile.relevance_rules
-            )
-
-        try:
-            ai_client = self.vacancy_filter_ai_factory(system_prompt)
-        except (ValueError, TypeError, AIError, RuntimeError) as ex:
-            logger.warning("Не удалось создать AI-клиент фильтра: %s", ex)
-            return relevance
-        except Exception as ex:  # noqa: BLE001
-            logger.warning(
-                "Неожиданная ошибка при создании AI-клиента фильтра: %s", ex
-            )
-            return relevance
-
-        if self.command and self.command.ai_rate_limit:
-            ai_client.rate_limit = self.command.ai_rate_limit
-        relevance.ai_client = ai_client
+        build_filter_ai_client(
+            profile,
+            resume,
+            relevance,
+            self.vacancy_filter_ai_factory,
+            rate_limit=(
+                self.command.ai_rate_limit
+                if self.command is not None
+                else None
+            ),
+        )
         return relevance
 
     # ─── Профильные search-параметры ─────────────────────────────
