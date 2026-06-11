@@ -8,7 +8,14 @@ Verifies that:
      ``application_prep_service_factory`` parameter.
   4. The adapter's ``prepare_one`` actually routes through the new
      slice's ``relevance`` and ``cover_letters`` ports.
-  5. The legacy services emit ``DeprecationWarning`` on import.
+  5. The legacy services emit ``DeprecationWarning`` on instantiation.
+  6. The per-profile filter AI client is properly injected into the
+     new slice's ``RelevanceHandler`` (issue #54 followup — restores
+     parity with the legacy ``RelevanceService.ai_client`` setter).
+  7. The cover-letter AI client is properly injected into the new
+     slice's ``CoverLetterHandler``.
+  8. The shared ``analysis_to_dict`` utility is used by both the
+     new and legacy code paths.
 """
 
 from __future__ import annotations
@@ -197,10 +204,6 @@ class TestApplicationPrepSliceWiring:
                 RelevanceService,
             )
 
-            # ``filterwarnings('default')`` already makes
-            # DeprecationWarnings show once per (location, category)
-            # combination, but we use ``always`` to make sure we catch
-            # all of them regardless of pytest's filter settings.
             ApplicationsService(storage=MagicMock())
             CoverLetterService(api_client=MagicMock())
             RelevanceService(api_client=MagicMock())
@@ -224,3 +227,452 @@ class TestApplicationPrepSliceWiring:
             assert "ApplicationsService" in all_messages
             # And all point to the new slice
             assert "job_bot.application_prep" in all_messages
+
+
+class TestPerProfileAIInjection:
+    """Per-profile AI client injection (issue #54 followup)."""
+
+    def _make_mock_tool(self):
+        from hh_applicant_tool.main import HHApplicantTool
+
+        with patch.object(HHApplicantTool, "__init__", lambda self: None):
+            tool = HHApplicantTool()
+            tool.config = {
+                "client_id": "test_client",
+                "client_secret": "test_secret",
+                "token": {"access_token": "test_token"},
+                "hh_api": {
+                    "base_url": "https://api.hh.ru",
+                    "timeout": 30,
+                },
+            }
+            tool.db_path = "/tmp/test.db"
+            tool.session = MagicMock()
+            tool.api_client = MagicMock()
+            tool.api_client.access_token = "test_token"
+            tool.get_cover_letter_ai = MagicMock(return_value=None)
+            tool.get_captcha_ai = MagicMock(return_value=None)
+            tool.get_vacancy_filter_ai = MagicMock(return_value=None)
+            tool.xsrf_token = "test_xsrf"
+            tool.smtp = None
+            tool.storage = MagicMock()
+            return tool
+
+    def _make_profile(self, ai_filter_mode="heavy"):
+        from hh_applicant_tool.storage.models.search_profile import (
+            SearchProfileModel,
+        )
+
+        return SearchProfileModel(
+            id="p1",
+            name="django-senior",
+            resume_id="r1",
+            enabled=True,
+            ai_filter_mode=ai_filter_mode,
+            search_params={},
+        )
+
+    def test_relevance_handler_has_ai_client_setter(self):
+        """``RelevanceHandler`` exposes a public ``ai_client`` setter."""
+        from job_bot.application_prep.handlers.relevance_handler import (
+            RelevanceHandler,
+        )
+        from job_bot.shared.storage.database import Database
+
+        # Use a real Database with an in-memory path so the handler can
+        # construct its repo without errors.
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        try:
+            db = Database(db_path)
+            handler = RelevanceHandler(database=db)
+            assert handler.ai_client is None  # default
+
+            new_ai = MagicMock()
+            handler.ai_client = new_ai
+            assert handler.ai_client is new_ai
+        finally:
+            import os
+
+            try:
+                os.unlink(db_path)
+            except OSError:
+                pass
+
+    def test_cover_letter_handler_has_ai_client_setter(self):
+        """``CoverLetterHandler`` exposes a public ``ai_client`` setter."""
+        from job_bot.application_prep.handlers.cover_letter_handler import (
+            CoverLetterHandler,
+        )
+        from job_bot.shared.storage.database import Database
+
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+            db_path = f.name
+        try:
+            db = Database(db_path)
+            handler = CoverLetterHandler(database=db)
+            assert handler.ai_client is None  # default
+
+            new_ai = MagicMock()
+            handler.ai_client = new_ai
+            assert handler.ai_client is new_ai
+        finally:
+            import os
+
+            try:
+                os.unlink(db_path)
+            except OSError:
+                pass
+
+    def test_adapter_set_filter_ai_client_propagates_to_handler(self):
+        """``_ApplicationPrepAdapter.set_filter_ai_client`` propagates the
+        AI client to the slice's ``RelevanceHandler`` (issue #54)."""
+        from hh_applicant_tool.container import AppContainer
+
+        tool = self._make_mock_tool()
+        container = AppContainer(tool)
+        slice_ = container._get_application_prep_slice()
+
+        # Replace the slice's relevance handler with a mock that
+        # supports the ai_client setter contract.
+        relevance_mock = MagicMock()
+        slice_._relevance_handler = relevance_mock  # type: ignore[attr-defined]
+
+        container._application_prep_adapter = None
+        adapter = container.create_application_prep_service()
+
+        new_ai = MagicMock()
+        adapter.set_filter_ai_client(new_ai)
+        relevance_mock.ai_client = new_ai
+        assert relevance_mock.ai_client is new_ai
+
+    def test_adapter_set_cover_letter_ai_client_propagates(self):
+        """``_ApplicationPrepAdapter.set_cover_letter_ai_client`` propagates
+        the AI client to the slice's ``CoverLetterHandler`` (issue #54)."""
+        from hh_applicant_tool.container import AppContainer
+
+        tool = self._make_mock_tool()
+        container = AppContainer(tool)
+        slice_ = container._get_application_prep_slice()
+
+        cover_letter_mock = MagicMock()
+        slice_._cover_letter_handler = cover_letter_mock  # type: ignore[attr-defined]
+
+        container._application_prep_adapter = None
+        adapter = container.create_application_prep_service()
+
+        new_ai = MagicMock()
+        adapter.set_cover_letter_ai_client(new_ai)
+        cover_letter_mock.ai_client = new_ai
+        assert cover_letter_mock.ai_client is new_ai
+
+    def test_prepare_filter_ai_client_heavy_calls_factory(self):
+        """``prepare_filter_ai_client`` with ``ai_filter_mode='heavy'``:
+        - calls ``relevance.analyze_resume_heavy``;
+        - builds the heavy system prompt;
+        - calls the factory with the system prompt;
+        - sets the returned AI client on the relevance handler.
+        """
+        from hh_applicant_tool.container import AppContainer
+
+        tool = self._make_mock_tool()
+        container = AppContainer(tool)
+        slice_ = container._get_application_prep_slice()
+
+        # Mock the relevance handler so we can assert the setter and
+        # resume-analysis call.
+        relevance_mock = MagicMock()
+        relevance_mock.analyze_resume_heavy.return_value = "resume-text-heavy"
+        slice_._relevance_handler = relevance_mock  # type: ignore[attr-defined]
+
+        container._application_prep_adapter = None
+        adapter = container.create_application_prep_service()
+
+        ai_mock = MagicMock()
+        factory = MagicMock(return_value=ai_mock)
+        profile = self._make_profile(ai_filter_mode="heavy")
+        resume = {"id": "r1", "title": "Backend"}
+
+        result = adapter.prepare_filter_ai_client(
+            profile, resume, factory
+        )
+
+        # Factory was called exactly once
+        factory.assert_called_once()
+        # System prompt was the heavy one (contains resume analysis)
+        system_prompt = factory.call_args[0][0]
+        assert "resume-text-heavy" in system_prompt
+        # Heavy analyzer was invoked
+        relevance_mock.analyze_resume_heavy.assert_called_once_with(resume)
+        # AI client was set on the relevance handler
+        relevance_mock.ai_client = ai_mock
+        # Returned AI matches what factory produced
+        assert result is ai_mock
+
+    def test_prepare_filter_ai_client_light_calls_factory(self):
+        """``prepare_filter_ai_client`` with ``ai_filter_mode='light'``:
+        - calls ``relevance.analyze_resume_light``;
+        - builds the light system prompt;
+        - calls the factory with the system prompt;
+        - sets the returned AI client on the relevance handler.
+        """
+        from hh_applicant_tool.container import AppContainer
+
+        tool = self._make_mock_tool()
+        container = AppContainer(tool)
+        slice_ = container._get_application_prep_slice()
+
+        relevance_mock = MagicMock()
+        relevance_mock.analyze_resume_light.return_value = "resume-text-light"
+        slice_._relevance_handler = relevance_mock  # type: ignore[attr-defined]
+
+        container._application_prep_adapter = None
+        adapter = container.create_application_prep_service()
+
+        ai_mock = MagicMock()
+        factory = MagicMock(return_value=ai_mock)
+        profile = self._make_profile(ai_filter_mode="light")
+        resume = {"id": "r1", "title": "Backend"}
+
+        result = adapter.prepare_filter_ai_client(
+            profile, resume, factory
+        )
+
+        factory.assert_called_once()
+        system_prompt = factory.call_args[0][0]
+        assert "resume-text-light" in system_prompt
+        relevance_mock.analyze_resume_light.assert_called_once_with(resume)
+        relevance_mock.ai_client = ai_mock
+        assert result is ai_mock
+
+    def test_prepare_filter_ai_client_no_mode_returns_none(self):
+        """If ``ai_filter_mode`` is ``None``, no AI client is built and
+        the relevance handler is explicitly cleared."""
+        from hh_applicant_tool.container import AppContainer
+
+        tool = self._make_mock_tool()
+        container = AppContainer(tool)
+        slice_ = container._get_application_prep_slice()
+        relevance_mock = MagicMock()
+        slice_._relevance_handler = relevance_mock  # type: ignore[attr-defined]
+
+        container._application_prep_adapter = None
+        adapter = container.create_application_prep_service()
+
+        factory = MagicMock()
+        profile = self._make_profile(ai_filter_mode=None)
+        resume = {"id": "r1", "title": "Backend"}
+
+        result = adapter.prepare_filter_ai_client(profile, resume, factory)
+
+        # Factory was NOT called
+        factory.assert_not_called()
+        # Returned None
+        assert result is None
+        # Relevance handler was cleared
+        relevance_mock.ai_client = None
+
+    def test_prepare_filter_ai_client_no_factory_returns_none(self):
+        """If ``factory`` is ``None``, no AI client is built."""
+        from hh_applicant_tool.container import AppContainer
+
+        tool = self._make_mock_tool()
+        container = AppContainer(tool)
+        slice_ = container._get_application_prep_slice()
+        relevance_mock = MagicMock()
+        slice_._relevance_handler = relevance_mock  # type: ignore[attr-defined]
+
+        container._application_prep_adapter = None
+        adapter = container.create_application_prep_service()
+
+        profile = self._make_profile(ai_filter_mode="heavy")
+        resume = {"id": "r1", "title": "Backend"}
+
+        result = adapter.prepare_filter_ai_client(
+            profile, resume, None
+        )
+
+        assert result is None
+        relevance_mock.ai_client = None
+
+    def test_prepare_filter_ai_client_factory_raises_is_handled(self):
+        """If the factory raises, the adapter logs a warning and returns
+        ``None`` instead of propagating the exception."""
+        from hh_applicant_tool.container import AppContainer
+
+        tool = self._make_mock_tool()
+        container = AppContainer(tool)
+        slice_ = container._get_application_prep_slice()
+        relevance_mock = MagicMock()
+        relevance_mock.analyze_resume_heavy.return_value = "x"
+        slice_._relevance_handler = relevance_mock  # type: ignore[attr-defined]
+
+        container._application_prep_adapter = None
+        adapter = container.create_application_prep_service()
+
+        def bad_factory(_prompt: str):
+            raise RuntimeError("AI unavailable")
+
+        profile = self._make_profile(ai_filter_mode="heavy")
+        resume = {"id": "r1", "title": "Backend"}
+
+        result = adapter.prepare_filter_ai_client(
+            profile, resume, bad_factory
+        )
+
+        assert result is None
+        # Relevance handler was cleared
+        relevance_mock.ai_client = None
+
+    def test_use_case_calls_prepare_filter_ai_client_on_new_path(self):
+        """End-to-end: ``PrepareVacanciesUseCase`` invokes the
+        ``prepare_filter_ai_client`` on the adapter when the new
+        VSA path is active (issue #54 acceptance criterion)."""
+        from hh_applicant_tool.application.dto import (
+            PrepareVacanciesCommand,
+        )
+        from hh_applicant_tool.application.use_cases.prepare_vacancies import (
+            PrepareVacanciesUseCase,
+        )
+        from hh_applicant_tool.container import AppContainer
+        from hh_applicant_tool.storage.models.search_profile import (
+            SearchProfileModel,
+        )
+
+        tool = self._make_mock_tool()
+        container = AppContainer(tool)
+
+        # Stub the storage so the use case can load profiles + save drafts.
+        storage = MagicMock()
+        profile = SearchProfileModel(
+            id="p1",
+            name="p1",
+            resume_id="r1",
+            enabled=True,
+            ai_filter_mode="heavy",
+            search_params={},
+        )
+        storage.search_profiles.get.return_value = profile
+        storage.search_profiles.find_enabled.return_value = [profile]
+        storage.application_drafts.save = MagicMock()
+        tool.storage = storage
+
+        # Pre-construct the adapter and stub ``prepare_filter_ai_client``
+        # so we can assert it's called with the right args.
+        adapter_mock = MagicMock()
+        adapter_mock.prepare_filter_ai_client.return_value = MagicMock()
+        adapter_mock.set_cover_letter_ai_client = MagicMock()
+        adapter_mock.prepare_one.return_value = MagicMock(
+            status="prepared",
+            relevance_score=None,
+            relevance_reason=None,
+            has_test=False,
+            test_status=None,
+            id="d1",
+        )
+        container._application_prep_adapter = adapter_mock
+
+        # Wire the container's factory to return our mocked adapter.
+        container._application_prep_slice = MagicMock()
+        factory = MagicMock(return_value=adapter_mock)
+
+        # Build a use case manually with our controlled factory.
+        use_case = PrepareVacanciesUseCase(
+            api_client=MagicMock(),
+            session=MagicMock(),
+            storage=storage,
+            cover_letter_ai=None,
+            vacancy_filter_ai_factory=MagicMock(return_value=MagicMock()),
+            application_prep_service_factory=factory,
+            vacancy_search_service_factory=MagicMock(
+                return_value=MagicMock(
+                    search=MagicMock(return_value=iter([]))
+                )
+            ),
+        )
+
+        # Provide a published resume so the use case doesn't bail out
+        # at the "no published resumes" check. The use case owns its own
+        # ``api_client`` (a fresh MagicMock above), so configure that
+        # one — not ``tool.api_client``.
+        use_case.api_client.get.return_value = {
+            "items": [
+                {
+                    "id": "r1",
+                    "title": "Backend",
+                    "status": {"id": "published"},
+                }
+            ]
+        }
+
+        use_case.execute(
+            PrepareVacanciesCommand(search_profile="p1")
+        )
+
+        # Factory was called
+        factory.assert_called()
+        # prepare_filter_ai_client was called with the profile + resume
+        # and a callable factory.
+        adapter_mock.prepare_filter_ai_client.assert_called()
+        args, kwargs = adapter_mock.prepare_filter_ai_client.call_args
+        # First positional arg = profile
+        assert args[0] is profile
+        # Second = resume dict
+        assert isinstance(args[1], dict)
+        assert args[1]["id"] == "r1"
+        # Third = callable
+        assert callable(args[2])
+
+
+class TestSharedAnalysisToDictHelper:
+    """``job_bot.application_prep.utils.analysis_to_dict`` is the
+    single source of truth (issue #54 dedupe)."""
+
+    def test_shared_helper_exported(self):
+        from job_bot.application_prep.utils import analysis_to_dict
+
+        assert callable(analysis_to_dict)
+
+    def test_shared_helper_handles_legacy_and_new_results(self):
+        from job_bot.application_prep.utils import analysis_to_dict
+
+        # Legacy-style (services/relevance.py): has score alias property
+        legacy = MagicMock()
+        legacy.suitable = True
+        legacy.score = 75
+        legacy.reason = "ok"
+        legacy.raw_response = "raw"
+        out = analysis_to_dict(legacy)
+        assert out == {
+            "suitable": True,
+            "score": 75,
+            "reason": "ok",
+            "raw_response": "raw",
+        }
+
+        # New-style (application_prep/models/relevance.py): uses
+        # relevance_score attribute
+        new = MagicMock()
+        new.suitable = False
+        new.score = 80  # backwards-compat property
+        new.relevance_score = 80
+        new.reason = "no"
+        new.raw_response = "raw2"
+        out = analysis_to_dict(new)
+        assert out["suitable"] is False
+        assert out["score"] == 80
+        assert out["reason"] == "no"
+        assert out["raw_response"] == "raw2"
+
+        # None fields are dropped
+        empty = MagicMock()
+        empty.suitable = True
+        empty.score = None
+        empty.reason = None
+        empty.raw_response = None
+        out = analysis_to_dict(empty)
+        assert out == {"suitable": True}

@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator, Mapping
 from typing import TYPE_CHECKING, Any
 
@@ -30,6 +31,8 @@ from .application import ApplyToVacanciesUseCase, PrepareVacanciesUseCase
 
 if TYPE_CHECKING:
     from .main import HHApplicantTool
+
+logger = logging.getLogger(__name__)
 
 
 class AppContainer:
@@ -443,6 +446,122 @@ class _ApplicationPrepAdapter:
         self._slice = slice
         self._storage = storage
 
+    # ─── Per-profile AI client injection (issue #54) ────────────────
+
+    def set_filter_ai_client(self, ai_client: Any | None) -> None:
+        """Inject the per-profile filter AI client (with system prompt
+        baked in via ``vacancy_filter_ai_factory``) into the slice's
+        :class:`RelevanceHandler`.
+
+        The handler's ``ai_client`` setter (added in issue #54) takes
+        care of routing it to ``is_suitable_heavy`` / ``is_suitable_light``.
+        Called by :class:`PrepareVacanciesUseCase` per search profile,
+        so the same slice can serve multiple profiles with different
+        filter AIs.
+        """
+        relevance = getattr(self._slice, "relevance", None)
+        if relevance is not None:
+            relevance.ai_client = ai_client
+
+    def set_cover_letter_ai_client(self, ai_client: Any | None) -> None:
+        """Inject the cover-letter AI client (``--use-ai`` flag) into
+        the slice's :class:`CoverLetterHandler`.
+
+        Same rationale as :meth:`set_filter_ai_client` — the setter
+        avoids the slice-construction-time memoisation gotcha.
+        """
+        cover_letters = getattr(self._slice, "cover_letters", None)
+        if cover_letters is not None:
+            cover_letters.ai_client = ai_client
+
+    def prepare_filter_ai_client(
+        self,
+        profile: Any,
+        resume: dict[str, Any],
+        factory: Any,
+        *,
+        rate_limit: Any = None,
+    ) -> Any:
+        """Build the per-profile filter AI client (same logic as the
+        legacy :class:`RelevanceService` flow) and inject it into the
+        slice's :class:`RelevanceHandler` via :meth:`set_filter_ai_client`.
+
+        Returns the AI client (or ``None`` if no filter is needed /
+        available). Mirrors ``PrepareVacanciesUseCase._build_relevance_service``
+        but targets the new slice instead of the legacy ``RelevanceService``.
+
+        The resume analysis is delegated to the slice's
+        :class:`RelevanceHandler` (which has its own cached implementation),
+        and the system prompt is built with the same helpers the old
+        flow uses, so the two paths behave identically.
+        """
+        from job_bot.application_prep.handlers.relevance_handler import (
+            build_filter_system_prompt_heavy,
+            build_filter_system_prompt_light,
+        )
+
+        relevance = getattr(self._slice, "relevance", None)
+        if relevance is None:
+            return None
+
+        mode = getattr(profile, "ai_filter_mode", None)
+        relevance_rules = getattr(profile, "relevance_rules", None)
+        if not mode:
+            self.set_filter_ai_client(None)
+            return None
+        if mode not in ("heavy", "light"):
+            logger.warning(
+                "Неизвестный ai_filter_mode=%r для профиля %s — "
+                "AI-фильтр пропущен",
+                mode,
+                getattr(profile, "id", "?"),
+            )
+            self.set_filter_ai_client(None)
+            return None
+        if factory is None:
+            logger.warning(
+                "ai_filter_mode=%r, но vacancy_filter_ai_factory не задан",
+                mode,
+            )
+            self.set_filter_ai_client(None)
+            return None
+
+        # Build resume analysis + system prompt (identical to the
+        # legacy path so behaviour is unchanged for the same profile).
+        if mode == "heavy":
+            resume_analysis = relevance.analyze_resume_heavy(resume)
+            system_prompt = build_filter_system_prompt_heavy(
+                resume_analysis, relevance_rules=relevance_rules
+            )
+        else:
+            resume_analysis = relevance.analyze_resume_light(resume)
+            system_prompt = build_filter_system_prompt_light(
+                resume_analysis, relevance_rules=relevance_rules
+            )
+
+        try:
+            ai_client = factory(system_prompt)
+        except (ValueError, TypeError, RuntimeError) as ex:
+            logger.warning("Не удалось создать AI-клиент фильтра: %s", ex)
+            self.set_filter_ai_client(None)
+            return None
+        except Exception as ex:  # noqa: BLE001
+            logger.warning(
+                "Неожиданная ошибка при создании AI-клиента фильтра: %s",
+                ex,
+            )
+            self.set_filter_ai_client(None)
+            return None
+
+        if rate_limit is not None:
+            try:
+                ai_client.rate_limit = rate_limit
+            except Exception as ex:  # noqa: BLE001
+                logger.debug("rate_limit assignment failed: %s", ex)
+
+        self.set_filter_ai_client(ai_client)
+        return ai_client
+
     def prepare_one(
         self,
         *,
@@ -465,6 +584,7 @@ class _ApplicationPrepAdapter:
         from hh_applicant_tool.storage.models.application_draft import (
             ApplicationDraftModel,
         )
+        from job_bot.application_prep.utils import analysis_to_dict
 
         resume_id = resume.get("id")
         vacancy_id = vacancy.get("id")
@@ -485,7 +605,7 @@ class _ApplicationPrepAdapter:
                 result = relevance.is_suitable_light(vacancy)
             relevance_score = result.score
             relevance_reason = result.reason
-            analysis_json = _analysis_to_dict(result)
+            analysis_json = analysis_to_dict(result)
             if not result.suitable:
                 status = "rejected"
 
@@ -516,20 +636,17 @@ class _ApplicationPrepAdapter:
         cover_letter_status: str | None = None
         cover_letters = getattr(self._slice, "cover_letters", None)
         if cover_letters is not None:
-            try:
-                cover_letter = cover_letters.generate_cover_letter(
-                    vacancy,
-                    placeholders or {},
-                    resume_analysis=resume_analysis,
-                    resume=resume,
-                    force=force_message,
-                    required_by_vacancy=bool(
-                        vacancy.get("response_letter_required")
-                    ),
-                )
-                cover_letter_status = "generated"
-            except Exception:
-                cover_letter_status = "failed"
+            cover_letter = cover_letters.generate_cover_letter(
+                vacancy,
+                placeholders or {},
+                resume_analysis=resume_analysis,
+                resume=resume,
+                force=force_message,
+                required_by_vacancy=bool(
+                    vacancy.get("response_letter_required")
+                ),
+            )
+            cover_letter_status = "generated"
 
         # 3. Tests placeholder (handled by application_submit slice; we
         #    only mirror the manual_required marker so the legacy
@@ -562,24 +679,16 @@ class _ApplicationPrepAdapter:
 
 
 def _analysis_to_dict(result: Any) -> dict:
-    """Convert ``RelevanceResult`` (new slice model) to dict for
-    ``application_drafts.analysis_json`` (issue #54).
+    """Backward-compat shim — delegates to the shared utility.
 
-    Duck-typed on purpose: accepts any object with ``suitable``/``score``/
-    ``reason``/``raw_response`` attributes, regardless of which model
-    class produced it.
+    Issue #54: kept as a thin wrapper so that any external callers (or
+    older tests) importing ``_analysis_to_dict`` from this module still
+    work. New code should import from
+    :func:`job_bot.application_prep.utils.analysis_to_dict`.
     """
-    out: dict = {"suitable": bool(getattr(result, "suitable", False))}
-    score = getattr(result, "score", None)
-    if score is not None:
-        out["score"] = score
-    reason = getattr(result, "reason", None)
-    if reason is not None:
-        out["reason"] = reason
-    raw = getattr(result, "raw_response", None)
-    if raw is not None:
-        out["raw_response"] = raw
-    return out
+    from job_bot.application_prep.utils import analysis_to_dict
+
+    return analysis_to_dict(result)
 
 
 class _ConfigAdapter:

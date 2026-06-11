@@ -47,6 +47,21 @@ class CoverLetterHandler:
         self._template = template or DEFAULT_LETTER_TEMPLATE
         self._vacancy_port = vacancy_port
 
+    @property
+    def ai_client(self) -> "AIClient | None":
+        """Currently configured AI client (``None`` falls back to template).
+
+        Issue #54: the cover-letter AI client is set via this property
+        by ``_ApplicationPrepAdapter`` so that ``--use-ai`` is honoured
+        even when the slice is memoised at construction time without
+        an AI client.
+        """
+        return self._ai_client
+
+    @ai_client.setter
+    def ai_client(self, value: "AIClient | None") -> None:
+        self._ai_client = value
+
     def generate_cover_letter(
         self,
         vacancy: dict[str, Any],

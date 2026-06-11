@@ -28,6 +28,11 @@ from .relevance import RelevanceService
 
 logger = logging.getLogger(__package__)
 
+# Issue #54: ``_analysis_to_dict`` is now provided by the shared VSA utils.
+# We re-export the helper for backward compatibility with any external
+# callers (or older tests) that import it from this module.
+from job_bot.application_prep.utils import analysis_to_dict  # noqa: E402
+
 # Issue #54: ApplicationsService is deprecated. The deprecation warning
 # is emitted on instantiation (not at import time) so that just
 # importing the module for re-exports doesn't pollute every test run.
@@ -251,17 +256,8 @@ class ApplicationsService:
 def _analysis_to_dict(result: Any) -> dict:
     """Превращает ``RelevanceResult`` в dict для ``analysis_json``.
 
-    Не импортируем :class:`RelevanceResult` напрямую, чтобы не зацикливать
-    зависимости и принимать любой duck-typed объект (dataclass / NamedTuple).
+    .. deprecated::
+        Use :func:`job_bot.application_prep.utils.analysis_to_dict` instead.
+        Kept as a thin wrapper for backward compatibility (issue #54).
     """
-    out: dict = {"suitable": bool(getattr(result, "suitable", False))}
-    score = getattr(result, "score", None)
-    if score is not None:
-        out["score"] = score
-    reason = getattr(result, "reason", None)
-    if reason is not None:
-        out["reason"] = reason
-    raw = getattr(result, "raw_response", None)
-    if raw is not None:
-        out["raw_response"] = raw
-    return out
+    return analysis_to_dict(result)

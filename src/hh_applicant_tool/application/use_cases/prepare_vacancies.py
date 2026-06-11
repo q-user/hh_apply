@@ -268,6 +268,26 @@ class PrepareVacanciesUseCase:
         # code keeps working.
         if self._injected_application_prep_service_factory is not None:
             applications = self._injected_application_prep_service_factory()
+            # Build the per-profile filter AI client (with system prompt
+            # baked in via ``vacancy_filter_ai_factory``) and inject it
+            # into the slice's ``RelevanceHandler`` via the new setter.
+            # This restores the per-profile filter behaviour that the old
+            # ``RelevanceService.ai_client`` assignment used to provide.
+            rate_limit = (
+                self.command.ai_rate_limit
+                if self.command is not None
+                else None
+            )
+            applications.prepare_filter_ai_client(
+                profile,
+                resume,
+                self.vacancy_filter_ai_factory,
+                rate_limit=rate_limit,
+            )
+            # Also inject the cover-letter AI client if ``--use-ai`` was
+            # passed (the slice may have been constructed without one).
+            if self.cover_letter_ai is not None:
+                applications.set_cover_letter_ai_client(self.cover_letter_ai)
         else:
             relevance = self._build_relevance_service(profile, resume)
             cover_letter = CoverLetterService(
