@@ -18,7 +18,7 @@ Usage::
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from job_bot.shared.storage.database import Database
 from job_bot.telegram_bot.ports.digest_port import DailyDigestPort
@@ -119,12 +119,12 @@ class TelegramBotSlice:
     @property
     def digest(self) -> DailyDigestPort:
         """Daily-digest port (delegates to the default :class:`DailyDigestService`)."""
-        return self._digest_service
+        return cast("DailyDigestPort", self._digest_service)
 
     @property
     def review(self) -> ReviewFlowPort:
         """Review-flow port (delegates to the default :class:`ReviewFlowService`)."""
-        return self._review_service
+        return cast("ReviewFlowPort", self._review_service)
 
     @property
     def commands(self) -> Any:

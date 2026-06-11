@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 from datetime import datetime
 from typing import Any
 
@@ -27,7 +28,7 @@ class ChannelHandler:
         re.IGNORECASE,
     )
 
-    def __init__(self, conn: Any) -> None:
+    def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
         self._seen: set[str] = set()
         self._init_schema()

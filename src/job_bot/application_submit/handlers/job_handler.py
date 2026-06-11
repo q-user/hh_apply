@@ -164,7 +164,12 @@ class JobHandler:
 
     def load_draft(self, draft_id: int) -> "ApplicationDraftModel | None":
         """Fetch the application_draft row referenced by the job."""
-        return self._facade.application_drafts.get(draft_id)
+        from typing import cast
+
+        result = self._facade.application_drafts.get(draft_id)
+        if result is None:
+            return None
+        return cast("ApplicationDraftModel", result)
 
     def save_draft(self, draft: "ApplicationDraftModel") -> None:
         """Persist a draft (e.g. when changing ``status`` to ``applied``)."""

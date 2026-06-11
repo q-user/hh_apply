@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Tuple, TypeVar, cast
 
 from .database import Database
 
@@ -41,21 +41,23 @@ class BaseRepository(ABC, Generic[T]):
         """Delete entity by ID."""
         ...
 
-    def _execute(self, query: str, params: tuple = ()) -> list[sqlite3.Row]:
+    def _execute(
+        self, query: str, params: Tuple[Any, ...] = ()
+    ) -> list[sqlite3.Row]:
         """Execute a query and return all rows."""
         with self._db.connect() as conn:
             cursor = conn.execute(query, params)
             return cursor.fetchall()
 
     def _execute_one(
-        self, query: str, params: tuple = ()
+        self, query: str, params: Tuple[Any, ...] = ()
     ) -> sqlite3.Row | None:
         """Execute a query and return one row."""
         with self._db.connect() as conn:
             cursor = conn.execute(query, params)
-            return cursor.fetchone()
+            return cast("sqlite3.Row | None", cursor.fetchone())
 
-    def _execute_write(self, query: str, params: tuple = ()) -> int:
+    def _execute_write(self, query: str, params: Tuple[Any, ...] = ()) -> int:
         """Execute a write query and return rowcount."""
         with self._db.connect() as conn:
             cursor = conn.execute(query, params)

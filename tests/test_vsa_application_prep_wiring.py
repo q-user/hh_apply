@@ -808,10 +808,10 @@ class TestSharedBuildFilterAIHelper:
         relevance = MagicMock()
         relevance.ai_client = MagicMock()
         result = build_filter_ai_client(
-            MagicMock(ai_filter_mode=None),
-            {"id": "r1"},
-            relevance,
-            MagicMock(),
+            profile=MagicMock(ai_filter_mode=None),
+            resume={"id": "r1"},
+            relevance_obj=relevance,
+            factory=MagicMock(),
         )
         assert result is None
         assert relevance.ai_client is None
@@ -824,11 +824,11 @@ class TestSharedBuildFilterAIHelper:
         relevance = MagicMock()
         relevance.ai_client = MagicMock()
         result = build_filter_ai_client(
-            MagicMock(ai_filter_mode="heavy"),
-            {"id": "r1"},
-            relevance,
-            None,
-        )
+            profile=MagicMock(ai_filter_mode="heavy"),
+            resume={"id": "r1"},
+            relevance_obj=relevance,
+            factory=None,
+            )
         assert result is None
         assert relevance.ai_client is None
         relevance.analyze_resume_heavy.assert_not_called()
@@ -841,11 +841,11 @@ class TestSharedBuildFilterAIHelper:
         ai_client = MagicMock()
         factory = MagicMock(return_value=ai_client)
         result = build_filter_ai_client(
-            MagicMock(ai_filter_mode="heavy", relevance_rules=None),
-            {"id": "r1"},
-            relevance,
-            factory,
-        )
+            profile=MagicMock(ai_filter_mode="heavy", relevance_rules=None),
+            resume={"id": "r1"},
+            relevance_obj=relevance,
+            factory=factory,
+            )
         relevance.analyze_resume_heavy.assert_called_once()
         relevance.analyze_resume_light.assert_not_called()
         factory.assert_called_once()
@@ -861,11 +861,11 @@ class TestSharedBuildFilterAIHelper:
         ai_client = MagicMock()
         factory = MagicMock(return_value=ai_client)
         result = build_filter_ai_client(
-            MagicMock(ai_filter_mode="light", relevance_rules=None),
-            {"id": "r1"},
-            relevance,
-            factory,
-        )
+            profile=MagicMock(ai_filter_mode="light", relevance_rules=None),
+            resume={"id": "r1"},
+            relevance_obj=relevance,
+            factory=factory,
+            )
         relevance.analyze_resume_light.assert_called_once()
         relevance.analyze_resume_heavy.assert_not_called()
         factory.assert_called_once()
@@ -883,11 +883,11 @@ class TestSharedBuildFilterAIHelper:
             raise RuntimeError("AI unavailable")
 
         result = build_filter_ai_client(
-            MagicMock(ai_filter_mode="heavy", relevance_rules=None),
-            {"id": "r1"},
-            relevance,
-            bad_factory,
-        )
+            profile=MagicMock(ai_filter_mode="heavy", relevance_rules=None),
+            resume={"id": "r1"},
+            relevance_obj=relevance,
+            factory=bad_factory,
+            )
         assert result is None
         assert relevance.ai_client is None
 
@@ -899,10 +899,10 @@ class TestSharedBuildFilterAIHelper:
         ai_client = MagicMock()
         factory = MagicMock(return_value=ai_client)
         result = build_filter_ai_client(
-            MagicMock(ai_filter_mode="heavy", relevance_rules=None),
-            {"id": "r1"},
-            relevance,
-            factory,
+            profile=MagicMock(ai_filter_mode="heavy", relevance_rules=None),
+            resume={"id": "r1"},
+            relevance_obj=relevance,
+            factory=factory,
             rate_limit={"rps": 5},
         )
         assert result is ai_client

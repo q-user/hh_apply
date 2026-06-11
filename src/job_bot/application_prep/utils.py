@@ -10,17 +10,21 @@ prevents the three identical copies that used to exist
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
+from hh_applicant_tool.ai.base import AIError
 from job_bot.application_prep.handlers.relevance_handler import (
     build_filter_system_prompt_heavy,
     build_filter_system_prompt_light,
 )
 
+if TYPE_CHECKING:
+    pass
+
 logger = logging.getLogger(__name__)
 
 
-def analysis_to_dict(result: Any) -> dict:
+def analysis_to_dict(result: Any) -> dict[str, Any]:
     """Convert a ``RelevanceResult`` (new slice model or legacy) to a dict
     for ``application_drafts.analysis_json``.
 
@@ -28,7 +32,7 @@ def analysis_to_dict(result: Any) -> dict:
     ``reason`` / ``raw_response`` attributes, regardless of which model
     class produced it. ``None`` fields are dropped to avoid bloating JSON.
     """
-    out: dict = {"suitable": bool(getattr(result, "suitable", False))}
+    out: dict[str, Any] = {"suitable": bool(getattr(result, "suitable", False))}
     score = getattr(result, "score", None)
     if score is not None:
         out["score"] = score
@@ -42,6 +46,7 @@ def analysis_to_dict(result: Any) -> dict:
 
 
 def build_filter_ai_client(
+    *,
     profile: Any,
     resume: dict[str, Any],
     relevance_obj: Any,
@@ -64,11 +69,8 @@ def build_filter_ai_client(
             ``relevance_rules``).
         resume: resume dict passed to ``analyze_resume_*``.
         relevance_obj: the object to receive the ``ai_client`` assignment.
-            Named ``relevance_obj`` (not ``relevance_handler``) because
-            the helper is duck-typed and works for both
-            ``RelevanceService`` and ``RelevanceHandler``. ``relevance_obj.ai_client = None``
-            is always set on early-exit paths so callers can rely on a
-            known-clear state.
+            ``relevance_obj.ai_client = None`` is always set on early-exit
+            paths so callers can rely on a known-clear state.
         factory: ``vacancy_filter_ai_factory(system_prompt) -> AI client``
             callable, or ``None`` if no factory was provided.
         rate_limit: optional rate limit assigned to the produced AI
@@ -117,7 +119,7 @@ def build_filter_ai_client(
 
     try:
         ai_client = factory(system_prompt)
-    except (ValueError, TypeError, RuntimeError) as ex:
+    except (ValueError, TypeError, AIError, RuntimeError) as ex:
         logger.warning("Не удалось создать AI-клиент фильтра: %s", ex)
         relevance_obj.ai_client = None
         return None
@@ -137,4 +139,3 @@ def build_filter_ai_client(
 
     relevance_obj.ai_client = ai_client
     return ai_client
-

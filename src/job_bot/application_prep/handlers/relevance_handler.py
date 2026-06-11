@@ -478,7 +478,7 @@ def parse_ai_json_response(response: str) -> RelevanceResult | None:
     return None
 
 
-def _result_from_dict(data: dict, raw: str) -> RelevanceResult:
+def _result_from_dict(data: dict[str, Any], raw: str) -> RelevanceResult:
     """Build RelevanceResult from AI response dict.
 
     Legacy field score is treated as alias relevance_score (issue #4).

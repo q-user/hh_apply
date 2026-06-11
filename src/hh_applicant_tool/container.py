@@ -543,10 +543,10 @@ class _ApplicationPrepAdapter:
         if relevance is None:
             return None
         return build_filter_ai_client(
-            profile,
-            resume,
-            relevance,
-            factory,
+            profile=profile,
+            resume=resume,
+            relevance_obj=relevance,
+            factory=factory,
             rate_limit=rate_limit,
         )
 
@@ -715,7 +715,7 @@ class _ApplicationSubmitAdapter:
             search_profile_id=search_profile_id,
             resume_id=str(resume_id) if resume_id else "",
             vacancy_id=int(vacancy_id) if vacancy_id else 0,
-            status="applied",
+            status="pending",
             cover_letter=cover_letter,
             full_vacancy_json=vacancy or {},
             has_test=bool((vacancy or {}).get("has_test")),
@@ -734,11 +734,10 @@ class _ApplicationSubmitAdapter:
                 "application_submit adapter: RetryableError: %s", ex
             )
             return False
-        except Exception:
-            # Unexpected — let the legacy path's broader catch handle it.
-            raise
 
         # Save the draft once on success (no pre-save dead state).
+        draft.status = "applied"
+        draft.last_error = None
         self._storage.application_drafts.save(draft)
         self._storage.application_drafts.commit()
         return True

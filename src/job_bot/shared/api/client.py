@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import requests
 
@@ -45,7 +45,7 @@ class HHApiClient:
             url, params=params, timeout=self._config.timeout
         )
         response.raise_for_status()
-        return response.json()
+        return cast("dict[str, Any]", response.json())
 
     def post(
         self,
@@ -62,7 +62,7 @@ class HHApiClient:
             timeout=self._config.timeout,
         )
         response.raise_for_status()
-        return response.json()
+        return cast("dict[str, Any]", response.json())
 
     def put(
         self,
@@ -77,14 +77,14 @@ class HHApiClient:
             timeout=self._config.timeout,
         )
         response.raise_for_status()
-        return response.json()
+        return cast("dict[str, Any]", response.json())
 
     def delete(self, endpoint: str) -> dict[str, Any]:
         """Make a DELETE request to the API."""
         url = f"{self._config.base_url}{endpoint}"
         response = self._session.delete(url, timeout=self._config.timeout)
         response.raise_for_status()
-        return response.json()
+        return cast("dict[str, Any]", response.json())
 
 
 def create_hh_api_client(

@@ -49,7 +49,8 @@ class ApplyOneHandler:
         :class:`RetryableError` or :class:`FatalError` from
         :mod:`hh_applicant_tool.services.apply_worker`.
         """
-        return self._apply_one(draft)
+        self._apply_one(draft)
+        return None
 
 
 __all__ = ["ApplyOneHandler"]

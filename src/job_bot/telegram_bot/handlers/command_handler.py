@@ -18,6 +18,7 @@ import logging
 from typing import Any, Protocol
 
 from hh_applicant_tool.telegram.transport import TelegramTransportError
+from job_bot.shared.storage.ports import StoragePort
 from job_bot.telegram_bot.models.command import (
     CMD_CANCEL,
     CMD_HELP,
@@ -28,6 +29,7 @@ from job_bot.telegram_bot.models.command import (
     Command,
 )
 from job_bot.telegram_bot.models.message import OutgoingMessage
+from job_bot.telegram_bot.ports.transport_port import TelegramTransportPort
 
 logger = logging.getLogger(__package__)
 
@@ -49,7 +51,7 @@ class CommandHandler:
     """Handle text-based Telegram commands.
 
     Args:
-        storage: a ``sqlite3.Connection`` (used for ``/status`` counts).
+        storage: a ``StoragePort`` (used for ``/status`` counts).
         transport: a ``TelegramTransportPort`` for sending replies.
         digest_service: optional service used by ``/stats``.
         review_service: optional service used by ``/review`` and ``/cancel``.
@@ -58,8 +60,8 @@ class CommandHandler:
     def __init__(
         self,
         *,
-        storage: Any,
-        transport: Any,
+        storage: StoragePort,
+        transport: TelegramTransportPort,
         digest_service: _DigestLike | None = None,
         review_service: _ReviewLike | None = None,
     ) -> None:
@@ -215,7 +217,7 @@ class CommandHandler:
             # Use the storage facade to keep the slice DB-agnostic.
             from hh_applicant_tool.storage import StorageFacade
 
-            facade = StorageFacade(self._storage)
+            facade = StorageFacade(self._storage)  # type: ignore[arg-type]
             negotiations_count = facade.negotiations.count_total()
             skipped_count = facade.skipped_vacancies.count_total()
             drafts_count = facade.application_drafts.count_total()

@@ -140,6 +140,8 @@ class CoverLetterHandler:
             "Проанализируй данные и напиши сопроводительное письмо:\n"
             + json.dumps(ai_context, ensure_ascii=False, indent=2)
         )
+        if self._ai_client is None:
+            return ""
         raw_response = self._ai_client.complete(prompt_msg)
         return _parse_ai_letter_response(raw_response)
 
@@ -156,7 +158,12 @@ class CoverLetterHandler:
 
         if self._vacancy_port is not None:
             try:
-                return self._vacancy_port.get_vacancy_by_hh_id(str(vacancy_id))
+                vacancy_obj = self._vacancy_port.get_vacancy_by_hh_id(
+                    str(vacancy_id)
+                )
+                if vacancy_obj is not None:
+                    return vacancy_obj.raw_data
+                return None
             except Exception as ex:
                 logger.warning(
                     "vacancy_port.get_vacancy_by_hh_id(%s) failed: %s",
@@ -203,7 +210,7 @@ def _parse_ai_letter_response(raw_response: str) -> str:
     try:
         clean_json = re.sub(r"```json\s*|\s*```", "", raw_response).strip()
         letter_data = json.loads(clean_json)
-        letter = letter_data.get("cover_letter", "")
+        letter = str(letter_data.get("cover_letter", ""))
         if letter:
             return letter
     except (ValueError, TypeError):

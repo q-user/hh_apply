@@ -602,10 +602,10 @@ class PrepareVacanciesUseCase:
             relevance_rules=profile.relevance_rules,
         )
         build_filter_ai_client(
-            profile,
-            resume,
-            relevance,
-            self.vacancy_filter_ai_factory,
+            profile=profile,
+            resume=resume,
+            relevance_obj=relevance,
+            factory=self.vacancy_filter_ai_factory,
             rate_limit=(
                 self.command.ai_rate_limit
                 if self.command is not None
