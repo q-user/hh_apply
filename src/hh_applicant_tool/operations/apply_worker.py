@@ -189,12 +189,14 @@ class Operation(BaseOperation):
         except (ValueError, TypeError):
             poll_timeout = 30
         allowed = tuple(int(u) for u in (cfg.get("allowed_user_ids") or []))
+        proxy_url = cfg.get("proxy_url")
         try:
             return TelegramTransport(
                 config=TelegramTransportConfig(
                     bot_token=cfg["bot_token"],
                     poll_timeout=poll_timeout,
                     allowed_user_ids=allowed,
+                    proxy_url=proxy_url,
                 )
             )
         except TelegramTransportError as ex:

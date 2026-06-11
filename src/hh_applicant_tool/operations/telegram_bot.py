@@ -98,10 +98,13 @@ class Operation(BaseOperation):
         allowed_raw = telegram_cfg.get("allowed_user_ids") or []
         allowed_user_ids = tuple(int(uid) for uid in allowed_raw)
 
+        proxy_url = telegram_cfg.get("proxy_url")
+
         config = TelegramTransportConfig(
             bot_token=bot_token,
             poll_timeout=poll_timeout,
             allowed_user_ids=allowed_user_ids,
+            proxy_url=proxy_url,
         )
 
         transport = TelegramTransport(config=config)

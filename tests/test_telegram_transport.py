@@ -23,17 +23,20 @@ def _response(
     return response
 
 
-def _write_config(path: Path, token: str = "test-token") -> None:
+def _write_config(
+    path: Path,
+    token: str = "test-token",
+    proxy_url: str | None = None,
+) -> None:
+    telegram_cfg = {
+        "bot_token": token,
+        "poll_timeout": 15,
+        "allowed_user_ids": [1, "2"],
+    }
+    if proxy_url is not None:
+        telegram_cfg["proxy_url"] = proxy_url
     path.write_text(
-        json.dumps(
-            {
-                "telegram": {
-                    "bot_token": token,
-                    "poll_timeout": 15,
-                    "allowed_user_ids": [1, "2"],
-                }
-            }
-        ),
+        json.dumps({"telegram": telegram_cfg}),
         encoding="utf-8",
     )
 
@@ -140,3 +143,87 @@ def test_raises_when_bot_token_missing(tmp_path: Path):
 
     with pytest.raises(Exception, match="bot_token"):
         TelegramTransport(config_path=config_path)
+
+
+def test_loads_proxy_url_from_config(tmp_path: Path):
+    """Test that proxy_url is loaded from config and set on session."""
+    config_path = tmp_path / "config.json"
+    _write_config(config_path, proxy_url="socks5://user:pass@host:1080")
+
+    session = Mock(spec=requests.Session)
+    session.request.return_value = _response(200, {"ok": True, "result": []})
+
+    transport = TelegramTransport(session=session, config_path=config_path)
+
+    # Verify proxy is configured on session
+    assert session.proxies == {
+        "http": "socks5://user:pass@host:1080",
+        "https": "socks5://user:pass@host:1080",
+    }
+    assert transport._config.proxy_url == "socks5://user:pass@host:1080"
+
+
+def test_no_proxy_when_not_configured(tmp_path: Path):
+    """Test that no proxy is set when proxy_url is not in config."""
+    config_path = tmp_path / "config.json"
+    _write_config(config_path)  # No proxy_url
+
+    session = requests.Session()
+
+    def mock_request(*args, **kwargs):
+        return _response(200, {"ok": True, "result": []})
+
+    session.request = mock_request
+
+    transport = TelegramTransport(session=session, config_path=config_path)
+
+    # Verify no proxy is configured
+    assert session.proxies == {}
+    assert transport._config.proxy_url is None
+
+
+def test_proxy_via_telegram_transport_config():
+    """Test that proxy can be passed via TelegramTransportConfig directly."""
+    from hh_applicant_tool.telegram.transport import TelegramTransportConfig
+
+    config = TelegramTransportConfig(
+        bot_token="test-token",
+        poll_timeout=15,
+        allowed_user_ids=(1, 2),
+        proxy_url="socks5://localhost:1080",
+    )
+
+    session = Mock(spec=requests.Session)
+    session.request.return_value = _response(200, {"ok": True, "result": []})
+
+    transport = TelegramTransport(session=session, config=config)
+
+    assert session.proxies == {
+        "http": "socks5://localhost:1080",
+        "https": "socks5://localhost:1080",
+    }
+    assert transport._config.proxy_url == "socks5://localhost:1080"
+
+
+def test_no_proxy_via_telegram_transport_config():
+    """Test that no proxy is set when proxy_url is None in TelegramTransportConfig."""
+    from hh_applicant_tool.telegram.transport import TelegramTransportConfig
+
+    config = TelegramTransportConfig(
+        bot_token="test-token",
+        poll_timeout=15,
+        allowed_user_ids=(1, 2),
+        proxy_url=None,
+    )
+
+    session = requests.Session()
+
+    def mock_request(*args, **kwargs):
+        return _response(200, {"ok": True, "result": []})
+
+    session.request = mock_request
+
+    transport = TelegramTransport(session=session, config=config)
+
+    assert session.proxies == {}
+    assert transport._config.proxy_url is None

@@ -32,6 +32,9 @@ class TelegramTransportConfig:
     bot_token: str
     poll_timeout: int = DEFAULT_POLL_TIMEOUT
     allowed_user_ids: tuple[int, ...] = ()
+    proxy_url: str | None = (
+        None  # SOCKS5 proxy URL, e.g., socks5://user:pass@host:port
+    )
 
 
 class TelegramTransport:
@@ -49,7 +52,11 @@ class TelegramTransport:
         read_timeout: int = DEFAULT_READ_TIMEOUT,
         sleep_fn: Any | None = None,
     ):
-        self._session = session or requests.Session()
+        # Create session with proxy support if needed
+        if session is None:
+            session = requests.Session()
+            # Proxy will be configured after config is loaded
+        self._session = session
         self._max_retries = max_retries
         self._backoff_base = backoff_base
         self._backoff_factor = backoff_factor
@@ -61,6 +68,13 @@ class TelegramTransport:
         if config is None:
             config = self._load_config(config_path)
         self._config = config
+
+        # Configure proxy on the session if proxy_url is provided
+        if self._config.proxy_url:
+            self._session.proxies = {
+                "http": self._config.proxy_url,
+                "https": self._config.proxy_url,
+            }
 
         self._base_url = f"{TELEGRAM_API_BASE_URL}/bot{self._config.bot_token}"
 
@@ -98,11 +112,13 @@ class TelegramTransport:
         )
         allowed_raw = telegram_cfg.get("allowed_user_ids") or []
         allowed_user_ids = tuple(int(user_id) for user_id in allowed_raw)
+        proxy_url = telegram_cfg.get("proxy_url")
 
         return TelegramTransportConfig(
             bot_token=bot_token,
             poll_timeout=poll_timeout,
             allowed_user_ids=allowed_user_ids,
+            proxy_url=proxy_url,
         )
 
     def _request(self, method: str, params: dict[str, Any]) -> Any:
