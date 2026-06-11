@@ -301,8 +301,6 @@ class HHApplicantTool(MegaTool):
             if page + 1 >= r.get("pages", 0):
                 break
 
-    # TODO: добавить еще методов или те удалить?
-
     def save_token(self) -> bool:
         if self.api_client.access_token != self.config.get("token", {}).get(
             "access_token"
@@ -385,8 +383,17 @@ class HHApplicantTool(MegaTool):
             session=self.openai_session,
         )
 
-    # TODO: вынести в миксин какой
     def _extract_xsrf_token(self, content: str) -> str:
+        """Parse the ``xsrfToken`` value out of an hh.ru HTML/JSON blob.
+
+        The token is embedded in a JS bootstrap block as
+        ``,"xsrfToken":"<token>"``. Returns the token string.
+
+        Raises:
+            ValueError: if the marker or closing quote is missing
+                (i.e. the page layout has changed or the response is
+                not what we expected).
+        """
         xsrf_token_marker = ',"xsrfToken":"'
         s1 = content.find(xsrf_token_marker)
         if s1 == -1:

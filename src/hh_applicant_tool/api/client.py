@@ -256,7 +256,10 @@ class ApiClient(BaseClient):
 
         try:
             return do_request()
-        # TODO: добавить класс для ошибок типа AccessTokenExpired
+        # A 403 can mean either "token expired" (recoverable via refresh)
+        # or a real permission error (re-raise). Heuristic: only refresh
+        # when the token is actually past its expiry and we have a
+        # refresh_token to use.
         except errors.Forbidden as ex:
             if not self.is_access_expired or not self.refresh_token:
                 raise ex

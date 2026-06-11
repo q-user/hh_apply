@@ -34,8 +34,14 @@ class JSONEncoder(json.JSONEncoder):
 #         super().__init__(*args, object_hook=date_parser_hook, **kwargs)
 
 
-# TODO: добавить в хелперы
 class JSONDecoder(json.JSONDecoder):
+    """Project-wide ``json.JSONDecoder`` subclass placeholder.
+
+    Kept as an explicit export so callers can write
+    ``json.loads(s, cls=JSONDecoder)`` without an inline import.
+    Custom hooks (e.g. ``date_parser_hook``) can be wired into
+    ``__init__`` here when needed.
+    """
     pass
 
 
