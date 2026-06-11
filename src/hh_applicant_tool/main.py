@@ -6,6 +6,7 @@ import os
 import smtplib
 import sqlite3
 import sys
+import warnings
 from collections.abc import Sequence
 from functools import cached_property
 from http.cookiejar import MozillaCookieJar
@@ -188,6 +189,12 @@ class HHApplicantTool(MegaTool):
         if proxies:
             logger.info("Use proxies for %s: %r", log_label, proxies)
             session.proxies = proxies
+            # HTTPS proxy connections (e.g. through mitmproxy) raise
+            # InsecureRequestWarning because the proxy presents its own
+            # certificate. Mount a custom adapter that scopes the
+            # suppression to actual request execution so SSL warnings
+            # from any other code path in the process remain visible.
+            session.mount("https://", _InsecureProxyAdapter())
 
         session.headers.update({"User-Agent": DESKTOP_USER_AGENT})
         return session
@@ -518,5 +525,29 @@ class HHApplicantTool(MegaTool):
 
 
 def main(argv: Sequence[str] | None = None) -> None | int:
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     return HHApplicantTool().run(argv)
+
+
+class _InsecureProxyAdapter(requests.adapters.HTTPAdapter):
+    """HTTPAdapter that scopes ``InsecureRequestWarning`` suppression to send().
+
+    urllib3 emits ``InsecureRequestWarning`` during the actual HTTPS
+    connection inside ``urllib3.connectionpool``, not at session build
+    time. Wrapping ``send()`` (rather than the session constructor) is
+    what actually catches the warning.
+    """
+
+    def send(self, request, stream=False, timeout=None, verify=True, cert=None, proxies=None):  # noqa: E501
+        with warnings.catch_warnings():
+            warnings.simplefilter(
+                "ignore",
+                urllib3.exceptions.InsecureRequestWarning,
+            )
+            return super().send(
+                request,
+                stream=stream,
+                timeout=timeout,
+                verify=verify,
+                cert=cert,
+                proxies=proxies,
+            )
