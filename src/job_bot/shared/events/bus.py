@@ -44,25 +44,4 @@ class EventBus:
         for handler in handlers:
             handler(event)
 
-    def publish_async(self, event: Event) -> None:
-        """Publish an event asynchronously (fire and forget)."""
-        # For now, just call publish. In future, could use asyncio.
-        self.publish(event)
-
-
-# Global event bus instance
-_global_event_bus: EventBus | None = None
-
-
-def get_event_bus() -> EventBus:
-    """Get the global event bus instance."""
-    global _global_event_bus
-    if _global_event_bus is None:
-        _global_event_bus = EventBus()
-    return _global_event_bus
-
-
-def set_event_bus(bus: EventBus) -> None:
-    """Set the global event bus instance (useful for testing)."""
-    global _global_event_bus
-    _global_event_bus = bus
+__all__ = ["Event", "EventBus", "EventHandler"]

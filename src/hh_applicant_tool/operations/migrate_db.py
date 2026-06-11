@@ -13,7 +13,7 @@ from ..storage import apply_migration, list_migrations
 if TYPE_CHECKING:
     from ..main import HHApplicantTool
 
-SUCKASS = "✅ Success!"
+
 
 logger = logging.getLogger(__package__)
 
@@ -33,7 +33,7 @@ class Operation(BaseOperation):
     def run(self, tool: HHApplicantTool, args: Namespace) -> None:
         def apply(name: str) -> None:
             apply_migration(tool.db, name)
-            print(SUCKASS)
+            print("✅ Success!")
 
         try:
             if a := args.name:

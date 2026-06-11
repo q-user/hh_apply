@@ -499,8 +499,11 @@ class HHApplicantTool(MegaTool):
             try:
                 self._check_system()
             except Exception:
-                pass
-                # raise
+                # System check is best-effort cleanup; don't let it
+                # mask the real exit code. Log at WARNING with full
+                # traceback so failures are observable in default logs
+                # without aborting the program.
+                logger.warning("System check failed", exc_info=True)
 
     def _assign_args(self, args: BaseNamespace) -> None:
         for name, value in vars(args).items():
