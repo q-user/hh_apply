@@ -104,7 +104,9 @@ line-length = 80
 # E - pycodestyle
 # F - Pyflakes
 # B - flake8-bugbear (советую добавить, ловит реальные баги)
-select = ["E", "F", "B"]
+# BLE001 - blind-except (bare `except Exception`); issue #69 gate.
+#   Existing user-callback sites keep `# noqa: BLE001` with justification.
+select = ["E", "F", "B", "BLE001"]
 
 ignore = [
     "E501", # Игнорим длину строк (или полагаемся на автоформаттер)

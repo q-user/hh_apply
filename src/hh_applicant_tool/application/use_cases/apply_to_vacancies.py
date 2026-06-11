@@ -407,6 +407,8 @@ class ApplyToVacanciesUseCase:
             try:
                 self.progress_callback(message)
             except Exception as ex:  # noqa: BLE001
+                # User-provided callback (UI progress). Any failure must
+                # not crash the apply loop — log and continue.
                 logger.warning("progress_callback error: %s", ex)
 
     def _now(self) -> datetime:
@@ -695,6 +697,9 @@ class ApplyToVacanciesUseCase:
             try:
                 return self._site_parser.parse_site(url)
             except Exception as ex:  # noqa: BLE001
+                # User-provided port (SiteParserPort). Any failure must
+                # not crash the apply loop — log and fall through to
+                # the legacy regex-based parser below.
                 logger.warning("SiteParserPort failed for %s: %s", url, ex)
 
         # Legacy fallback
@@ -888,7 +893,11 @@ class ApplyToVacanciesUseCase:
             ) as e:
                 logger.error(f"Ошибка при решении капчи: {e}")
                 raise
-            except Exception as e:  # noqa: BLE001
+            except (RuntimeError, OSError, asyncio.TimeoutError) as e:
+                # "Неожиданные" ошибки инфраструктуры: Playwright crash,
+                # сетевой сбой, истечение таймаута. Программные баги
+                # (ValueError, TypeError, AttributeError) НЕ ловим — пусть
+                # пропагируются как реальные дефекты.
                 logger.error(f"Неожиданная ошибка при решении капчи: {e}")
                 raise
 
@@ -908,7 +917,10 @@ class ApplyToVacanciesUseCase:
             except AIError as ex:
                 logger.error("CaptchaSolverPort failed (AI error): %s", ex)
                 return False
-            except Exception as ex:  # noqa: BLE001
+            except (OSError, asyncio.TimeoutError, RuntimeError) as ex:
+                # Инфраструктурные сбои порта (сеть, таймаут, падение
+                # Playwright). Программные баги (ValueError, TypeError, ...)
+                # НЕ ловим — это дефекты реализации порта.
                 logger.error("CaptchaSolverPort failed (unexpected): %s", ex)
                 return False
 
