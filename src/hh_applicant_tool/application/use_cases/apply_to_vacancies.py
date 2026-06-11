@@ -26,7 +26,7 @@ import sqlite3
 import threading
 from datetime import datetime
 from email.message import EmailMessage
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 import requests
 
@@ -146,12 +146,18 @@ class ApplyToVacanciesUseCase:
         self._test_logger = test_logger
 
         # Состояние, заполняемое в execute().
-        self.command: ApplyToVacanciesCommand | None = None
+        # ``command``, ``cover_letter_service``, ``vacancy_search_service``
+        # и ``relevance_service`` обязательно проставляются в :meth:`execute`
+        # -- это единственный публичный вход use case'а, поэтому mypy видит
+        # атрибуты без ``| None`` и все обращения ``self.command.X``,
+        # ``self.vacancy_search_service.Y`` и ``self.relevance_service.Z``
+        # ниже не нуждаются в ``# type: ignore[union-attr]``.
+        self.command: ApplyToVacanciesCommand
         self.cancel_event: threading.Event | None = None
         self.progress_callback: ProgressCallback | None = None
-        self.cover_letter_service: CoverLetterService | None = None
-        self.vacancy_search_service: VacancySearchService | None = None
-        self.relevance_service: RelevanceService | None = None
+        self.cover_letter_service: CoverLetterService
+        self.vacancy_search_service: VacancySearchService
+        self.relevance_service: RelevanceService
 
         # Внедрённый сервис поиска вакансов (VSA wiring)
         self._injected_vacancy_search_service_factory = vacancy_search_service_factory
@@ -214,7 +220,7 @@ class ApplyToVacanciesUseCase:
             self.api_client,
             ai_client=None,
             relevance_rules=(
-                self.command.relevance_rules  # type: ignore[union-attr]
+                self.command.relevance_rules
             ),
         )
 
@@ -433,7 +439,7 @@ class ApplyToVacanciesUseCase:
             Текст анализа резюме (resume_analysis) — используется
             ``CoverLetterService`` при AI-генерации письма.
         """
-        ai_filter = self.command.ai_filter  # type: ignore[union-attr]
+        ai_filter = self.command.ai_filter
         if not ai_filter:
             return ""
 
@@ -507,7 +513,7 @@ class ApplyToVacanciesUseCase:
             )
             return "archived"
         if (
-            vacancy.get("has_test") and self.command.skip_tests  # type: ignore[union-attr]
+            vacancy.get("has_test") and self.command.skip_tests
         ):
             logger.debug(
                 "Пропускаю вакансию с тестом %s",
@@ -535,7 +541,7 @@ class ApplyToVacanciesUseCase:
             return "excluded"
 
         # AI фильтрация
-        ai_filter = self.command.ai_filter  # type: ignore[union-attr]
+        ai_filter = self.command.ai_filter
         if ai_filter and self.vacancy_filter_ai is not None:
             if self._is_vacancy_already_skipped(vacancy, resume["id"]):
                 logger.debug(
@@ -549,11 +555,11 @@ class ApplyToVacanciesUseCase:
                 return "ai_already_skipped"
             if ai_filter == "heavy":
                 is_suitable = self.relevance_service.is_suitable_heavy(
-                    vacancy
+                    cast(dict[str, Any], vacancy)
                 ).suitable
             elif ai_filter == "light":
                 is_suitable = self.relevance_service.is_suitable_light(
-                    vacancy
+                    cast(dict[str, Any], vacancy)
                 ).suitable
             else:
                 raise ValueError(f"Неизвестный режим AI фильтра: {ai_filter}")
@@ -653,7 +659,7 @@ class ApplyToVacanciesUseCase:
         except RepositoryError as ex:
             logger.exception(ex)
         if not (
-            self.command.send_email  # type: ignore[union-attr]
+            self.command.send_email
             and (site_url := (employer_profile.get("site_url") or "").strip())
         ):
             return
@@ -693,7 +699,9 @@ class ApplyToVacanciesUseCase:
 
         # Legacy fallback
         with self.session.get(url, timeout=10) as r:
-            val = lambda m: html.unescape(m.group(1)) if m else ""
+            val: Callable[[re.Match[str] | None], str] = (
+                lambda m: html.unescape(m.group(1)) if m else ""
+            )
 
             title = val(re.search(r"<title>(.*?)</title>", r.text, re.I | re.S))
             description = val(
@@ -756,7 +764,7 @@ class ApplyToVacanciesUseCase:
         resume: dict[str, Any],
     ) -> str:
         return self.cover_letter_service.generate(
-            vacancy,
+            cast(dict[str, Any], vacancy),
             message_placeholders,
             resume_analysis=resume_analysis,
             resume=resume,
@@ -918,6 +926,9 @@ class ApplyToVacanciesUseCase:
                 captcha_element = await page.wait_for_selector(
                     self.SEL_CAPTCHA_IMAGE, timeout=10000, state="visible"
                 )
+                if captcha_element is None:
+                    logger.error("Captcha image element not found")
+                    return False
 
                 img_bytes = await captcha_element.screenshot()
 
@@ -964,7 +975,9 @@ class ApplyToVacanciesUseCase:
             return
         mail_to: str | list[str] | None = (
             (vacancy.get("contacts") or {}).get("email")
-        ) or site_emails.get(employer_id)
+        )
+        if mail_to is None and employer_id is not None:
+            mail_to = site_emails.get(employer_id)
         if not mail_to:
             return
         if isinstance(mail_to, list):
@@ -1053,7 +1066,7 @@ class ApplyToVacanciesUseCase:
     # ─── Excluded filter ─────────────────────────────────────────
 
     def _is_excluded(self, vacancy: SearchVacancy) -> bool:
-        excluded_filter = self.command.excluded_filter  # type: ignore[union-attr]
+        excluded_filter = self.command.excluded_filter
         if not excluded_filter:
             return False
 
