@@ -160,6 +160,30 @@ class ChannelHandler:
         )
         self._conn.commit()
 
+    def update_last_message_id(
+        self, channel_id: str, last_message_id: int
+    ) -> bool:
+        """Update the channel's ``last_message_id`` watermark (issue #61).
+
+        Returns ``True`` when the row was updated, ``False`` when the
+        channel id is unknown or the new value isn't strictly greater
+        than the stored one (we never rewind the watermark).
+        """
+        if last_message_id <= 0:
+            return False
+        cur = self._conn.cursor()
+        cur.execute(
+            """
+            UPDATE cm_channels
+               SET last_message_id = ?
+             WHERE channel_id = ?
+               AND last_message_id < ?
+            """,
+            (last_message_id, channel_id, last_message_id),
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
+
     # ---- helpers --------------------------------------------------------
 
     @staticmethod
