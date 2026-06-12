@@ -1,11 +1,16 @@
 """CLI-операция ``apply-worker`` (issue #10).
 
 Тонкий адаптер: парсит argparse → собирает
-:class:`hh_applicant_tool.services.apply_worker.ApplyWorkerService` →
-запускает :meth:`ApplyWorkerService.run`.
+:class:`job_bot.application_submit.slice.ApplicationSubmitSlice` через
+:class:`AppContainer` → запускает
+:meth:`ApplicationSubmitSlice.worker.run`.
 
 Флаги: ``--once``, ``--max-jobs N``, ``--worker-id ID``,
 ``--idle-sleep SECONDS``, ``--no-telegram``. Graceful shutdown по Ctrl+C.
+
+This is the VSA-backed rewrite of the legacy ``ApplyWorkerService``
+worker loop (issue #77). The legacy service was retired in favour of
+:class:`job_bot.application_submit.services.worker_service.WorkerService`.
 """
 
 from __future__ import annotations
@@ -14,17 +19,8 @@ import argparse
 import logging
 from typing import TYPE_CHECKING
 
+from ..container import AppContainer
 from ..main import BaseNamespace, BaseOperation
-from ..services.apply_worker import (
-    ApplyWorkerService,
-    make_default_apply_one,
-)
-from ..storage.facade import StorageFacade
-from ..telegram import (
-    TelegramTransport,
-    TelegramTransportConfig,
-    TelegramTransportError,
-)
 
 if TYPE_CHECKING:
     from ..main import HHApplicantTool
@@ -99,24 +95,26 @@ class Operation(BaseOperation):
         if once:
             max_jobs = 1
 
-        # apply_one шлёт один черновик; ApplyToVacanciesUseCase
-        # оперирует списком вакансий, поэтому отдельная обёртка.
-        # Передаём session, xsrf_token и AI-клиент для поддержки тестов.
-        apply_one = make_default_apply_one(
-            tool.api_client,
+        idle_sleep = float(
+            getattr(args, "idle_sleep", DEFAULT_IDLE_SLEEP_SECONDS)
+        )
+
+        # Build the VSA slice. The apply-one handler needs the
+        # ``requests.Session`` (for XSRF extraction on test drafts)
+        # and the optional cover-letter AI client (used by
+        # ``VacancyTestsService`` to generate answers).
+        container = AppContainer(tool)
+        slice_ = container._get_application_submit_slice_with(
             session=tool.session,
             xsrf_token=tool.xsrf_token,
             ai_client=tool.get_cover_letter_ai(),
-        )
-        transport = self._build_transport(tool, args)
-
-        worker = ApplyWorkerService(
-            storage=StorageFacade(tool.db),
-            apply_one=apply_one,
-            config=tool.config or {},
-            transport=transport,
+            notifier=None
+            if bool(getattr(args, "no_telegram", False))
+            else _build_notifier(tool, args),
             worker_id=getattr(args, "worker_id", None),
+            idle_sleep_seconds=idle_sleep,
         )
+        worker = slice_.worker
 
         mode = (
             "single job (--once)"
@@ -142,9 +140,6 @@ class Operation(BaseOperation):
             stats = worker.run(
                 max_jobs=max_jobs,
                 stop_when_idle=once,
-                idle_sleep_seconds=float(
-                    getattr(args, "idle_sleep", DEFAULT_IDLE_SLEEP_SECONDS)
-                ),
             )
         except KeyboardInterrupt:
             logger.info("apply-worker: KeyboardInterrupt")
@@ -167,43 +162,82 @@ class Operation(BaseOperation):
         )
         return 0
 
-    # ─── DI-хелперы ──────────────────────────────────────────────
 
-    def _build_transport(
-        self,
-        tool: "HHApplicantTool",
-        args: BaseNamespace,
-    ) -> TelegramTransport | None:
-        """Сконструировать :class:`TelegramTransport` или вернуть ``None``.
+def _build_notifier(tool: "HHApplicantTool", args: BaseNamespace):
+    """Return a notifier callable or ``None``.
 
-        Возвращает ``None`` если передан ``--no-telegram`` или в конфиге
-        нет ``telegram.bot_token``.
-        """
-        if bool(getattr(args, "no_telegram", False)):
-            return None
-        cfg = (tool.config or {}).get("telegram") or {}
-        if not cfg.get("bot_token"):
-            return None
-        try:
-            poll_timeout = int(cfg.get("poll_timeout", 30))
-        except (ValueError, TypeError):
-            poll_timeout = 30
-        allowed = tuple(int(u) for u in (cfg.get("allowed_user_ids") or []))
-        proxy_url = cfg.get("proxy_url")
-        try:
-            return TelegramTransport(
-                config=TelegramTransportConfig(
-                    bot_token=cfg["bot_token"],
-                    poll_timeout=poll_timeout,
-                    allowed_user_ids=allowed,
-                    proxy_url=proxy_url,
+    The VSA ``WorkerService`` accepts ``notifier: Callable[[str, str], None]``
+    which receives ``(kind, text)`` for success/failure. We forward to
+    the legacy ``TelegramTransport`` if a bot token is configured and
+    ``--no-telegram`` is not set.
+    """
+    from hh_applicant_tool.telegram import (
+        TelegramTransport,
+        TelegramTransportConfig,
+        TelegramTransportError,
+    )
+
+    if bool(getattr(args, "no_telegram", False)):
+        return None
+    cfg = (tool.config or {}).get("telegram") or {}
+    if not cfg.get("bot_token"):
+        return None
+    try:
+        poll_timeout = int(cfg.get("poll_timeout", 30))
+    except (ValueError, TypeError):
+        poll_timeout = 30
+    allowed = tuple(int(u) for u in (cfg.get("allowed_user_ids") or []))
+    proxy_url = cfg.get("proxy_url")
+    try:
+        transport = TelegramTransport(
+            config=TelegramTransportConfig(
+                bot_token=cfg["bot_token"],
+                poll_timeout=poll_timeout,
+                allowed_user_ids=allowed,
+                proxy_url=proxy_url,
+            )
+        )
+    except TelegramTransportError as ex:
+        logger.warning("apply-worker: TelegramTransport init failed: %s", ex)
+        return None
+
+    # Resolve notification chat_id (same priority as the legacy worker).
+    chat_ids = _resolve_chat_ids(tool)
+    if not chat_ids:
+        return None
+
+    def _notifier(kind: str, text: str) -> None:
+        for cid in chat_ids:
+            try:
+                transport.send_message(cid, text)
+            except TelegramTransportError as ex:
+                logger.warning(
+                    "apply-worker: notify chat_id=%d failed: %s", cid, ex
                 )
-            )
-        except TelegramTransportError as ex:
-            logger.warning(
-                "apply-worker: TelegramTransport init failed: %s", ex
-            )
-            return None
+
+    return _notifier
+
+
+def _resolve_chat_ids(tool: "HHApplicantTool") -> list[int]:
+    """Return notification chat_ids based on the telegram config.
+
+    Priority (most explicit to most permissive):
+    ``apply_notification_chat_id`` → ``digest_chat_id`` → ``chat_id`` →
+    first entry of ``allowed_user_ids`` (the bot owner).
+    """
+    cfg = (tool.config or {}).get("telegram") or {}
+    for key in (
+        "apply_notification_chat_id",
+        "digest_chat_id",
+        "chat_id",
+    ):
+        val = cfg.get(key)
+        if val is not None and not isinstance(val, list):
+            return [int(val)]
+    allowed = cfg.get("allowed_user_ids") or []
+    if allowed:
+        return [int(allowed[0])]
+    return []
 
 
 __all__ = ("Operation", "Namespace")
