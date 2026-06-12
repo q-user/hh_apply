@@ -161,9 +161,7 @@ def make_default_apply_one(
         except CaptchaRequired as ex:
             if not convert_errors:
                 raise
-            raise RetryableError(
-                f"captcha required: {ex.captcha_url}"
-            ) from ex
+            raise RetryableError(f"captcha required: {ex.captcha_url}") from ex
         except LimitExceeded as ex:
             if not convert_errors:
                 raise

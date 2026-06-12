@@ -90,7 +90,9 @@ class ApplicationDraft:
             full_vacancy_json=full_vacancy_json or {},
             cover_letter=None,
             cover_letter_status=None,
-            has_test=bool(full_vacancy_json and full_vacancy_json.get("has_test")),
+            has_test=bool(
+                full_vacancy_json and full_vacancy_json.get("has_test")
+            ),
             test_status=None,
         )
 

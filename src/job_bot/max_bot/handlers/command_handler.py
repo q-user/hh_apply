@@ -224,9 +224,7 @@ class CommandHandler:
                 f"без: {getattr(group, 'without_tests', 0)})"
             )
             avg = getattr(group, "average_score", None)
-            score_suffix = (
-                f", средний score: {avg}" if avg is not None else ""
-            )
+            score_suffix = f", средний score: {avg}" if avg is not None else ""
             lines.append(
                 f"• {getattr(group, 'profile_name', '?')}: "
                 f"{getattr(group, 'total', 0)}"

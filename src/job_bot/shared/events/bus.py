@@ -44,4 +44,5 @@ class EventBus:
         for handler in handlers:
             handler(event)
 
+
 __all__ = ["Event", "EventBus", "EventHandler"]

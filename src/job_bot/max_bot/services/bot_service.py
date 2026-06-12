@@ -37,9 +37,7 @@ class MaxBotService:
         """Underlying :class:`CommandHandler` (for tests)."""
         return self._command_handler
 
-    def dispatch_update(
-        self, update: dict[str, Any]
-    ) -> OutgoingMessage | None:
+    def dispatch_update(self, update: dict[str, Any]) -> OutgoingMessage | None:
         """Dispatch a single update through the command handler.
 
         Returns the outgoing :class:`OutgoingMessage` (already

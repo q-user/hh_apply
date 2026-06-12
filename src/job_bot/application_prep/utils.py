@@ -91,8 +91,7 @@ def build_filter_ai_client(
         return None
     if mode not in ("heavy", "light"):
         logger.warning(
-            "Неизвестный ai_filter_mode=%r для профиля %s — "
-            "AI-фильтр пропущен",
+            "Неизвестный ai_filter_mode=%r для профиля %s — AI-фильтр пропущен",
             mode,
             getattr(profile, "id", "?"),
         )

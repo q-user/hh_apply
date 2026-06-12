@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     from ..main import HHApplicantTool
 
 
-
 logger = logging.getLogger(__package__)
 
 

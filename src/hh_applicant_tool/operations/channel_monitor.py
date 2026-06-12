@@ -65,22 +65,26 @@ class Operation(BaseOperation):
     def setup_parser(self, parser: argparse.ArgumentParser) -> None:
         group = parser.add_mutually_exclusive_group()
         group.add_argument(
-            "-l", "--list",
+            "-l",
+            "--list",
             action="store_true",
             help="Показать список отслеживаемых каналов.",
         )
         group.add_argument(
-            "-a", "--add",
+            "-a",
+            "--add",
             action="store_true",
             help="Добавить новый канал (требует --name и --channel-id).",
         )
         group.add_argument(
-            "-r", "--remove",
+            "-r",
+            "--remove",
             action="store_true",
             help="Удалить канал по --channel-id.",
         )
         group.add_argument(
-            "-p", "--parse",
+            "-p",
+            "--parse",
             action="store_true",
             help="Распарсить --text и вывести найденные ссылки (smoke-тест).",
         )
@@ -91,7 +95,9 @@ class Operation(BaseOperation):
             help="В паре с --list: показать только активные каналы.",
         )
         parser.add_argument("--name", help="Имя канала (для --add).")
-        parser.add_argument("--channel-id", help="Telegram channel id (для --add/--remove).")
+        parser.add_argument(
+            "--channel-id", help="Telegram channel id (для --add/--remove)."
+        )
         parser.add_argument(
             "--keywords",
             help="Ключевые слова через запятую (для --add).",
@@ -109,7 +115,9 @@ class Operation(BaseOperation):
         slice_ = self._slice or self._build_slice(tool)
 
         if getattr(args, "list", False):
-            return self._list(slice_, only_enabled=getattr(args, "enabled", False))
+            return self._list(
+                slice_, only_enabled=getattr(args, "enabled", False)
+            )
         if getattr(args, "add", False):
             return self._add(
                 slice_,
@@ -118,11 +126,11 @@ class Operation(BaseOperation):
                 keywords=getattr(args, "keywords", None),
             )
         if getattr(args, "remove", False):
-            return self._remove(slice_, channel_id=getattr(args, "channel_id", None))
-        if getattr(args, "parse", False):
-            return self._parse(
-                slice_, text=getattr(args, "text", None)
+            return self._remove(
+                slice_, channel_id=getattr(args, "channel_id", None)
             )
+        if getattr(args, "parse", False):
+            return self._parse(slice_, text=getattr(args, "text", None))
 
         # Дефолт: показать справку (как ``-h``).
         self._print_help()
@@ -160,20 +168,20 @@ class Operation(BaseOperation):
             else []
         )
         ch = slice_.channels.add_channel(
-            ChannelCreate(
-                name=name, channel_id=channel_id, filter_keywords=kws
+            ChannelCreate(name=name, channel_id=channel_id, filter_keywords=kws)
+        )
+        print(
+            json.dumps(
+                {
+                    "id": ch.id,
+                    "name": ch.name,
+                    "channel_id": ch.channel_id,
+                    "enabled": ch.enabled,
+                    "filter_keywords": ch.filter_keywords,
+                },
+                ensure_ascii=False,
             )
         )
-        print(json.dumps(
-            {
-                "id": ch.id,
-                "name": ch.name,
-                "channel_id": ch.channel_id,
-                "enabled": ch.enabled,
-                "filter_keywords": ch.filter_keywords,
-            },
-            ensure_ascii=False,
-        ))
         return 0
 
     def _remove(self, slice_: Any, *, channel_id: str | None) -> int:
@@ -198,15 +206,17 @@ class Operation(BaseOperation):
             print("Ссылки на вакансии не найдены.")
             return 0
         for link in links:
-            print(json.dumps(
-                {
-                    "url": link.url,
-                    "vacancy_id": link.vacancy_id,
-                    "source_channel": link.source_channel,
-                    "message_id": link.message_id,
-                },
-                ensure_ascii=False,
-            ))
+            print(
+                json.dumps(
+                    {
+                        "url": link.url,
+                        "vacancy_id": link.vacancy_id,
+                        "source_channel": link.source_channel,
+                        "message_id": link.message_id,
+                    },
+                    ensure_ascii=False,
+                )
+            )
         return 0
 
     # ─── DI ────────────────────────────────────────────────────────

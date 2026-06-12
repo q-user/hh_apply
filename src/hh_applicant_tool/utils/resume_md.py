@@ -5,6 +5,7 @@
 возвращаются как {_suggest: endpoint, text: name} и разрешаются через
 _resolve_suggests при передаче флага --resolve.
 """
+
 from __future__ import annotations
 
 import re
@@ -79,10 +80,16 @@ EDU_LEVEL_RU = {
 }
 
 LANG_LEVEL_RU = {
-    "a1": "a1", "a2": "a2", "b1": "b1", "b2": "b2",
-    "c1": "c1", "c2": "c2", "l1": "l1",
+    "a1": "a1",
+    "a2": "a2",
+    "b1": "b1",
+    "b2": "b2",
+    "c1": "c1",
+    "c2": "c2",
+    "l1": "l1",
     "родной": "l1",
-    "начальный": "a1", "элементарный": "a1",
+    "начальный": "a1",
+    "элементарный": "a1",
     "базовый": "a2",
     "средний": "b1",
     "выше среднего": "b2",
@@ -92,19 +99,37 @@ LANG_LEVEL_RU = {
 }
 
 LANG_NAME_RU = {
-    "русский": "rus", "английский": "eng", "немецкий": "deu",
-    "французский": "fra", "испанский": "spa", "итальянский": "ita",
-    "португальский": "por", "китайский": "zho", "японский": "jpn",
-    "корейский": "kor", "арабский": "ara", "турецкий": "tur",
-    "польский": "pol", "украинский": "ukr", "белорусский": "bel",
+    "русский": "rus",
+    "английский": "eng",
+    "немецкий": "deu",
+    "французский": "fra",
+    "испанский": "spa",
+    "итальянский": "ita",
+    "португальский": "por",
+    "китайский": "zho",
+    "японский": "jpn",
+    "корейский": "kor",
+    "арабский": "ara",
+    "турецкий": "tur",
+    "польский": "pol",
+    "украинский": "ukr",
+    "белорусский": "bel",
     "казахский": "kaz",
 }
 
 CURRENCY_RU = {
-    "руб": "RUR", "руб.": "RUR", "рублей": "RUR",
-    "rub": "RUR", "rur": "RUR", "₽": "RUR",
-    "usd": "USD", "долларов": "USD", "$": "USD",
-    "eur": "EUR", "евро": "EUR", "€": "EUR",
+    "руб": "RUR",
+    "руб.": "RUR",
+    "рублей": "RUR",
+    "rub": "RUR",
+    "rur": "RUR",
+    "₽": "RUR",
+    "usd": "USD",
+    "долларов": "USD",
+    "$": "USD",
+    "eur": "EUR",
+    "евро": "EUR",
+    "€": "EUR",
 }
 
 SITE_TYPE_RU = {
@@ -119,26 +144,38 @@ SITE_TYPE_RU = {
 }
 
 CONTACT_TYPE_RU = {
-    "email": "email", "e-mail": "email",
-    "почта": "email", "электронная почта": "email",
-    "мобильный": "cell", "мобильный телефон": "cell", "сотовый": "cell",
+    "email": "email",
+    "e-mail": "email",
+    "почта": "email",
+    "электронная почта": "email",
+    "мобильный": "cell",
+    "мобильный телефон": "cell",
+    "сотовый": "cell",
     "телефон": "cell",
-    "домашний": "home", "домашний телефон": "home",
-    "рабочий": "work", "рабочий телефон": "work",
+    "домашний": "home",
+    "домашний телефон": "home",
+    "рабочий": "work",
+    "рабочий телефон": "work",
 }
 
-_END_MARKERS = frozenset({"настоящее время", "по настоящее время", "сейчас", "н.в.", "..."})
+_END_MARKERS = frozenset(
+    {"настоящее время", "по настоящее время", "сейчас", "н.в.", "..."}
+)
 
 
 # ── Вспомогательные функции ───────────────────────────────────────────────────
+
 
 def _tr(value: str, mapping: dict[str, str], field: str) -> str | None:
     result = mapping.get(value.strip().lower())
     if result is None:
         import logging
+
         logging.getLogger(__package__).warning(
             "Неизвестное значение для %s: %r. Допустимые: %s",
-            field, value, ", ".join(mapping),
+            field,
+            value,
+            ", ".join(mapping),
         )
     return result
 
@@ -217,9 +254,17 @@ def _parse_phone(s: str) -> dict[str, str]:
         s = s[: m.start()].strip()
     digits = re.sub(r"\D", "", s)
     if len(digits) == 11 and digits[0] in ("7", "8"):
-        result: dict[str, str] = {"country": "7", "city": digits[1:4], "number": digits[4:]}
+        result: dict[str, str] = {
+            "country": "7",
+            "city": digits[1:4],
+            "number": digits[4:],
+        }
     else:
-        result = {"country": digits[:1] or "7", "city": digits[1:4], "number": digits[4:]}
+        result = {
+            "country": digits[:1] or "7",
+            "city": digits[1:4],
+            "number": digits[4:],
+        }
     if comment:
         result["comment"] = comment
     return result
@@ -231,7 +276,7 @@ def _parse_salary(s: str) -> dict[str, Any]:
     if not m:
         raise ValueError(f"Не удалось распознать зарплату: {s!r}")
     amount = int(re.sub(r"\s", "", m.group()))
-    tail = s[m.end():].strip().lower()
+    tail = s[m.end() :].strip().lower()
     currency = "RUR"
     for key, val in CURRENCY_RU.items():
         if tail.startswith(key):
@@ -241,6 +286,7 @@ def _parse_salary(s: str) -> dict[str, Any]:
 
 
 # ── Основной парсер ───────────────────────────────────────────────────────────
+
 
 def parse_resume_md(text: str) -> dict[str, Any]:
     """
@@ -252,10 +298,13 @@ def parse_resume_md(text: str) -> dict[str, Any]:
     secs = {h.lower(): body for h, body in _split_sections(text, level=2)}
 
     # ── Личные данные ─────────────────────────────────────────────────────────
-    if (sec := secs.get("личные данные")):
+    if sec := secs.get("личные данные"):
         kv = _parse_kv(sec)
-        for ru_key, api_key in [("имя", "first_name"), ("фамилия", "last_name"),
-                                  ("отчество", "middle_name")]:
+        for ru_key, api_key in [
+            ("имя", "first_name"),
+            ("фамилия", "last_name"),
+            ("отчество", "middle_name"),
+        ]:
             if v := kv.get(ru_key):
                 result[api_key] = v
         if v := kv.get("дата рождения"):
@@ -267,12 +316,12 @@ def parse_resume_md(text: str) -> dict[str, Any]:
                 result["gender"] = {"id": api_id}
 
     # ── Желаемая должность ────────────────────────────────────────────────────
-    if (sec := secs.get("желаемая должность")):
+    if sec := secs.get("желаемая должность"):
         if title := sec.splitlines()[0].strip():
             result["title"] = title
 
     # ── Контакты ──────────────────────────────────────────────────────────────
-    if (sec := secs.get("контакты")):
+    if sec := secs.get("контакты"):
         contacts = []
         for line in sec.splitlines():
             line = line.strip()
@@ -289,7 +338,10 @@ def parse_resume_md(text: str) -> dict[str, Any]:
                 # comment — отдельное поле на верхнем уровне контакта
                 phone = _parse_phone(value)
                 comment = phone.pop("comment", None)
-                entry: dict[str, Any] = {"type": {"id": label_id}, "value": phone}
+                entry: dict[str, Any] = {
+                    "type": {"id": label_id},
+                    "value": phone,
+                }
                 if comment:
                     entry["comment"] = comment
                 contacts.append(entry)
@@ -297,25 +349,28 @@ def parse_resume_md(text: str) -> dict[str, Any]:
             result["contact"] = contacts
 
     # ── Зарплата ──────────────────────────────────────────────────────────────
-    if (sec := secs.get("зарплата")):
+    if sec := secs.get("зарплата"):
         if first := sec.splitlines()[0].strip():
             result["salary"] = _parse_salary(first)
 
     # ── Место проживания ──────────────────────────────────────────────────────
     for heading in ("место проживания", "город"):
-        if (sec := secs.get(heading)):
+        if sec := secs.get(heading):
             if city := sec.splitlines()[0].strip():
                 result["area"] = _suggest("/suggests/area_leaves", city)
             break
 
     # ── Метро ─────────────────────────────────────────────────────────────────
-    if (sec := secs.get("метро")):
+    if sec := secs.get("метро"):
         if station := sec.splitlines()[0].strip():
             result["metro"] = _suggest("/suggests/metro", station)
 
     # ── Профессиональные роли ─────────────────────────────────────────────────
-    if (sec := secs.get("профессиональные роли")):
-        roles = [_suggest("/suggests/professional_roles", v) for v in _parse_values(sec)]
+    if sec := secs.get("профессиональные роли"):
+        roles = [
+            _suggest("/suggests/professional_roles", v)
+            for v in _parse_values(sec)
+        ]
         # Также строки "- Ключ: Значение" с ролью как значением
         kv = _parse_kv(sec)
         for v in kv.values():
@@ -328,7 +383,7 @@ def parse_resume_md(text: str) -> dict[str, Any]:
             result["professional_roles"] = roles
 
     # ── Занятость ─────────────────────────────────────────────────────────────
-    if (sec := secs.get("занятость")):
+    if sec := secs.get("занятость"):
         employments = []
         for v in _parse_values(sec):
             if api_id := _tr(v, EMPLOYMENT_RU, "занятость"):
@@ -337,7 +392,7 @@ def parse_resume_md(text: str) -> dict[str, Any]:
             result["employments"] = employments
 
     # ── График работы ─────────────────────────────────────────────────────────
-    if (sec := secs.get("график работы")):
+    if sec := secs.get("график работы"):
         schedules = []
         for v in _parse_values(sec):
             if api_id := _tr(v, SCHEDULE_RU, "график"):
@@ -346,7 +401,7 @@ def parse_resume_md(text: str) -> dict[str, Any]:
             result["schedules"] = schedules
 
     # ── Переезд ───────────────────────────────────────────────────────────────
-    if (sec := secs.get("переезд")):
+    if sec := secs.get("переезд"):
         kv = _parse_kv(sec)
         relocation: dict[str, Any] = {}
         if ttype := kv.get("тип"):
@@ -361,36 +416,45 @@ def parse_resume_md(text: str) -> dict[str, Any]:
             result["relocation"] = relocation
 
     # ── Командировки ──────────────────────────────────────────────────────────
-    if (sec := secs.get("командировки")):
+    if sec := secs.get("командировки"):
         if v := sec.splitlines()[0].strip():
             if api_id := _tr(v, BUSINESS_TRIP_RU, "командировки"):
                 result["business_trip_readiness"] = {"id": api_id}
 
     # ── Время в пути ──────────────────────────────────────────────────────────
-    if (sec := secs.get("время в пути")):
+    if sec := secs.get("время в пути"):
         if v := sec.splitlines()[0].strip():
             if api_id := _tr(v, TRAVEL_TIME_RU, "время в пути"):
                 result["travel_time"] = {"id": api_id}
 
     # ── Гражданство ───────────────────────────────────────────────────────────
-    if (sec := secs.get("гражданство")):
-        result["citizenship"] = [_suggest("/suggests/areas", v) for v in _parse_values(sec)]
+    if sec := secs.get("гражданство"):
+        result["citizenship"] = [
+            _suggest("/suggests/areas", v) for v in _parse_values(sec)
+        ]
 
     # ── Право на работу ───────────────────────────────────────────────────────
-    if (sec := secs.get("право на работу")):
-        result["work_ticket"] = [_suggest("/suggests/areas", v) for v in _parse_values(sec)]
+    if sec := secs.get("право на работу"):
+        result["work_ticket"] = [
+            _suggest("/suggests/areas", v) for v in _parse_values(sec)
+        ]
 
     # ── Водительское удостоверение ────────────────────────────────────────────
-    if (sec := secs.get("водительское удостоверение")):
+    if sec := secs.get("водительское удостоверение"):
         kv = _parse_kv(sec)
         types = [{"id": v.upper()} for v in _parse_values(sec) if len(v) <= 3]
         if types:
             result["driver_license_types"] = types
         if "автомобиль" in kv:
-            result["has_vehicle"] = kv["автомобиль"].lower() not in ("нет", "no", "false", "0")
+            result["has_vehicle"] = kv["автомобиль"].lower() not in (
+                "нет",
+                "no",
+                "false",
+                "0",
+            )
 
     # ── Языки ─────────────────────────────────────────────────────────────────
-    if (sec := secs.get("языки")):
+    if sec := secs.get("языки"):
         languages = []
         for line in sec.splitlines():
             line = line.strip()
@@ -405,17 +469,17 @@ def parse_resume_md(text: str) -> dict[str, Any]:
             result["language"] = languages
 
     # ── Ключевые навыки ───────────────────────────────────────────────────────
-    if (sec := secs.get("ключевые навыки")):
+    if sec := secs.get("ключевые навыки"):
         result["skill_set"] = _parse_values(sec)
 
     # ── О себе ────────────────────────────────────────────────────────────────
     for heading in ("о себе", "обо мне", "навыки"):
-        if (sec := secs.get(heading)):
+        if sec := secs.get(heading):
             result["skills"] = sec.strip()
             break
 
     # ── Опыт работы ───────────────────────────────────────────────────────────
-    if (sec := secs.get("опыт работы")):
+    if sec := secs.get("опыт работы"):
         experience = []
         for company_name, job_body in _split_sections(sec, level=3):
             kv = _parse_kv(job_body)
@@ -435,20 +499,25 @@ def parse_resume_md(text: str) -> dict[str, Any]:
             elif period := kv.get("период"):
                 parts = re.split(r"\s*[—–]\s*", period, maxsplit=1)
                 entry["start"] = _parse_date(parts[0])
-                if len(parts) > 1 and parts[1].strip().lower() not in _END_MARKERS:
+                if (
+                    len(parts) > 1
+                    and parts[1].strip().lower() not in _END_MARKERS
+                ):
                     entry["end"] = _parse_date(parts[1])
             if industry := kv.get("отрасль"):
                 entry["industries"] = [{"name": industry}]
             if url := kv.get("сайт"):
                 entry["company_url"] = url
             if company_id_text := kv.get("компания id"):
-                entry["company_id"] = _suggest("/suggests/companies", company_id_text)
+                entry["company_id"] = _suggest(
+                    "/suggests/companies", company_id_text
+                )
             experience.append(entry)
         if experience:
             result["experience"] = experience
 
     # ── Образование ───────────────────────────────────────────────────────────
-    if (sec := secs.get("образование")):
+    if sec := secs.get("образование"):
         edu: dict[str, Any] = {}
         kv = _parse_kv(sec)
         if level_str := kv.get("уровень"):
@@ -461,11 +530,15 @@ def parse_resume_md(text: str) -> dict[str, Any]:
 
         for h3, h3_body in _split_sections(sec, level=3):
             h3_l = h3.lower()
-            if any(k in h3_l for k in ("курс", "тренинг", "повышение квалификации")):
+            if any(
+                k in h3_l for k in ("курс", "тренинг", "повышение квалификации")
+            ):
                 for name, h4_body in _split_sections(h3_body, level=4):
                     sub = _parse_kv(h4_body)
                     additional.append(_edu_entry(name, sub))
-            elif any(k in h3_l for k in ("тест", "экзамен", "аттест", "сертифик")):
+            elif any(
+                k in h3_l for k in ("тест", "экзамен", "аттест", "сертифик")
+            ):
                 for name, h4_body in _split_sections(h3_body, level=4):
                     sub = _parse_kv(h4_body)
                     attestation.append(_edu_entry(name, sub))
@@ -490,7 +563,7 @@ def parse_resume_md(text: str) -> dict[str, Any]:
             result["education"] = edu
 
     # ── Рекомендации ──────────────────────────────────────────────────────────
-    if (sec := secs.get("рекомендации")):
+    if sec := secs.get("рекомендации"):
         recs = []
         for name, body in _split_sections(sec, level=3):
             kv = _parse_kv(body)
@@ -506,7 +579,7 @@ def parse_resume_md(text: str) -> dict[str, Any]:
             result["recommendation"] = recs
 
     # ── Сайты и профили ───────────────────────────────────────────────────────
-    if (sec := secs.get("сайты")):
+    if sec := secs.get("сайты"):
         sites = []
         for line in sec.splitlines():
             line = line.strip()
@@ -515,8 +588,12 @@ def parse_resume_md(text: str) -> dict[str, Any]:
             # "- GitHub: https://..." — URL может содержать ':'
             m = re.match(r"^-\s+(.+?):\s+(https?://.+)$", line)
             if m:
-                type_id = SITE_TYPE_RU.get(m.group(1).strip().lower(), "personal")
-                sites.append({"type": {"id": type_id}, "url": m.group(2).strip()})
+                type_id = SITE_TYPE_RU.get(
+                    m.group(1).strip().lower(), "personal"
+                )
+                sites.append(
+                    {"type": {"id": type_id}, "url": m.group(2).strip()}
+                )
         if sites:
             result["site"] = sites
 

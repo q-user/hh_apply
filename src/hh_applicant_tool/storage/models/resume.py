@@ -17,5 +17,9 @@ class ResumeModel(BaseModel):
     can_publish_or_update: bool = False
     total_views: int = mapped(path="counters.total_views", default=0)
     new_views: int = mapped(path="counters.new_views", default=0)
-    created_at: datetime | None = mapped(transform=try_parse_datetime, default=None)
-    updated_at: datetime | None = mapped(transform=try_parse_datetime, default=None)
+    created_at: datetime | None = mapped(
+        transform=try_parse_datetime, default=None
+    )
+    updated_at: datetime | None = mapped(
+        transform=try_parse_datetime, default=None
+    )

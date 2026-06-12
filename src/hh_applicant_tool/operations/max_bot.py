@@ -113,9 +113,7 @@ class Operation(BaseOperation):
 
     # ─── Smoke-режим: одно сообщение и выйти ───────────────────────
 
-    def _run_send_message(
-        self, adapter: Any, args: BaseNamespace
-    ) -> int:
+    def _run_send_message(self, adapter: Any, args: BaseNamespace) -> int:
         chat_id = getattr(args, "chat_id", None)
         text = getattr(args, "text", None)
         if chat_id is None or not text:

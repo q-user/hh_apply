@@ -100,8 +100,10 @@ class Operation(BaseOperation):
         for negotiation in self.tool.get_negotiations(status="all"):
             vacancy = negotiation["vacancy"]
             state_id = negotiation["state"]["id"]
-            
-            logger.debug(f"Проверка отклика {negotiation['id']}: state={state_id}")
+
+            logger.debug(
+                f"Проверка отклика {negotiation['id']}: state={state_id}"
+            )
 
             # Если работодателя блокируют, то он превращается в null
             # ХХ позволяет скрывать компанию, когда id нет, а вместо имени "Крупная российская компания"

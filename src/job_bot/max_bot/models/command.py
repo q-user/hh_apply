@@ -58,7 +58,7 @@ class Command:
         if not text or not text.startswith(_COMMAND_PREFIX):
             return None
         # Split on the first whitespace to get name + rest.
-        stripped = text[len(_COMMAND_PREFIX):].lstrip()
+        stripped = text[len(_COMMAND_PREFIX) :].lstrip()
         if not stripped:
             return None
         head, _, tail = stripped.partition(" ")

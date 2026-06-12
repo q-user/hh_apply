@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+import requests
+from hh_applicant_tool.api import BadResponse
+from hh_applicant_tool.api.errors import ApiError
 
 from job_bot.shared.api.client import HHApiClient, HHApiConfig
 from job_bot.shared.storage.database import Database
 from job_bot.vacancy_search.handlers.vacancy_handler import VacancyHandler
 from job_bot.vacancy_search.models.search_profile import SearchProfile
 from job_bot.vacancy_search.models.vacancy import Vacancy, VacancyCreate
+
+logger = logging.getLogger(__package__)
 
 
 class VacancySearchHandler:
@@ -88,8 +95,9 @@ class VacancySearchHandler:
                 if page >= response.get("pages", 1) - 1:
                     break
 
-            except Exception:
+            except (requests.RequestException, ApiError, BadResponse, ValueError, KeyError, TypeError) as ex:
                 # Log error and continue
+                logger.debug("vacancy search page failed: %s", ex)
                 break
 
         return all_vacancies
@@ -105,5 +113,6 @@ class VacancySearchHandler:
         try:
             response = self._api_client.get(f"/vacancies/{vacancy_id}")
             return Vacancy.from_hh_api(response)
-        except Exception:
+        except (requests.RequestException, ApiError, BadResponse, ValueError, KeyError, TypeError) as ex:
+            logger.debug("fetch_vacancy_details(%s) failed: %s", vacancy_id, ex)
             return None

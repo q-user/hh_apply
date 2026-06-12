@@ -42,6 +42,7 @@ class JSONDecoder(json.JSONDecoder):
     Custom hooks (e.g. ``date_parser_hook``) can be wired into
     ``__init__`` here when needed.
     """
+
     pass
 
 

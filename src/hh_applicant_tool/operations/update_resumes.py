@@ -37,7 +37,10 @@ class Operation(BaseOperation):
         for resume in resumes:
             if args.id and resume["id"] != args.id:
                 continue
-            if args.search and args.search.lower() not in resume["title"].lower():
+            if (
+                args.search
+                and args.search.lower() not in resume["title"].lower()
+            ):
                 continue
 
             if not resume.get("can_publish_or_update"):

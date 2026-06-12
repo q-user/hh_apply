@@ -111,7 +111,7 @@ class BaseModel:
                     if value is MISSING:
                         continue
 
-                if (t := f.metadata.get("transform")):
+                if t := f.metadata.get("transform"):
                     if isinstance(t, str):
                         t = getattr(cls, t)
                     value = t(value)

@@ -36,7 +36,5 @@ class SettingsRepository(BaseRepository):
 
     def list_keys(self) -> list[str]:
         """Возвращает список всех ключей в таблице settings."""
-        cur = self.conn.execute(
-            f"SELECT {self.pkey} FROM {self.table_name}"
-        )
+        cur = self.conn.execute(f"SELECT {self.pkey} FROM {self.table_name}")
         return [row[0] for row in cur.fetchall()]

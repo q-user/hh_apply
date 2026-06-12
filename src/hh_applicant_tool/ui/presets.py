@@ -27,9 +27,7 @@ def _validate_name(name: Any) -> str:
             f"Имя пресета длиннее {MAX_NAME_LEN} символов"
         )
     if not normalized.isprintable() or ":" in normalized:
-        raise PresetValidationError(
-            "Имя пресета содержит недопустимые символы"
-        )
+        raise PresetValidationError("Имя пресета содержит недопустимые символы")
     return normalized
 
 

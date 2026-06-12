@@ -101,7 +101,9 @@ class ChannelPoller:
             text = str(post.get("text") or "")
             message_id = int(post.get("message_id", 0) or 0)
 
-            if not self._passes_keyword_filter(text, self._channel.filter_keywords):
+            if not self._passes_keyword_filter(
+                text, self._channel.filter_keywords
+            ):
                 logger.debug(
                     "ChannelPoller[%s]: message %d filtered by keywords",
                     self._channel.channel_id,

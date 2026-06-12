@@ -45,7 +45,11 @@ def _as_facade(storage: Any) -> Any:
     """
     from hh_applicant_tool.storage import StorageFacade
 
-    return storage if isinstance(storage, StorageFacade) else StorageFacade(storage)
+    return (
+        storage
+        if isinstance(storage, StorageFacade)
+        else StorageFacade(storage)
+    )
 
 
 def _session_state_for(storage: Any, chat_id: int) -> str:

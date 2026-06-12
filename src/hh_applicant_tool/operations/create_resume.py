@@ -57,7 +57,11 @@ def _resolve_suggests(api_client: Any, obj: Any) -> None:
                 obj.update({"id": found.get("id"), "name": found.get("name")})
                 logger.debug("resolved %r → id=%s", text, obj.get("id"))
             else:
-                logger.warning("suggest не нашёл результатов для %r (endpoint: %s)", text, endpoint)
+                logger.warning(
+                    "suggest не нашёл результатов для %r (endpoint: %s)",
+                    text,
+                    endpoint,
+                )
         else:
             for v in obj.values():
                 _resolve_suggests(api_client, v)

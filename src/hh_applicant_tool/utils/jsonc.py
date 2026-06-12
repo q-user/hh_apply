@@ -42,8 +42,9 @@ def tokenize(s: str) -> Iterator[Token]:
 class JSONCParser:
     def parse(self, s: str) -> Any:
         self.token_it = filter(
-            lambda t: t.token_type
-            not in [TokenType.COMMENT, TokenType.WHITESPACE],
+            lambda t: (
+                t.token_type not in [TokenType.COMMENT, TokenType.WHITESPACE]
+            ),
             tokenize(s),
         )
         self.token: Token
