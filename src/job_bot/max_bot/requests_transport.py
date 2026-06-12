@@ -169,6 +169,12 @@ class RequestsMaxTransport:
         # We catch the concrete base classes plus a final ``Exception``
         # safety net so a brand-new ``requests`` release can't crash
         # the polling loop on an unknown subclass.
+        #
+        # NB: ``timeout`` here is the *connect* / *read* timeout for the
+        # underlying TCP request. The MAX long-poll hold time is sent
+        # as a separate query parameter via ``params["timeout"]`` and
+        # is unrelated to the HTTP client timeout -- keep these
+        # independent.
         try:
             response = self._session.request(
                 method,
