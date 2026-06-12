@@ -24,7 +24,7 @@ import requests
 
 from job_bot.application_prep.utils import build_filter_ai_client
 
-from ...api import BadResponse
+from ...api.errors import BadResponse
 from ...api.errors import ApiError
 from ...services import (
     DEFAULT_LETTER_TEMPLATE,

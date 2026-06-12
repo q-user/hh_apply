@@ -16,7 +16,7 @@ class ApplyOnePort(Protocol):
     """Submit a single draft to hh.ru.
 
     Success returns ``None``; failure raises :class:`RetryableError` or
-    :class:`FatalError` from :mod:`hh_applicant_tool.services.apply_worker`.
+    :class:`FatalError` from :mod:`job_bot.application_submit.errors`.
     """
 
     def __call__(self, draft: Any) -> None: ...

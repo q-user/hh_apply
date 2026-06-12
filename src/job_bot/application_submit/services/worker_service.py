@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
 
+from job_bot.application_submit.errors import FatalError, RetryableError
 from job_bot.application_submit.handlers.retry_handler import (
     DEFAULT_MAX_ATTEMPTS,
     RetryHandler,
@@ -214,10 +215,6 @@ class WorkerService:
             )
 
         # Lazy import to avoid a hard dependency on the legacy service.
-        from hh_applicant_tool.services.apply_worker import (
-            FatalError,
-            RetryableError,
-        )
 
         draft.status = "applying"
         self._jobs.save_draft(draft)

@@ -26,6 +26,7 @@ Public API::
 
 from __future__ import annotations
 
+from job_bot.application_submit.errors import FatalError, RetryableError
 from job_bot.application_submit.handlers import (
     DEFAULT_MAX_ATTEMPTS,
     LOCK_TIMEOUT_SECONDS,
@@ -83,4 +84,7 @@ __all__ = [
     "JobPort",
     "ApplyOnePort",
     "TestPort",
+    # Errors
+    "FatalError",
+    "RetryableError",
 ]

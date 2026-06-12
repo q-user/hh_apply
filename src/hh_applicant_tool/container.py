@@ -852,7 +852,7 @@ class _ApplicationSubmitAdapter:
         from hh_applicant_tool.storage.models.application_draft import (
             ApplicationDraftModel,
         )
-        from hh_applicant_tool.services.apply_worker import (
+        from job_bot.application_submit.errors import (
             FatalError,
             RetryableError,
         )
