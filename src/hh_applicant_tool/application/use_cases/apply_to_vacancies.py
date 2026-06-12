@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any, Callable, cast
 import requests
 
 from ...ai.base import AIError
-from ...api import BadResponse, Redirect
+from ...api.errors import BadResponse, Redirect
 from ...api.datatypes import SearchVacancy
 from ...api.errors import ApiError, CaptchaRequired, LimitExceeded
 from ...services import (

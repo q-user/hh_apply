@@ -1,3 +1,4 @@
+from . import json
 from .config import Config, get_config_path
 from .date import (
     DATETIME_FORMAT,
@@ -19,4 +20,5 @@ __all__ = [
     "bool2str",
     "list2str",
     "setup_terminal",
+    "json",
 ]

@@ -57,7 +57,7 @@ class ApplyOneHandler:
         Success returns ``None``. Failure propagates one of:
 
         * :class:`RetryableError` / :class:`FatalError` from
-          :mod:`hh_applicant_tool.services.apply_worker` (5xx, 400,
+          :mod:`job_bot.application_submit.errors` (5xx, 400,
           network, …);
         * :class:`CaptchaRequired` / :class:`LimitExceeded` from
           :mod:`hh_applicant_tool.api.errors` (only when
