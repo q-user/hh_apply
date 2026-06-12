@@ -1,5 +1,13 @@
-"""Handlers for the max_bot slice."""
+"""MAX Bot handlers (issue #60)."""
 
-from job_bot.max_bot.handlers.transport_handler import TransportHandler
+from job_bot.max_bot.handlers.command_handler import CommandHandler
+from job_bot.max_bot.handlers.transport_handler import (
+    TransportHandler,
+    UpdateCallback,
+)
 
-__all__ = ["TransportHandler"]
+__all__ = [
+    "CommandHandler",
+    "TransportHandler",
+    "UpdateCallback",
+]

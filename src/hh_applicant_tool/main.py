@@ -15,20 +15,27 @@ from itertools import count
 from os import getenv
 from pathlib import Path
 from pkgutil import iter_modules
-from typing import Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 import requests
 import urllib3
 
 from . import ai, api, utils
+
+if TYPE_CHECKING:
+    from .container import AppContainer
 from .constants import (
     CONFIG_DIR,
-    CONFIG_FILENAME,
     COOKIES_FILENAME,
     DATABASE_FILENAME,
     DESKTOP_USER_AGENT,
     LOG_FILENAME,
 )
+# ``CONFIG_FILENAME`` is imported and consumed by
+# ``AppContainer._get_config_auth_slice`` (issue #59). The ``self.config``
+# property no longer needs the constant -- the VSA adapter receives
+# the path through the container, which imports ``CONFIG_FILENAME``
+# directly from ``.constants``.
 from .storage import StorageFacade
 from .utils.cookiejar import HHOnlyCookieJar
 from .utils.log import setup_logger
@@ -143,6 +150,27 @@ class HHApplicantTool(MegaTool):
 
     def __init__(self):
         self._parser = self._create_parser()
+        # VSA Config/Auth wiring (issue #59) -- lazy :class:`AppContainer`
+        # that backs ``self.config`` with the VSA ``_ConfigAdapter``
+        # (delegates to :class:`ConfigAuthSlice`). The container is built
+        # on first access of :attr:`config` to keep ``__init__`` cheap
+        # and avoid a circular import (container imports ``HHApplicantTool``
+        # under :data:`TYPE_CHECKING`).
+        self._container: AppContainer | None = None
+
+    def _get_container(self) -> AppContainer:
+        """Return the lazily-built :class:`AppContainer` (issue #59).
+
+        The container backs :attr:`config` with the VSA
+        ``_ConfigAdapter`` (delegates to :class:`ConfigAuthSlice`) so
+        the CLI runtime reads/writes config through the VSA slice
+        rather than the legacy ``utils.Config`` class. Memoised for
+        the lifetime of the tool.
+        """
+        if self._container is None:
+            from .container import AppContainer
+            self._container = AppContainer(self)
+        return self._container
 
     @staticmethod
     def _proxy_url_to_dict(proxy_url: str | None) -> dict[str, str]:
@@ -227,8 +255,24 @@ class HHApplicantTool(MegaTool):
         ).resolve()
 
     @cached_property
-    def config(self) -> utils.Config:
-        return utils.Config(self.config_path / CONFIG_FILENAME)
+    def config(self) -> Any:
+        """VSA-backed config (issue #59).
+
+        Returns the VSA :class:`_ConfigAdapter` that delegates to
+        :class:`ConfigAuthSlice` (issue #59). The adapter provides the
+        same dict-like surface as the legacy ``utils.Config`` --
+        ``.get(key, default)``, ``.save(**kwargs)``, ``__getitem__``,
+        ``__contains__``, ``__iter__``, ``__len__``, and
+        ``keys/values/items`` -- so all existing callers in
+        ``main.py``, ``operations/`` and ``ui/api.py`` keep working
+        unchanged.
+
+        The legacy ``utils.Config`` class is kept (with a runtime
+        :class:`DeprecationWarning` from issue #70) for back-compat
+        and direct imports, but the CLI runtime no longer
+        instantiates it.
+        """
+        return self._get_container().create_config_adapter()
 
     @cached_property
     def log_file(self) -> Path:
@@ -312,7 +356,12 @@ class HHApplicantTool(MegaTool):
         if self.api_client.access_token != self.config.get("token", {}).get(
             "access_token"
         ):
-            self.config.save(token=self.api_client.get_access_token())
+            # Issue #59: route OAuth persistence through the VSA
+            # ``_ConfigAdapter.save_token`` (which delegates to
+            # ``slice.auth.save_credentials``). The legacy
+            # ``self.config.save(token=...)`` path silently no-ops
+            # under the VSA ``AppConfig`` (no ``token`` field).
+            self.config.save_token(self.api_client.get_access_token())
             return True
         return False
 

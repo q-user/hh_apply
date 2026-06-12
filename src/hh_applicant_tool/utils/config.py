@@ -1,3 +1,21 @@
+"""Legacy ``Config`` class — DEPRECATED as of the #59 VSA switchover.
+
+The CLI runtime no longer instantiates :class:`Config`; the
+:attr:`HHApplicantTool.config` property now returns the VSA
+``_ConfigAdapter`` (built on top of
+:class:`job_bot.config_auth.slice.ConfigAuthSlice`) instead. This
+module is kept for back-compat with any external code or test that
+imports ``Config`` directly -- importing it raises a runtime
+:class:`DeprecationWarning` so the call site is greppable.
+
+New code should depend on the VSA slice directly::
+
+    from job_bot.config_auth.slice import create_config_auth_slice
+
+or read config through ``HHApplicantTool().config``, which is now
+backed by the VSA slice.
+"""
+
 from __future__ import annotations
 
 import platform
@@ -10,7 +28,7 @@ from typing import Any
 
 from . import json
 
-# Deprecation warning for VSA migration
+# Deprecation warning for VSA migration (issues #70, #59).
 warnings.warn(
     "hh_applicant_tool.utils.config is deprecated, use job_bot.config_auth instead",
     DeprecationWarning,

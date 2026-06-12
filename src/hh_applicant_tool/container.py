@@ -24,12 +24,14 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from collections.abc import Iterator, Mapping
 from typing import TYPE_CHECKING, Any
 
 from job_bot.application_prep.utils import build_filter_ai_client
 
 from .application import ApplyToVacanciesUseCase, PrepareVacanciesUseCase
+from .constants import CONFIG_FILENAME
 
 if TYPE_CHECKING:
     from .main import HHApplicantTool
@@ -146,38 +148,42 @@ class AppContainer:
 
     # ─── Config Auth Slice (VSA) ───────────────────────────────────
 
-    def _get_config_auth_slice(self):
-        """Get or create the ConfigAuthSlice instance."""
+    def _get_config_auth_slice(self) -> Any:
+        """Get or create the ConfigAuthSlice instance (issue #59)."""
         if self._config_auth_slice is None:
             from job_bot.config_auth.slice import create_config_auth_slice
             from job_bot.shared.config.settings import Settings
             from job_bot.shared.storage.database import create_database
 
             tool = self._tool
-            # Build shared kernel Settings from tool's config
-            config = tool.config
+            # Build shared kernel Settings from tool's config. We
+            # avoid touching ``tool.config`` here (it would recurse
+            # back into the container on the very first access) --
+            # only ``tool.db_path`` / ``tool.config_path`` are
+            # needed, and those are pure path properties.
             settings = Settings()
             settings.database.path = tool.db_path
 
-            hh_config = config.get("hh_api", {})
-            settings.hh_api.base_url = hh_config.get(
-                "base_url", "https://api.hh.ru"
-            )
-            settings.hh_api.user_agent = hh_config.get(
-                "user_agent", "job_bot/0.1.0"
-            )
-            settings.hh_api.timeout = hh_config.get("timeout", 30)
-            settings.hh_api.client_id = config.get("client_id")
-            settings.hh_api.client_secret = config.get("client_secret")
+            # Pull HH API defaults from the slice-side schema, not
+            # from the (still uninitialised) ``tool.config`` adapter.
+            settings.hh_api.base_url = "https://api.hh.ru"
+            settings.hh_api.user_agent = "job_bot/0.1.0"
+            settings.hh_api.timeout = 30
 
-            # Create slice with shared kernel components
+            # Wire the slice to the tool's actual JSON config file
+            # (issue #59): without this, the slice falls back to
+            # ``Path("config.json")`` in the current working
+            # directory, which is wrong for per-profile setups.
+            config_path = tool.config_path / CONFIG_FILENAME
+
             self._config_auth_slice = create_config_auth_slice(
                 settings=settings,
                 database=create_database(settings.database.path),
+                config_path=config_path,
             )
         return self._config_auth_slice
 
-    def create_config_adapter(self):
+    def create_config_adapter(self) -> _ConfigAdapter:
         """Create a config adapter that provides the old dict-like interface
         but delegates to the new ConfigAuthSlice.
         """
@@ -1050,6 +1056,12 @@ class _ConfigAdapter:
         Accepts keyword arguments that can be either:
         - Top-level keys: client_id, client_secret, etc.
         - Nested dicts: telegram={'bot_token': '...'}, smtp={...}, etc.
+
+        Note (issue #59): the ``token=...`` kwarg is **not** supported
+        here -- ``AppConfig`` has no ``token`` field, so a token
+        passed to ``save()`` would be silently dropped. Use
+        :meth:`save_token` instead, which routes to
+        ``slice.auth.save_credentials()``.
         """
         # Load current config
         app_config = self._config_handler.load(self._config_path)
@@ -1057,6 +1069,23 @@ class _ConfigAdapter:
 
         # Merge updates
         for key, value in kwargs.items():
+            if key == "token":
+                # Defensive: explicitly skip the legacy ``token=``
+                # kwarg to make the contract gap visible at runtime
+                # rather than silently dropping it (see
+                # :meth:`save_token` for the auth-aware path).
+                # Use ``warnings.warn`` (not ``logger.warning``) so
+                # the gap is greppable via ``warnings.catch_warnings``
+                # and matches the spirit of issue #70's
+                # module-level ``DeprecationWarning``.
+                warnings.warn(
+                    "_ConfigAdapter.save(token=...) is a no-op under the "
+                    "VSA slice; use save_token() to persist OAuth "
+                    "credentials via slice.auth.save_credentials().",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                continue
             if (
                 isinstance(value, dict)
                 and key in current_dict
@@ -1074,6 +1103,40 @@ class _ConfigAdapter:
         new_config = AppConfig.from_dict(current_dict)
         self._config_handler.save(new_config, self._config_path, backup=True)
         self._invalidate_cache()
+
+    def save_token(
+        self,
+        token: dict[str, Any],
+        *,
+        profile_id: str | None = None,
+    ) -> None:
+        """Persist OAuth credentials through the VSA auth port (issue #59).
+
+        Replaces the legacy ``utils.Config.save(token=...)`` pattern,
+        which silently no-ops under the VSA ``AppConfig`` (the
+        ``AppConfig`` schema has no ``token`` field -- the auth
+        handler is the source of truth for credentials, stored in
+        the ``oauth_credentials`` SQLite table). Routes to
+        :meth:`ConfigAuthSlice.auth.save_credentials`.
+
+        Args:
+            token: dict with ``access_token``, ``refresh_token`` and
+                ``access_expires_at`` keys (matches
+                :meth:`OAuthCredentials.from_dict`).
+            profile_id: optional profile id to persist under. Falls
+                back to ``self._tool.profile_id`` (the active CLI
+                profile) so multi-profile setups (issue #62) keep
+                their tokens per-profile. Defaults to ``"default"``
+                when neither is set.
+        """
+        from job_bot.config_auth.models.credentials import OAuthCredentials
+
+        if profile_id is None:
+            profile_id = (
+                getattr(self._tool, "profile_id", None) or "default"
+            )
+        credentials = OAuthCredentials.from_dict(token)
+        self._slice.auth.save_credentials(credentials, profile_id=profile_id)
 
     # For compatibility with dict()
     def keys(self):

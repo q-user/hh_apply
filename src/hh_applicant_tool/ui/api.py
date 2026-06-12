@@ -317,7 +317,7 @@ class Api:
 
     def _clear_token(self) -> None:
         try:
-            self._tool.config.save(token={})
+            self._tool.config.save_token({})
         except Exception as e:
             logger.warning("clear_token config error: %s", e)
         try:
