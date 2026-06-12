@@ -72,3 +72,9 @@ data/
 *.db
 MagicMock/
 logs/
+
+# Parallel agent worktrees (see .agents/skills/git-workflow)
+/.worktrees/
+
+# Agent task notes / scratch prompts (not project artifacts)
+/prompts/

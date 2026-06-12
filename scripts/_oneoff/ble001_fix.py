@@ -1,21 +1,34 @@
 #!/usr/bin/env python3
-"""Bulk-add ``# noqa: BLE001`` to remaining sites with file-specific justifications.
+"""⚠️  ONE-OFF / DESTRUCTIVE — moved from scripts/ble001_fix.py.
 
-Strategy:
-- For each (file_path, line_number) BLE001 site, find the line and
-  add a justification comment after the ``except Exception`` / ``except Exception as e:``
-  keyword (in-place, idempotent).
-- The justification text is chosen per file context.
-- Lines that already contain ``BLE001`` are skipped (idempotent).
+This script mutates source files in-place by inserting
+``# noqa: BLE001 -- <reason>`` markers after every
+``except Exception`` site listed in :data:`SITES`.
+
+It was used to perform the bulk sweep referenced in
+``6a95749`` (chore(lint): add BLE001 noqa justifications
+for remaining broad excepts, refs #69) and should not be
+re-run without a strong reason — the line numbers in
+:data:`SITES` are pinned to that specific commit and will
+silently mis-target if the source has moved since.
+
+To run, you must explicitly opt in::
+
+    ALLOW_DESTRUCTIVE_SCRIPT=1 python scripts/_oneoff/ble001_fix.py
+
+A future cleanup (issue #76 / #77) will delete this file
+once the BLE001 gate is fully enforced by narrowed exception
+types instead of blanket ``# noqa`` markers.
 """
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
+REPO = Path(__file__).resolve().parent.parent.parent
 
 # Per-file justification text. Default falls back to "best-effort / defensive".
 JUSTIFICATIONS: dict[str, str] = {
@@ -42,8 +55,6 @@ JUSTIFICATIONS: dict[str, str] = {
 }
 
 # Matches the end of an `except` clause where the noqa should be inserted.
-# - `except Exception:`           -> noqa
-# - `except Exception as e:`      -> noqa
 EXC_RE = re.compile(
     r"(except\s+Exception(?:\s+as\s+\w+)?\s*:)(?!\s*#\s*noqa:\s*BLE001)"
 )
@@ -61,7 +72,6 @@ def fix_file(rel_path: str, sites: list[int]) -> int:
         line = lines[idx]
         text = line.rstrip("\n")
         stripped = text.rstrip()
-        # If the line already ends with `# noqa: BLE001 ...`, skip.
         if "# noqa: BLE001" in stripped:
             continue
         m = EXC_RE.search(stripped)
@@ -83,6 +93,7 @@ def fix_file(rel_path: str, sites: list[int]) -> int:
 
 def main() -> int:
     # Map: file -> list of 1-based line numbers (sorted asc).
+    # Pinned to commit 6a95749. Will mis-target if source has moved.
     sites: dict[str, list[int]] = {
         "scripts/start.py": [151, 251, 270, 329, 344],
         "src/hh_applicant_tool/infrastructure/captcha.py": [192, 199],
@@ -124,4 +135,13 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if os.environ.get("ALLOW_DESTRUCTIVE_SCRIPT") != "1":
+        print(
+            "Refusing to run: ble001_fix.py is a DESTRUCTIVE one-off script.\n"
+            "It mutates source files in-place using pinned line numbers\n"
+            "(see module docstring). To run anyway, set:\n"
+            "    ALLOW_DESTRUCTIVE_SCRIPT=1",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     raise SystemExit(main())
