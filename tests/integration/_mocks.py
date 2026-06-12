@@ -221,9 +221,7 @@ class MockTelegramTransport:
         self.sent_messages.append(msg)
         return {"ok": True, "message_id": len(self.sent_messages)}
 
-    def get_updates(
-        self, offset: int | None = None
-    ) -> list[dict[str, Any]]:
+    def get_updates(self, offset: int | None = None) -> list[dict[str, Any]]:
         self._get_updates_calls += 1
         if self._scripted_updates:
             return [self._scripted_updates.pop(0)]

@@ -45,6 +45,7 @@ def storage() -> Iterator[sqlite3.Connection]:
 # follows the project convention (single underscore for module-private
 # helpers; pytest still imports them via the conftest hook).
 
+
 class _SimpleTool:
     """Bare-bones stand-in for ``HHApplicantTool`` for operation tests.
 

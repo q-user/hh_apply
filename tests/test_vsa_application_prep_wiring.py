@@ -112,12 +112,8 @@ class TestApplicationPrepSliceWiring:
         use_case = container.prepare_vacancies_use_case()
 
         assert isinstance(use_case, PrepareVacanciesUseCase)
-        assert hasattr(
-            use_case, "_injected_application_prep_service_factory"
-        )
-        assert (
-            use_case._injected_application_prep_service_factory is not None
-        )
+        assert hasattr(use_case, "_injected_application_prep_service_factory")
+        assert use_case._injected_application_prep_service_factory is not None
 
     def test_factory_returns_adapter_instance(self):
         """The injected factory returns an adapter instance (not None)."""
@@ -344,7 +340,9 @@ class TestPerProfileAIInjection:
         db_path = _make_temp_db_path()
         try:
             db = Database(db_path)
-            real_relevance = RelevanceHandler(database=db, api_client=MagicMock())
+            real_relevance = RelevanceHandler(
+                database=db, api_client=MagicMock()
+            )
             slice_._relevance_handler = real_relevance  # type: ignore[attr-defined]
 
             container._application_prep_adapter = None
@@ -424,9 +422,7 @@ class TestPerProfileAIInjection:
                     }
                 ],
             }
-            real_relevance = RelevanceHandler(
-                database=db, api_client=api_mock
-            )
+            real_relevance = RelevanceHandler(database=db, api_client=api_mock)
             slice_._relevance_handler = real_relevance  # type: ignore[attr-defined]
 
             container._application_prep_adapter = None
@@ -437,9 +433,7 @@ class TestPerProfileAIInjection:
             profile = self._make_profile(ai_filter_mode="heavy")
             resume = {"id": "r1", "title": "Backend"}
 
-            result = adapter.prepare_filter_ai_client(
-                profile, resume, factory
-            )
+            result = adapter.prepare_filter_ai_client(profile, resume, factory)
 
             factory.assert_called_once()
             system_prompt = factory.call_args[0][0]
@@ -475,9 +469,7 @@ class TestPerProfileAIInjection:
                 "title": "Backend",
                 "skill_set": ["Python", "Django"],
             }
-            real_relevance = RelevanceHandler(
-                database=db, api_client=api_mock
-            )
+            real_relevance = RelevanceHandler(database=db, api_client=api_mock)
             slice_._relevance_handler = real_relevance  # type: ignore[attr-defined]
 
             container._application_prep_adapter = None
@@ -488,9 +480,7 @@ class TestPerProfileAIInjection:
             profile = self._make_profile(ai_filter_mode="light")
             resume = {"id": "r1", "title": "Backend"}
 
-            result = adapter.prepare_filter_ai_client(
-                profile, resume, factory
-            )
+            result = adapter.prepare_filter_ai_client(profile, resume, factory)
 
             factory.assert_called_once()
             system_prompt = factory.call_args[0][0]
@@ -520,7 +510,9 @@ class TestPerProfileAIInjection:
         db_path = _make_temp_db_path()
         try:
             db = Database(db_path)
-            real_relevance = RelevanceHandler(database=db, api_client=MagicMock())
+            real_relevance = RelevanceHandler(
+                database=db, api_client=MagicMock()
+            )
             real_relevance.ai_client = MagicMock()  # pre-seed
             slice_._relevance_handler = real_relevance  # type: ignore[attr-defined]
 
@@ -555,7 +547,9 @@ class TestPerProfileAIInjection:
         db_path = _make_temp_db_path()
         try:
             db = Database(db_path)
-            real_relevance = RelevanceHandler(database=db, api_client=MagicMock())
+            real_relevance = RelevanceHandler(
+                database=db, api_client=MagicMock()
+            )
             real_relevance.ai_client = MagicMock()
             slice_._relevance_handler = real_relevance  # type: ignore[attr-defined]
 
@@ -565,9 +559,7 @@ class TestPerProfileAIInjection:
             profile = self._make_profile(ai_filter_mode="heavy")
             resume = {"id": "r1", "title": "Backend"}
 
-            result = adapter.prepare_filter_ai_client(
-                profile, resume, None
-            )
+            result = adapter.prepare_filter_ai_client(profile, resume, None)
 
             assert result is None
             assert real_relevance.ai_client is None
@@ -595,9 +587,7 @@ class TestPerProfileAIInjection:
                 "title": "Backend",
                 "skill_set": ["Python"],
             }
-            real_relevance = RelevanceHandler(
-                database=db, api_client=api_mock
-            )
+            real_relevance = RelevanceHandler(database=db, api_client=api_mock)
             real_relevance.ai_client = MagicMock()
             slice_._relevance_handler = real_relevance  # type: ignore[attr-defined]
 
@@ -676,9 +666,7 @@ class TestPerProfileAIInjection:
             vacancy_filter_ai_factory=MagicMock(return_value=MagicMock()),
             application_prep_service_factory=factory,
             vacancy_search_service_factory=MagicMock(
-                return_value=MagicMock(
-                    search=MagicMock(return_value=iter([]))
-                )
+                return_value=MagicMock(search=MagicMock(return_value=iter([])))
             ),
         )
 
@@ -692,9 +680,7 @@ class TestPerProfileAIInjection:
             ]
         }
 
-        use_case.execute(
-            PrepareVacanciesCommand(search_profile="p1")
-        )
+        use_case.execute(PrepareVacanciesCommand(search_profile="p1"))
 
         factory.assert_called()
         adapter_mock.prepare_filter_ai_client.assert_called()
@@ -828,7 +814,7 @@ class TestSharedBuildFilterAIHelper:
             resume={"id": "r1"},
             relevance_obj=relevance,
             factory=None,
-            )
+        )
         assert result is None
         assert relevance.ai_client is None
         relevance.analyze_resume_heavy.assert_not_called()
@@ -845,7 +831,7 @@ class TestSharedBuildFilterAIHelper:
             resume={"id": "r1"},
             relevance_obj=relevance,
             factory=factory,
-            )
+        )
         relevance.analyze_resume_heavy.assert_called_once()
         relevance.analyze_resume_light.assert_not_called()
         factory.assert_called_once()
@@ -865,7 +851,7 @@ class TestSharedBuildFilterAIHelper:
             resume={"id": "r1"},
             relevance_obj=relevance,
             factory=factory,
-            )
+        )
         relevance.analyze_resume_light.assert_called_once()
         relevance.analyze_resume_heavy.assert_not_called()
         factory.assert_called_once()
@@ -887,7 +873,7 @@ class TestSharedBuildFilterAIHelper:
             resume={"id": "r1"},
             relevance_obj=relevance,
             factory=bad_factory,
-            )
+        )
         assert result is None
         assert relevance.ai_client is None
 

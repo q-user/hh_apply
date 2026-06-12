@@ -161,13 +161,18 @@ def test_list_enabled_filters_disabled(
 ) -> None:
     """``--list --enabled`` only prints enabled channels (exits 0)."""
     slice_ = _make_slice(storage)
-    slice_.channels.add_channel(ChannelCreate(name="A", channel_id="@a", enabled=True))
-    slice_.channels.add_channel(ChannelCreate(name="B", channel_id="@b", enabled=False))
+    slice_.channels.add_channel(
+        ChannelCreate(name="A", channel_id="@a", enabled=True)
+    )
+    slice_.channels.add_channel(
+        ChannelCreate(name="B", channel_id="@b", enabled=False)
+    )
 
     op = Operation(slice_=slice_)
     tool = _make_tool(storage)
     rc = op.run(
-        tool, _make_args(list_=True, enabled=True)  # type: ignore[arg-type]
+        tool,
+        _make_args(list_=True, enabled=True),  # type: ignore[arg-type]
     )
     assert rc == 0
     out = capsys.readouterr().out
@@ -215,7 +220,8 @@ def test_remove_missing_returns_1(storage: sqlite3.Connection) -> None:
     op = Operation(slice_=_make_slice(storage))
     tool = _make_tool(storage)
     rc = op.run(
-        tool, _make_args(remove=True, channel_id="@missing")  # type: ignore[arg-type]
+        tool,
+        _make_args(remove=True, channel_id="@missing"),  # type: ignore[arg-type]
     )
     assert rc == 1
 
@@ -229,7 +235,8 @@ def test_remove_existing_returns_0(
     op = Operation(slice_=slice_)
     tool = _make_tool(storage)
     rc = op.run(
-        tool, _make_args(remove=True, channel_id="@x")  # type: ignore[arg-type]
+        tool,
+        _make_args(remove=True, channel_id="@x"),  # type: ignore[arg-type]
     )
     assert rc == 0
     assert "Удалён канал @x" in capsys.readouterr().out
@@ -253,9 +260,7 @@ def test_parse_with_text_extracts_links(
     tool = _make_tool(storage)
     rc = op.run(
         tool,
-        _make_args(
-            parse=True, text="Apply: https://hh.ru/vacancy/12345"
-        ),  # type: ignore[arg-type]
+        _make_args(parse=True, text="Apply: https://hh.ru/vacancy/12345"),  # type: ignore[arg-type]
     )
     assert rc == 0
     out = capsys.readouterr().out
@@ -276,7 +281,8 @@ def test_parse_with_no_links_prints_no_match(
     op = Operation(slice_=_make_slice(storage))
     tool = _make_tool(storage)
     rc = op.run(
-        tool, _make_args(parse=True, text="hello world")  # type: ignore[arg-type]
+        tool,
+        _make_args(parse=True, text="hello world"),  # type: ignore[arg-type]
     )
     assert rc == 0
     assert "не найдены" in capsys.readouterr().out

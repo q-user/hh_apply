@@ -5,13 +5,13 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 
-
 class TestVacancySearchSliceWiring:
     """Tests that VacancySearchSlice is properly wired into the runtime."""
 
     def _make_mock_tool(self):
         """Create a mock HHApplicantTool with all required attributes."""
         from hh_applicant_tool.main import HHApplicantTool
+
         with patch.object(HHApplicantTool, "__init__", lambda self: None):
             tool = HHApplicantTool()
             tool.config = {
@@ -98,11 +98,8 @@ class TestVacancySearchSliceWiring:
         tool = self._make_mock_tool()
 
         container = AppContainer(tool)
-        factory = (
-            lambda per_page,
-            total_pages: container.create_vacancy_search_adapter(
-                per_page, total_pages
-            )
+        factory = lambda per_page, total_pages: (
+            container.create_vacancy_search_adapter(per_page, total_pages)
         )
 
         adapter1 = factory(10, 2)

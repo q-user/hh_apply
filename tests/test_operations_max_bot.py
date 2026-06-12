@@ -92,9 +92,9 @@ def test_cli_flag_send_message_is_store_true() -> None:
 @pytest.mark.parametrize(
     "chat_id, text",
     [
-        (None, "hi"),       # chat_id missing
-        (1, None),          # text missing
-        (1, ""),            # text empty
+        (None, "hi"),  # chat_id missing
+        (1, None),  # text missing
+        (1, ""),  # text empty
     ],
 )
 def test_cli_flag_send_message_requires_chat_id_and_text(
@@ -130,9 +130,7 @@ def test_operation_uses_injected_slice_for_send_message() -> None:
     op = Operation(bot_adapter=_make_slice(transport))
 
     tool = _make_tool()
-    args = _make_args(
-        send_message=True, chat_id=42, text="hello from MAX"
-    )
+    args = _make_args(send_message=True, chat_id=42, text="hello from MAX")
     rc = op.run(tool, args)  # type: ignore[arg-type]
 
     assert rc == 0

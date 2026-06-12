@@ -499,9 +499,7 @@ class TestHHApplicantToolConfigSwitchover:
 
         # Token must be stored under the active profile, NOT
         # under the hard-coded "default".
-        stored_prod = tool.config._slice.auth.get_credentials(
-            profile_id="prod"
-        )
+        stored_prod = tool.config._slice.auth.get_credentials(profile_id="prod")
         assert stored_prod is not None
         assert stored_prod.access_token == "prod_access"
         assert stored_prod.refresh_token == "prod_refresh"
@@ -536,9 +534,7 @@ class TestHHApplicantToolConfigSwitchover:
         }
         tool.config.save_token(new_token, profile_id="staging")
 
-        stored = tool.config._slice.auth.get_credentials(
-            profile_id="staging"
-        )
+        stored = tool.config._slice.auth.get_credentials(profile_id="staging")
         assert stored is not None
         assert stored.access_token == "explicit_access"
         assert stored.refresh_token == "explicit_refresh"
@@ -557,9 +553,7 @@ class TestHHApplicantToolConfigSwitchover:
             importlib.import_module(mod_name)
 
             deprecation_warnings = [
-                w
-                for w in caught
-                if issubclass(w.category, DeprecationWarning)
+                w for w in caught if issubclass(w.category, DeprecationWarning)
             ]
             assert deprecation_warnings, (
                 "expected a DeprecationWarning when importing the legacy "

@@ -193,9 +193,7 @@ class TestTelegramChannelToApplyFlow:
         slices.application_submit.apply_one(slice_draft)
 
         # The /negotiations call landed at the mock exactly once.
-        neg_calls = [
-            c for c in mock_hh_api.calls if c[1] == "/negotiations"
-        ]
+        neg_calls = [c for c in mock_hh_api.calls if c[1] == "/negotiations"]
         assert len(neg_calls) == 1
 
         # The bot transport still has the welcome message from step 1

@@ -116,7 +116,6 @@ class TestConfigToAllSlicesFlow:
         stays silent when it's before.
         """
         from hh_applicant_tool.storage import StorageFacade
-        from job_bot.shared.config.settings import Settings
         from job_bot.shared.storage.database import create_database
         from job_bot.telegram_bot.slice import create_telegram_bot_slice
         from tests.integration._mocks import (
@@ -234,9 +233,7 @@ class TestConfigToAllSlicesFlow:
         config = AppConfig()
         config.add_profile("dev", HHConfig(client_id="dev_id"))
         config.add_profile("prod", HHConfig(client_id="prod_id"))
-        config_path.write_text(
-            _json.dumps(config.to_dict()), encoding="utf-8"
-        )
+        config_path.write_text(_json.dumps(config.to_dict()), encoding="utf-8")
 
         with patch.dict("os.environ", {"HH_PROFILE_ID": "prod"}, clear=False):
             loaded = slices.config.config.load(config_path)

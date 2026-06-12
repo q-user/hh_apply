@@ -81,13 +81,13 @@ class TestChannelPoller:
         channel = handler.get_channel(channel_id)
         assert channel is not None
         return (
-            ChannelPoller(transport=transport, channel=channel, handler=handler),
+            ChannelPoller(
+                transport=transport, channel=channel, handler=handler
+            ),
             handler,
         )
 
-    def test_returns_empty_when_no_updates(
-        self, storage_conn: Any
-    ) -> None:
+    def test_returns_empty_when_no_updates(self, storage_conn: Any) -> None:
         transport = _make_transport(updates=[])
         poller, _ = self._make_poller(
             storage_conn=storage_conn, transport=transport
@@ -97,13 +97,13 @@ class TestChannelPoller:
         assert next_offset == 0
         transport.get_updates.assert_called_once()
 
-    def test_extracts_vacancy_link(
-        self, storage_conn: Any
-    ) -> None:
+    def test_extracts_vacancy_link(self, storage_conn: Any) -> None:
         transport = _make_transport(
             updates=[
                 _make_channel_update(
-                    1, chat_id="@vacancies", text="See https://hh.ru/vacancy/123"
+                    1,
+                    chat_id="@vacancies",
+                    text="See https://hh.ru/vacancy/123",
                 ),
             ]
         )
@@ -118,9 +118,7 @@ class TestChannelPoller:
         assert new_links[0].source_channel == "@vacancies"
         assert next_offset == 1
 
-    def test_filters_by_keyword(
-        self, storage_conn: Any
-    ) -> None:
+    def test_filters_by_keyword(self, storage_conn: Any) -> None:
         transport = _make_transport(
             updates=[
                 _make_channel_update(
@@ -188,9 +186,7 @@ class TestChannelPoller:
         new_links, _ = poller.poll_once()
         assert len(new_links) == 1
 
-    def test_ignores_other_channels(
-        self, storage_conn: Any
-    ) -> None:
+    def test_ignores_other_channels(self, storage_conn: Any) -> None:
         transport = _make_transport(
             updates=[
                 _make_channel_update(
@@ -208,9 +204,7 @@ class TestChannelPoller:
         new_links, _ = poller.poll_once()
         assert new_links == []
 
-    def test_numeric_chat_id_match(
-        self, storage_conn: Any
-    ) -> None:
+    def test_numeric_chat_id_match(self, storage_conn: Any) -> None:
         transport = _make_transport(
             updates=[
                 _make_channel_update(
@@ -228,15 +222,11 @@ class TestChannelPoller:
         new_links, _ = poller.poll_once()
         assert len(new_links) == 1
 
-    def test_skips_already_processed(
-        self, storage_conn: Any
-    ) -> None:
+    def test_skips_already_processed(self, storage_conn: Any) -> None:
         from job_bot.channel_monitoring.models.vacancy_link import VacancyLink
 
         handler = ChannelHandler(storage_conn)
-        handler.add_channel(
-            ChannelCreate(name="Vac", channel_id="@vacancies")
-        )
+        handler.add_channel(ChannelCreate(name="Vac", channel_id="@vacancies"))
         # Pre-populate dedup.
         handler.mark_processed(
             VacancyLink(
@@ -276,8 +266,10 @@ class TestChannelPoller:
         # The poller should pass ``last_message_id + 1`` as the offset
         # to the transport.
         call_kwargs = transport.get_updates.call_args.kwargs
-        assert call_kwargs.get("offset") == 43 or \
-            transport.get_updates.call_args.args[0] == 43
+        assert (
+            call_kwargs.get("offset") == 43
+            or transport.get_updates.call_args.args[0] == 43
+        )
 
     def test_explicit_offset_overrides_last_message_id(
         self, storage_conn: Any
@@ -291,8 +283,10 @@ class TestChannelPoller:
         poller.poll_once(offset=100)
         # 100 + 1 = 101 should be the offset passed to getUpdates.
         call_kwargs = transport.get_updates.call_args.kwargs
-        assert call_kwargs.get("offset") == 101 or \
-            transport.get_updates.call_args.args[0] == 101
+        assert (
+            call_kwargs.get("offset") == 101
+            or transport.get_updates.call_args.args[0] == 101
+        )
 
 
 # ─── ChannelMonitorService ──────────────────────────────────────────
@@ -311,9 +305,7 @@ class TestChannelMonitorService:
         notifier: Any | None = None,
     ) -> tuple[ChannelMonitorService, ChannelHandler, NullNotificationPort]:
         handler = ChannelHandler(storage_conn)
-        handler.add_channel(
-            ChannelCreate(name="Vac", channel_id="@vacancies")
-        )
+        handler.add_channel(ChannelCreate(name="Vac", channel_id="@vacancies"))
         notif = notifier or NullNotificationPort()
         trans = transport or _make_transport(updates=updates)
         service = create_channel_monitor_service(
@@ -325,9 +317,7 @@ class TestChannelMonitorService:
         )
         return service, handler, notif
 
-    def test_tick_delivers_new_links(
-        self, storage_conn: Any
-    ) -> None:
+    def test_tick_delivers_new_links(self, storage_conn: Any) -> None:
         updates = [
             _make_channel_update(
                 1, chat_id="@vacancies", text="https://hh.ru/vacancy/1"
@@ -347,9 +337,7 @@ class TestChannelMonitorService:
         assert handler.is_already_processed("1")
         assert handler.is_already_processed("2")
 
-    def test_tick_persists_last_message_id(
-        self, storage_conn: Any
-    ) -> None:
+    def test_tick_persists_last_message_id(self, storage_conn: Any) -> None:
         updates = [
             _make_channel_update(
                 5, chat_id="@vacancies", text="https://hh.ru/vacancy/1"
@@ -363,9 +351,7 @@ class TestChannelMonitorService:
         assert channel is not None
         assert channel.last_message_id == 5
 
-    def test_tick_isolates_channel_failures(
-        self, storage_conn: Any
-    ) -> None:
+    def test_tick_isolates_channel_failures(self, storage_conn: Any) -> None:
         """A poll failure on one channel must not stop the others."""
         handler = ChannelHandler(storage_conn)
         handler.add_channel(ChannelCreate(name="A", channel_id="@a"))
@@ -400,9 +386,7 @@ class TestChannelMonitorService:
         assert len(notif.sent) == 1
         assert notif.sent[0][1].vacancy_id == "1"
 
-    def test_tick_swallows_notifier_failures(
-        self, storage_conn: Any
-    ) -> None:
+    def test_tick_swallows_notifier_failures(self, storage_conn: Any) -> None:
         """A raising notifier MUST NOT break the tick loop."""
         handler = ChannelHandler(storage_conn)
         handler.add_channel(ChannelCreate(name="Vac", channel_id="@vac"))
@@ -427,9 +411,7 @@ class TestChannelMonitorService:
         assert delivered == 1
         notifier.send.assert_called_once()
 
-    def test_tick_skips_disabled_channels(
-        self, storage_conn: Any
-    ) -> None:
+    def test_tick_skips_disabled_channels(self, storage_conn: Any) -> None:
         handler = ChannelHandler(storage_conn)
         handler.add_channel(
             ChannelCreate(name="Off", channel_id="@off", enabled=False)
@@ -453,9 +435,7 @@ class TestChannelMonitorService:
         assert delivered == 0
         assert notif.sent == []
 
-    def test_run_stops_after_n_ticks(
-        self, storage_conn: Any
-    ) -> None:
+    def test_run_stops_after_n_ticks(self, storage_conn: Any) -> None:
         """``run(stop_after=N)`` returns after N ticks."""
         service, _, _ = self._make_service(
             storage_conn=storage_conn, updates=[]
@@ -464,9 +444,7 @@ class TestChannelMonitorService:
         total = service.run(stop_after=3)
         assert total == 0  # no updates
 
-    def test_run_returns_total_delivered(
-        self, storage_conn: Any
-    ) -> None:
+    def test_run_returns_total_delivered(self, storage_conn: Any) -> None:
         """``run`` returns the cumulative delivered count across ticks."""
         service, _, notif = self._make_service(
             storage_conn=storage_conn,

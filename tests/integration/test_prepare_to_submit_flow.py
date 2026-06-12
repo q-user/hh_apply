@@ -9,7 +9,6 @@ them through ``apply_jobs``, and the worker POSTs to
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -192,9 +191,7 @@ class TestPrepareToSubmitFlow:
             assert job_row["status"] == "succeeded"
 
         # /negotiations was hit exactly twice (no extras, no misses)
-        neg_calls = [
-            c for c in mock_hh_api.calls if c[1] == "/negotiations"
-        ]
+        neg_calls = [c for c in mock_hh_api.calls if c[1] == "/negotiations"]
         assert len(neg_calls) == 2
 
     def test_apply_worker_drains_apply_jobs_table(
@@ -232,8 +229,7 @@ class TestPrepareToSubmitFlow:
         )
 
         succeeded = facade.apply_jobs.conn.execute(
-            "SELECT COUNT(*) AS n FROM apply_jobs "
-            "WHERE status = 'succeeded'"
+            "SELECT COUNT(*) AS n FROM apply_jobs WHERE status = 'succeeded'"
         ).fetchone()
         assert succeeded["n"] == 3
 
@@ -264,9 +260,13 @@ class TestPrepareToSubmitFlow:
         stats = worker.run(stop_when_idle=True)
         assert stats.processed == 1
         # Job is back in queued (retry) state, not failed
-        row = StorageFacade(test_db).apply_jobs.conn.execute(
-            "SELECT status, next_attempt_at FROM apply_jobs WHERE id=?",
-            (job_id,),
-        ).fetchone()
+        row = (
+            StorageFacade(test_db)
+            .apply_jobs.conn.execute(
+                "SELECT status, next_attempt_at FROM apply_jobs WHERE id=?",
+                (job_id,),
+            )
+            .fetchone()
+        )
         assert row["status"] == "queued"
         assert row["next_attempt_at"] is not None

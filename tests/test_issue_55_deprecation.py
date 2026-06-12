@@ -33,7 +33,9 @@ def test_apply_one_module_emits_deprecation_warning() -> None:
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         importlib.import_module(module_name)
-    deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+    deprecations = [
+        w for w in caught if issubclass(w.category, DeprecationWarning)
+    ]
     assert deprecations, (
         "Expected hh_applicant_tool.services.apply_one to emit a "
         "DeprecationWarning on import (issue #55)"
@@ -41,7 +43,9 @@ def test_apply_one_module_emits_deprecation_warning() -> None:
     # Message should mention the new VSA path so users know what to use.
     assert any(
         "ApplicationSubmitSlice" in str(w.message) for w in deprecations
-    ), f"Deprecation message should mention ApplicationSubmitSlice; got: {[str(w.message) for w in deprecations]}"
+    ), (
+        f"Deprecation message should mention ApplicationSubmitSlice; got: {[str(w.message) for w in deprecations]}"
+    )
 
 
 def test_apply_worker_module_emits_deprecation_warning() -> None:
@@ -51,14 +55,14 @@ def test_apply_worker_module_emits_deprecation_warning() -> None:
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         importlib.import_module(module_name)
-    deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+    deprecations = [
+        w for w in caught if issubclass(w.category, DeprecationWarning)
+    ]
     assert deprecations, (
         "Expected hh_applicant_tool.services.apply_worker to emit a "
         "DeprecationWarning on import (issue #55)"
     )
-    assert any(
-        "ApplicationSubmitSlice" in str(w.message) for w in deprecations
-    )
+    assert any("ApplicationSubmitSlice" in str(w.message) for w in deprecations)
 
 
 @pytest.mark.parametrize(
@@ -74,11 +78,12 @@ def test_deprecation_message_mentions_vsa_replacement(module_name: str) -> None:
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         importlib.import_module(module_name)
-    deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+    deprecations = [
+        w for w in caught if issubclass(w.category, DeprecationWarning)
+    ]
     assert deprecations
     msg = str(deprecations[0].message)
     # Either the module path or the slice class is a valid migration hint.
     assert (
-        "ApplicationSubmitSlice" in msg
-        or "job_bot.application_submit" in msg
+        "ApplicationSubmitSlice" in msg or "job_bot.application_submit" in msg
     ), f"Deprecation message must point to the VSA replacement; got: {msg!r}"

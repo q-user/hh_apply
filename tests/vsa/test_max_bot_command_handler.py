@@ -347,7 +347,9 @@ class TestRequestsMaxTransport:
         assert call_args.args[0] == "POST"
         assert call_args.args[1] == "https://botapi.max.ru/messages"
         assert call_args.kwargs["json"] == {"chat_id": 42, "text": "hello"}
-        assert call_args.kwargs["headers"]["Authorization"] == "Bearer test-token"
+        assert (
+            call_args.kwargs["headers"]["Authorization"] == "Bearer test-token"
+        )
 
     def test_get_updates_sends_auth_header(self):
         transport, session = self._make_transport()
@@ -403,9 +405,7 @@ class TestRequestsMaxTransport:
     def test_missing_token_raises(self):
         session = MagicMock()
         with pytest.raises(ValueError):
-            RequestsMaxTransport(
-                session=session, bot_token="", api_url="x"
-            )
+            RequestsMaxTransport(session=session, bot_token="", api_url="x")
 
     def test_empty_text_raises(self):
         transport, _ = self._make_transport()

@@ -26,7 +26,6 @@ from tests.integration._mocks import (
     MockHHApiClient,
     MockMaxTransport,
     MockTelegramTransport,
-    NoOpDelay,
     default_resumes_payload,
     default_vacancies_payload,
     open_test_connection,

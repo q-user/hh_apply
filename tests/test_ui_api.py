@@ -27,23 +27,25 @@ class MockConfig(dict):
 def mock_tool():
     """Мок HHApplicantTool с реальным StorageFacade (in-memory SQLite)."""
     tool = MagicMock()
-    tool.config = MockConfig({
-        "client_id": "test_id",
-        "client_secret": "secret_123",
-        "token": {"access_token": "tok_abc", "refresh_token": "ref_xyz"},
-        "proxy_url": "socks5://user:pass@localhost:1080",
-        "openai_cover_letter": {
-            "api_key": "sk-test-00000000000000000000",
-            "base_url": "https://api.openai.com",
-            "model": "gpt-4",
-        },
-        "smtp": {
-            "host": "smtp.example.com",
-            "port": 587,
-            "user": "me@example.com",
-            "password": "smtp-secret-pass",
-        },
-    })
+    tool.config = MockConfig(
+        {
+            "client_id": "test_id",
+            "client_secret": "secret_123",
+            "token": {"access_token": "tok_abc", "refresh_token": "ref_xyz"},
+            "proxy_url": "socks5://user:pass@localhost:1080",
+            "openai_cover_letter": {
+                "api_key": "sk-test-00000000000000000000",
+                "base_url": "https://api.openai.com",
+                "model": "gpt-4",
+            },
+            "smtp": {
+                "host": "smtp.example.com",
+                "port": 587,
+                "user": "me@example.com",
+                "password": "smtp-secret-pass",
+            },
+        }
+    )
     tool.get_resumes.return_value = [
         {"id": "res1", "title": "Python Dev", "status": {"name": "published"}},
         {"id": "res2", "title": "Go Dev", "status": {"name": "blocked"}},
@@ -104,7 +106,10 @@ class TestConfig:
         config = api.get_config()
         assert config["openai_cover_letter"]["api_key"] == "***"
         # Несекретные поля внутри вложенного dict остаются видны
-        assert config["openai_cover_letter"]["base_url"] == "https://api.openai.com"
+        assert (
+            config["openai_cover_letter"]["base_url"]
+            == "https://api.openai.com"
+        )
         assert config["openai_cover_letter"]["model"] == "gpt-4"
         assert config["smtp"]["password"] == "***"
         assert config["smtp"]["host"] == "smtp.example.com"
@@ -114,11 +119,13 @@ class TestConfig:
         """Нельзя перезаписать client_secret и token через save_config."""
         original_secret = mock_tool.config["client_secret"]
         original_token = mock_tool.config["token"]
-        api.save_config({
-            "client_id": "new_id",
-            "client_secret": "hacked",
-            "token": {"access_token": "stolen"},
-        })
+        api.save_config(
+            {
+                "client_id": "new_id",
+                "client_secret": "hacked",
+                "token": {"access_token": "stolen"},
+            }
+        )
         assert mock_tool.config["client_secret"] == original_secret
         assert mock_tool.config["token"] == original_token
         # Несекретное поле обновилось
@@ -133,32 +140,44 @@ class TestConfig:
     def test_save_config_strips_nested_mask(self, api, mock_tool):
         captured = {}
         mock_tool.config.save = lambda **kw: captured.update(kw)
-        api.save_config({
-            "openai_cover_letter": {
-                "api_key": "***",
-                "model": "gpt-4-turbo",
+        api.save_config(
+            {
+                "openai_cover_letter": {
+                    "api_key": "***",
+                    "model": "gpt-4-turbo",
+                }
             }
-        })
+        )
         # api_key="***" stripped — existing key preserved via merge, model updated
         assert captured["openai_cover_letter"]["model"] == "gpt-4-turbo"
-        assert captured["openai_cover_letter"]["api_key"] == "sk-test-00000000000000000000"
+        assert (
+            captured["openai_cover_letter"]["api_key"]
+            == "sk-test-00000000000000000000"
+        )
 
     def test_save_config_preserves_omitted_nested_secret(self, api, mock_tool):
-        api.save_config({
-            "openai_cover_letter": {
-                "model": "gpt-4.1",
+        api.save_config(
+            {
+                "openai_cover_letter": {
+                    "model": "gpt-4.1",
+                }
             }
-        })
-        assert mock_tool.config["openai_cover_letter"]["api_key"] == "sk-test-00000000000000000000"
+        )
+        assert (
+            mock_tool.config["openai_cover_letter"]["api_key"]
+            == "sk-test-00000000000000000000"
+        )
         assert mock_tool.config["openai_cover_letter"]["model"] == "gpt-4.1"
 
     def test_save_config_preserves_value_types(self, api, mock_tool):
-        api.save_config({
-            "smtp": {
-                "port": 2525,
-                "ssl": True,
+        api.save_config(
+            {
+                "smtp": {
+                    "port": 2525,
+                    "ssl": True,
+                }
             }
-        })
+        )
         assert mock_tool.config["smtp"]["port"] == 2525
         assert mock_tool.config["smtp"]["ssl"] is True
 
@@ -167,7 +186,9 @@ class TestConfig:
         assert result["status"] == "ok"
 
     def test_save_config_returns_error_on_failure(self, api, mock_tool):
-        mock_tool.config.save = MagicMock(side_effect=IOError("permission denied"))
+        mock_tool.config.save = MagicMock(
+            side_effect=IOError("permission denied")
+        )
         result = api.save_config({"client_id": "x"})
         assert result["status"] == "error"
 

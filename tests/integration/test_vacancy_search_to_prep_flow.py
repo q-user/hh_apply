@@ -158,12 +158,14 @@ class TestVacancySearchToPrepFlow:
             assert relevance_result.score == 85
 
             # Cover letter: AI generated
-            letter = slices.application_prep.cover_letters.generate_cover_letter(
-                vacancy=full,
-                placeholders={"first_name": "Ivan"},
-                resume={"id": "r1", "title": "Senior Python"},
-                force=True,
-                required_by_vacancy=True,
+            letter = (
+                slices.application_prep.cover_letters.generate_cover_letter(
+                    vacancy=full,
+                    placeholders={"first_name": "Ivan"},
+                    resume={"id": "r1", "title": "Senior Python"},
+                    force=True,
+                    required_by_vacancy=True,
+                )
             )
             assert letter is not None
             assert "hash=" in letter  # deterministic AI generated
