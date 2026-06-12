@@ -159,3 +159,12 @@ module = [
 # Tests can be less strict
 warn_return_any = false
 disallow_untyped_defs = false
+
+# ─── Pytest markers (issue #63) ─────────────────────────────────────
+# Integration tests live under ``tests/integration/`` and are
+# excluded from the default ``pytest`` run. Run with
+# ``pytest -m integration`` to opt in.
+[tool.pytest.ini_options]
+markers = [
+    "integration: end-to-end cross-slice integration tests (issue #63). Run with: pytest -m integration",
+]
