@@ -32,7 +32,6 @@ from ...services import (
     CoverLetterService,
     RelevanceService,
     VacancySearchService,
-    VacancyTestsService,
 )
 from ...storage.models.search_profile import SearchProfileModel
 from ...storage.repositories.errors import RepositoryError
@@ -294,8 +293,15 @@ class PrepareVacanciesUseCase:
                 self.cover_letter_ai,
                 template=self.letter_template,
             )
-            vacancy_tests = VacancyTestsService(
-                self.session, self.test_ai or self.cover_letter_ai
+            # Use the VSA TestHandler for test-answer generation.
+            # The handler is owned by the ApplicationSubmit slice (issue #77).
+            from job_bot.application_submit.handlers.test_handler import (
+                TestHandler,
+            )
+
+            vacancy_tests = TestHandler(
+                session=self.session,
+                ai_client=self.test_ai or self.cover_letter_ai,
             )
             applications = ApplicationsService(
                 self.storage, relevance, cover_letter, vacancy_tests

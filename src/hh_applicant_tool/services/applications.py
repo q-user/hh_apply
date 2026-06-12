@@ -196,9 +196,27 @@ class ApplicationsService:
                     # Готовим ответы AI/rule-based. Их нужно сохранить
                     # после ``storage.application_drafts.save(draft)``,
                     # потому что ``draft.id`` появляется только после UPSERT.
-                    generated_answers = self.vacancy_tests.prepare_answers(
-                        test_data
+                    raw_answers = self.vacancy_tests.prepare_answers(test_data)
+                    # The VSA TestHandler returns slice-native ``TestAnswer``
+                    # objects; convert them to the legacy storage model so
+                    # the existing ``save`` path keeps working.
+                    from ..storage.models.application_test_answer import (
+                        ApplicationTestAnswerModel,
                     )
+
+                    generated_answers = [
+                        ApplicationTestAnswerModel(
+                            draft_id=0,  # filled in below
+                            task_id=a.task_id,
+                            question=a.question,
+                            answer_type=a.answer_type,
+                            options_json=a.options_json,
+                            generated_answer=a.generated_answer,
+                            selected_solution_id=a.selected_solution_id,
+                            review_status=a.review_status or "generated",
+                        )
+                        for a in raw_answers
+                    ]
                     test_status = "generated"
             except Exception as ex:
                 logger.warning(

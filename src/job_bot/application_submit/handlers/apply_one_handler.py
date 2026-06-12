@@ -136,15 +136,13 @@ class ApplyOneHandler:
         """Run the vacancy-test pipeline: fetch tests, generate answers,
         build payload, POST the application.
 
-        Re-uses the existing :class:`VacancyTestsService` (the only
-        place that knows the exact request shape for the
-        ``/applicant/vacancy_response/popup`` endpoint).
+        Delegates the test pipeline to the in-slice
+        :class:`TestHandler`, which owns the exact request shape for the
+        ``/applicant/vacancy_response/popup`` endpoint (issue #77).
         """
         from requests import RequestException
 
-        from hh_applicant_tool.services.vacancy_tests import (
-            VacancyTestsService,
-        )
+        from job_bot.application_submit.handlers.test_handler import TestHandler
 
         session = self._session or getattr(self._api_client, "session", None)
         if session is None:
@@ -156,24 +154,22 @@ class ApplyOneHandler:
             f"?vacancy_id={draft.vacancy_id}"
         )
 
-        test_service = VacancyTestsService(
-            session=session, ai_client=self._ai_client
-        )
+        test_handler = TestHandler(session=session, ai_client=self._ai_client)
 
         try:
-            test_data = test_service.fetch_tests(response_url)
+            test_data = test_handler.fetch_tests(response_url)
         except ValueError as ex:
             raise FatalError(f"failed to fetch tests: {ex}") from ex
 
         try:
-            answers = test_service.prepare_answers(test_data)
+            test_answers = test_handler.prepare_answers(test_data)
         except Exception as ex:  # noqa: BLE001
             raise FatalError(f"failed to prepare test answers: {ex}") from ex
 
         # ``resume_id`` doubles as ``resume_hash`` for the popup endpoint.
-        payload = test_service.build_apply_payload_from_answers(
+        payload = test_handler.build_payload(
             test_data=test_data,
-            answers=answers,
+            answers=test_answers,
             vacancy_id=draft.vacancy_id,
             resume_hash=draft.resume_id,
             letter=draft.cover_letter or "",
@@ -181,7 +177,7 @@ class ApplyOneHandler:
         )
 
         try:
-            result = test_service.submit_apply(
+            result = test_handler.submit_apply(
                 response_url, payload, xsrf_token=token
             )
         except RequestException as ex:

@@ -26,7 +26,6 @@ from .relevance import (
 )
 from .review_flow import ReviewFlowService
 from .vacancy_search import VacancySearchService, build_search_params
-from .vacancy_tests import VacancyTestsService
 
 __all__ = (
     "ApplicationsService",
@@ -40,7 +39,6 @@ __all__ = (
     "RelevanceService",
     "ReviewFlowService",
     "VacancySearchService",
-    "VacancyTestsService",
     "build_filter_system_prompt_heavy",
     "build_filter_system_prompt_light",
     "build_search_params",
