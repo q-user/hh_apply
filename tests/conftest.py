@@ -65,7 +65,23 @@ class _SimpleTool:
 
 
 class _NoopSession:
-    """A ``requests.Session``-like stand-in: no real HTTP, no real cookies."""
+    """A ``requests.Session``-like stand-in: no real HTTP, no real cookies.
+
+    The ``request()`` method returns an empty 200 response so the
+    MAX transport's ``get_updates`` returns ``None``, the polling
+    loop logs a warning, and ``get_updates`` returns ``[]`` --
+    no network, no real sleep, finishes within the 5s pytest-timeout.
+    """
+
+    class _NoopResponse:
+        status_code = 200
+        content = b""
+
+        def json(self) -> None:  # never called (content is empty)
+            return None
+
+    def request(self, *_args: Any, **_kwargs: Any) -> _NoopResponse:
+        return self._NoopResponse()
 
 
 class _StubTransport:
