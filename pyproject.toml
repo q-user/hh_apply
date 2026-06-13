@@ -33,6 +33,8 @@ dev = [
     "types-pyyaml>=6.0.12.20260518",
     "types-pysocks>=1.7.1.20260518",
     "types-requests>=2.33.0.20260518",
+    "pytest-xdist>=3.8.0",
+    "pytest-timeout>=2.4.0",
 ]
 
 [tool.poetry]
@@ -165,6 +167,7 @@ disallow_untyped_defs = false
 # excluded from the default ``pytest`` run. Run with
 # ``pytest -m integration`` to opt in.
 [tool.pytest.ini_options]
+addopts = ["-nauto", "--timeout=5"]
 markers = [
     "integration: end-to-end cross-slice integration tests (issue #63). Run with: pytest -m integration",
 ]
