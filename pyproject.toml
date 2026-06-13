@@ -167,7 +167,9 @@ disallow_untyped_defs = false
 # excluded from the default ``pytest`` run. Run with
 # ``pytest -m integration`` to opt in.
 [tool.pytest.ini_options]
-addopts = ["-nauto", "--timeout=5"]
+addopts = ["-nauto"]
 markers = [
     "integration: end-to-end cross-slice integration tests (issue #63). Run with: pytest -m integration",
 ]
+timeout = 5
+timeout_method = "thread"
