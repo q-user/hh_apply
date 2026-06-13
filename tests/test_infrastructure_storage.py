@@ -55,8 +55,10 @@ class TestValidateDbPath:
         class _P:
             def __init__(self, p: str) -> None:
                 self._p = p
+
             def __fspath__(self) -> str:
                 return self._p
+
         # Should not raise.
         validate_db_path(_P(str(tmp_path / "x.db")))
 
@@ -65,8 +67,10 @@ class TestValidateDbPath:
         class _OsPathOnly:
             def __init__(self, p: str) -> None:
                 self._p = p
+
             def __fspath__(self) -> str:
                 return self._p
+
         validate_db_path(_OsPathOnly(str(tmp_path / "x.db")))  # type: ignore[arg-type]
 
     @pytest.mark.parametrize(

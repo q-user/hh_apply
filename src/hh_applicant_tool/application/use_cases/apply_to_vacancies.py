@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any, Callable, cast
 import requests
 
 from ...ai.base import AIError
-from ...api import BadResponse, Redirect
+from ...api.errors import BadResponse, Redirect
 from ...api.datatypes import SearchVacancy
 from ...api.errors import ApiError, CaptchaRequired, LimitExceeded
 from ...services import (
@@ -160,7 +160,9 @@ class ApplyToVacanciesUseCase:
         self.relevance_service: RelevanceService
 
         # Внедрённый сервис поиска вакансов (VSA wiring)
-        self._injected_vacancy_search_service_factory = vacancy_search_service_factory
+        self._injected_vacancy_search_service_factory = (
+            vacancy_search_service_factory
+        )
 
         # Внедрённый адаптер отправки откликов (VSA wiring, issue #55).
         # Если не передан — используется legacy-путь в
@@ -207,8 +209,10 @@ class ApplyToVacanciesUseCase:
         )
         # Use injected vacancy search service factory (VSA wiring) or fall back to old service
         if self._injected_vacancy_search_service_factory is not None:
-            self.vacancy_search_service = self._injected_vacancy_search_service_factory(
-                command.per_page, command.total_pages
+            self.vacancy_search_service = (
+                self._injected_vacancy_search_service_factory(
+                    command.per_page, command.total_pages
+                )
             )
         else:
             self.vacancy_search_service = VacancySearchService(
@@ -219,9 +223,7 @@ class ApplyToVacanciesUseCase:
         self.relevance_service = RelevanceService(
             self.api_client,
             ai_client=None,
-            relevance_rules=(
-                self.command.relevance_rules
-            ),
+            relevance_rules=(self.command.relevance_rules),
         )
 
         result = ApplyToVacanciesResult()
@@ -514,9 +516,7 @@ class ApplyToVacanciesUseCase:
                 vacancy["alternate_url"],
             )
             return "archived"
-        if (
-            vacancy.get("has_test") and self.command.skip_tests
-        ):
+        if vacancy.get("has_test") and self.command.skip_tests:
             logger.debug(
                 "Пропускаю вакансию с тестом %s",
                 vacancy["alternate_url"],
@@ -704,8 +704,8 @@ class ApplyToVacanciesUseCase:
 
         # Legacy fallback
         with self.session.get(url, timeout=10) as r:
-            val: Callable[[re.Match[str] | None], str] = (
-                lambda m: html.unescape(m.group(1)) if m else ""
+            val: Callable[[re.Match[str] | None], str] = lambda m: (
+                html.unescape(m.group(1)) if m else ""
             )
 
             title = val(re.search(r"<title>(.*?)</title>", r.text, re.I | re.S))
@@ -846,7 +846,8 @@ class ApplyToVacanciesUseCase:
                 # пропагируются: это баги адаптера, а не runtime-фейлы HH.
                 logger.warning(
                     "application_submit adapter failed, falling back to "
-                    "legacy api_client.post: %s", ex,
+                    "legacy api_client.post: %s",
+                    ex,
                 )
         try:
             res = self.api_client.post(
@@ -985,8 +986,8 @@ class ApplyToVacanciesUseCase:
     ) -> None:
         if not self.command.send_email:  # type: ignore[union-attr]
             return
-        mail_to: str | list[str] | None = (
-            (vacancy.get("contacts") or {}).get("email")
+        mail_to: str | list[str] | None = (vacancy.get("contacts") or {}).get(
+            "email"
         )
         if mail_to is None and employer_id is not None:
             mail_to = site_emails.get(employer_id)

@@ -1,73 +1,47 @@
+"""Date-aware JSON helpers (legacy — internal to ``utils.config``).
+
+Re-exports :mod:`json` with a :class:`JSONEncoder` that converts
+``datetime`` values to POSIX timestamps so they can be stored in
+JSON. Imported by :mod:`hh_applicant_tool.utils.config` via
+``from . import json``.
+"""
+
+from __future__ import annotations
+
 import datetime as dt
-import json
+import json as _stdlib_json
 from typing import Any
 
-# class DateAwareJSONEncoder(json.JSONEncoder):
-#     def default(self, o):
-#         if isinstance(o, dt.datetime):
-#             return o.isoformat()
 
-#         return super().default(o)
-
-
-# Костыль чтобы в key-value хранить даты
-class JSONEncoder(json.JSONEncoder):
-    def default(self, o):
+class JSONEncoder(_stdlib_json.JSONEncoder):
+    def default(self, o: Any) -> Any:
         if isinstance(o, dt.datetime):
             return int(o.timestamp())
-
         return super().default(o)
 
 
-# def date_parser_hook(dct):
-#     for k, v in dct.items():
-#         if isinstance(v, str):
-#             try:
-#                 dct[k] = dt.datetime.fromisoformat(v)
-#             except (ValueError, TypeError):
-#                 pass
-#     return dct
+class JSONDecoder(_stdlib_json.JSONDecoder):
+    """Default JSON decoder — provided for backward compatibility."""
 
 
-# class JSONDecoder(json.JSONDecoder):
-#     def __init__(self, *args, **kwargs):
-#         super().__init__(*args, object_hook=date_parser_hook, **kwargs)
-
-
-class JSONDecoder(json.JSONDecoder):
-    """Project-wide ``json.JSONDecoder`` subclass placeholder.
-
-    Kept as an explicit export so callers can write
-    ``json.loads(s, cls=JSONDecoder)`` without an inline import.
-    Custom hooks (e.g. ``date_parser_hook``) can be wired into
-    ``__init__`` here when needed.
-    """
-
-    pass
-
-
-def dumps(obj, *args: Any, **kwargs: Any) -> str:
+def dump(obj: Any, fp: Any, *args: Any, **kwargs: Any) -> None:
     kwargs.setdefault("cls", JSONEncoder)
     kwargs.setdefault("ensure_ascii", False)
-    return json.dumps(obj, *args, **kwargs)
+    _stdlib_json.dump(obj, fp, *args, **kwargs)
 
 
-def dump(fp, obj, *args: Any, **kwargs: Any) -> None:
+def dumps(obj: Any, *args: Any, **kwargs: Any) -> str:
     kwargs.setdefault("cls", JSONEncoder)
     kwargs.setdefault("ensure_ascii", False)
-    json.dump(fp, obj, *args, **kwargs)
+    return _stdlib_json.dumps(obj, *args, **kwargs)
 
 
-def loads(s, *args: Any, **kwargs: Any) -> Any:
-    # kwargs.setdefault("object_hook", date_parser_hook)
-    return json.loads(s, *args, **kwargs)
+def load(fp: Any, *args: Any, **kwargs: Any) -> Any:
+    return _stdlib_json.load(fp, *args, **kwargs)
 
 
-def load(fp, *args: Any, **kwargs: Any) -> Any:
-    # kwargs.setdefault("object_hook", date_parser_hook)
-    return json.load(fp, *args, **kwargs)
+def loads(s: str | bytes, *args: Any, **kwargs: Any) -> Any:
+    return _stdlib_json.loads(s, *args, **kwargs)
 
 
-if __name__ == "__main__":
-    d = {"created_at": dt.datetime.now()}
-    print(loads(dumps(d)))
+__all__ = ["JSONEncoder", "JSONDecoder", "dump", "dumps", "load", "loads"]

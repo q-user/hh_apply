@@ -31,6 +31,7 @@ from .constants import (
     DESKTOP_USER_AGENT,
     LOG_FILENAME,
 )
+
 # ``CONFIG_FILENAME`` is imported and consumed by
 # ``AppContainer._get_config_auth_slice`` (issue #59). The ``self.config``
 # property no longer needs the constant -- the VSA adapter receives
@@ -169,6 +170,7 @@ class HHApplicantTool(MegaTool):
         """
         if self._container is None:
             from .container import AppContainer
+
             self._container = AppContainer(self)
         return self._container
 
@@ -586,7 +588,15 @@ class _InsecureProxyAdapter(requests.adapters.HTTPAdapter):
     what actually catches the warning.
     """
 
-    def send(self, request, stream=False, timeout=None, verify=True, cert=None, proxies=None):  # noqa: E501
+    def send(
+        self,
+        request,
+        stream=False,
+        timeout=None,
+        verify=True,
+        cert=None,
+        proxies=None,
+    ):  # noqa: E501
         with warnings.catch_warnings():
             warnings.simplefilter(
                 "ignore",

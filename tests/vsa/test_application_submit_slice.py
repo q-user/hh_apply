@@ -17,8 +17,9 @@ Slice responsibilities:
 The tests use:
   * ``storage_conn`` -- in-memory SQLite with the canonical schema.
   * mocks for ``api_client`` / ``session`` / transport.
-  * the existing ``make_default_apply_one`` and ``VacancyTestsService``
-    (reused, not reimplemented).
+  * the existing ``ApplyOneHandler`` and ``VacancyTestsService``
+    (the slice is a VSA wrapper; the heavy lifting lives in the
+    handler/service classes).
 
 The tests are split into:
   * Model tests (pure data -- no DB, no transport).
@@ -655,7 +656,7 @@ class TestJobHandler:
 
 
 class TestApplyOneHandler:
-    """``handlers/apply_one_handler.py`` -- delegates to make_default_apply_one."""
+    """``handlers/apply_one_handler.py`` -- the slice's apply-one handler."""
 
     def test_call_succeeds_for_simple_draft(self) -> None:
         from hh_applicant_tool.storage.models.application_draft import (
@@ -679,7 +680,7 @@ class TestApplyOneHandler:
 
     def test_call_raises_retryable_on_5xx(self) -> None:
         from hh_applicant_tool.api.errors import ApiError
-        from hh_applicant_tool.services.apply_worker import RetryableError
+        from job_bot.application_submit.errors import RetryableError
         from hh_applicant_tool.storage.models.application_draft import (
             ApplicationDraftModel,
         )
@@ -705,7 +706,7 @@ class TestApplyOneHandler:
 
     def test_call_raises_fatal_on_400(self) -> None:
         from hh_applicant_tool.api.errors import ApiError
-        from hh_applicant_tool.services.apply_worker import FatalError
+        from job_bot.application_submit.errors import FatalError
         from hh_applicant_tool.storage.models.application_draft import (
             ApplicationDraftModel,
         )
@@ -732,8 +733,10 @@ class TestApplyOneHandler:
     def test_convert_errors_false_propagates_captcha_required(self) -> None:
         """``convert_errors=False`` -> ``CaptchaRequired`` propagates as-is (issue #73)."""
         from hh_applicant_tool.api.errors import CaptchaRequired
-        from hh_applicant_tool.services.apply_one import make_default_apply_one
-        from hh_applicant_tool.services.apply_worker import RetryableError
+        from job_bot.application_submit.handlers.apply_one_handler import (
+            ApplyOneHandler,
+        )
+        from job_bot.application_submit.errors import RetryableError
         from hh_applicant_tool.storage.models.application_draft import (
             ApplicationDraftModel,
         )
@@ -755,17 +758,17 @@ class TestApplyOneHandler:
             },
         )
 
-        wrapped_fn = make_default_apply_one(api_client, convert_errors=True)
+        handler = ApplyOneHandler(api_client=api_client, convert_errors=True)
         with pytest.raises(RetryableError):
-            wrapped_fn(
+            handler(
                 ApplicationDraftModel(
                     resume_id="r1", vacancy_id=1, status="queued"
                 )
             )
 
-        direct_fn = make_default_apply_one(api_client, convert_errors=False)
+        handler = ApplyOneHandler(api_client=api_client, convert_errors=False)
         with pytest.raises(CaptchaRequired):
-            direct_fn(
+            handler(
                 ApplicationDraftModel(
                     resume_id="r1", vacancy_id=1, status="queued"
                 )
@@ -774,8 +777,10 @@ class TestApplyOneHandler:
     def test_convert_errors_false_propagates_limit_exceeded(self) -> None:
         """``convert_errors=False`` -> ``LimitExceeded`` propagates as-is (issue #73)."""
         from hh_applicant_tool.api.errors import LimitExceeded
-        from hh_applicant_tool.services.apply_one import make_default_apply_one
-        from hh_applicant_tool.services.apply_worker import RetryableError
+        from job_bot.application_submit.handlers.apply_one_handler import (
+            ApplyOneHandler,
+        )
+        from job_bot.application_submit.errors import RetryableError
         from hh_applicant_tool.storage.models.application_draft import (
             ApplicationDraftModel,
         )
@@ -789,17 +794,17 @@ class TestApplyOneHandler:
             {"errors": [{"type": "limit", "value": "limit_exceeded"}]},
         )
 
-        wrapped_fn = make_default_apply_one(api_client, convert_errors=True)
+        handler = ApplyOneHandler(api_client=api_client, convert_errors=True)
         with pytest.raises(RetryableError):
-            wrapped_fn(
+            handler(
                 ApplicationDraftModel(
                     resume_id="r1", vacancy_id=1, status="queued"
                 )
             )
 
-        direct_fn = make_default_apply_one(api_client, convert_errors=False)
+        handler = ApplyOneHandler(api_client=api_client, convert_errors=False)
         with pytest.raises(LimitExceeded):
-            direct_fn(
+            handler(
                 ApplicationDraftModel(
                     resume_id="r1", vacancy_id=1, status="queued"
                 )
@@ -807,7 +812,7 @@ class TestApplyOneHandler:
 
     def test_call_passes_session_and_xsrf(self) -> None:
         """When a test draft is used, the session/xsrf are forwarded."""
-        from hh_applicant_tool.services.apply_worker import FatalError
+        from job_bot.application_submit.errors import FatalError
         from hh_applicant_tool.storage.models.application_draft import (
             ApplicationDraftModel,
         )
@@ -1142,7 +1147,7 @@ class TestWorkerService:
     def test_process_one_retryable_schedules_retry(
         self, storage_conn: sqlite3.Connection, clock: _FixedClock
     ):
-        from hh_applicant_tool.services.apply_worker import RetryableError
+        from job_bot.application_submit.errors import RetryableError
         from job_bot.application_submit.handlers.job_handler import JobHandler
         from job_bot.application_submit.models.submit_result import (
             SubmitStatus,
@@ -1171,7 +1176,7 @@ class TestWorkerService:
     def test_process_one_fatal_marks_failed(
         self, storage_conn: sqlite3.Connection, clock: _FixedClock
     ):
-        from hh_applicant_tool.services.apply_worker import FatalError
+        from job_bot.application_submit.errors import FatalError
         from job_bot.application_submit.handlers.job_handler import JobHandler
         from job_bot.application_submit.models.submit_result import (
             SubmitStatus,
@@ -1197,7 +1202,7 @@ class TestWorkerService:
     def test_process_one_gives_up_after_max_attempts(
         self, storage_conn: sqlite3.Connection, clock: _FixedClock
     ):
-        from hh_applicant_tool.services.apply_worker import RetryableError
+        from job_bot.application_submit.errors import RetryableError
         from job_bot.application_submit.models.submit_result import (
             SubmitStatus,
         )
@@ -1242,7 +1247,7 @@ class TestWorkerService:
     def test_notifier_called_on_failure(
         self, storage_conn: sqlite3.Connection, clock: _FixedClock
     ):
-        from hh_applicant_tool.services.apply_worker import FatalError
+        from job_bot.application_submit.errors import FatalError
 
         draft_id = _make_draft(storage_conn, vacancy_id=6)
         _make_job(storage_conn, draft_id)
@@ -1261,7 +1266,7 @@ class TestWorkerService:
     def test_notifier_not_called_on_retryable(
         self, storage_conn: sqlite3.Connection, clock: _FixedClock
     ):
-        from hh_applicant_tool.services.apply_worker import RetryableError
+        from job_bot.application_submit.errors import RetryableError
 
         draft_id = _make_draft(storage_conn, vacancy_id=7)
         _make_job(storage_conn, draft_id)
@@ -1371,7 +1376,7 @@ class TestWorkerService:
     def test_stats_tracking(
         self, storage_conn: sqlite3.Connection, clock: _FixedClock
     ):
-        from hh_applicant_tool.services.apply_worker import (
+        from job_bot.application_submit.errors import (
             FatalError,
             RetryableError,
         )
@@ -1573,9 +1578,8 @@ class TestApplicationSubmitSlice:
     def test_reuse_existing_services(
         self, storage_conn: sqlite3.Connection
     ) -> None:
-        """The slice's apply_one is backed by ``make_default_apply_one`` from
-        ``hh_applicant_tool.services.apply_one`` (no reimplementation)."""
-        from hh_applicant_tool.services.apply_one import make_default_apply_one
+        """The slice's apply_one is backed by ``ApplyOneHandler``
+        (no reimplementation in the slice itself)."""
         from hh_applicant_tool.storage.models.application_draft import (
             ApplicationDraftModel,
         )
@@ -1595,7 +1599,8 @@ class TestApplicationSubmitSlice:
             ApplicationDraftModel(resume_id="r", vacancy_id=1, status="queued")
         )
         api_client.post.assert_called_once()
-        assert make_default_apply_one is not None
+        # ApplyOneHandler exists and is wired to the slice.
+        assert ApplyOneHandler is not None
 
     def test_database_property_exposed(
         self, storage_conn: sqlite3.Connection

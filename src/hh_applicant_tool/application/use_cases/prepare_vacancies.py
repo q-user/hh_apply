@@ -24,7 +24,7 @@ import requests
 
 from job_bot.application_prep.utils import build_filter_ai_client
 
-from ...api import BadResponse
+from ...api.errors import BadResponse
 from ...api.errors import ApiError
 from ...services import (
     DEFAULT_LETTER_TEMPLATE,
@@ -32,7 +32,6 @@ from ...services import (
     CoverLetterService,
     RelevanceService,
     VacancySearchService,
-    VacancyTestsService,
 )
 from ...storage.models.search_profile import SearchProfileModel
 from ...storage.repositories.errors import RepositoryError
@@ -112,7 +111,9 @@ class PrepareVacanciesUseCase:
         self._clock = clock
 
         # Внедрённый сервис поиска вакансов (VSA wiring)
-        self._injected_vacancy_search_service_factory = vacancy_search_service_factory
+        self._injected_vacancy_search_service_factory = (
+            vacancy_search_service_factory
+        )
 
         # Внедрённый сервис подготовки черновиков (VSA wiring, issue #54)
         # Когда задан — use case делегирует ``ApplicationsService.prepare_one``
@@ -273,9 +274,7 @@ class PrepareVacanciesUseCase:
             # This restores the per-profile filter behaviour that the old
             # ``RelevanceService.ai_client`` assignment used to provide.
             rate_limit = (
-                self.command.ai_rate_limit
-                if self.command is not None
-                else None
+                self.command.ai_rate_limit if self.command is not None else None
             )
             applications.prepare_filter_ai_client(
                 profile,
@@ -294,8 +293,15 @@ class PrepareVacanciesUseCase:
                 self.cover_letter_ai,
                 template=self.letter_template,
             )
-            vacancy_tests = VacancyTestsService(
-                self.session, self.test_ai or self.cover_letter_ai
+            # Use the VSA TestHandler for test-answer generation.
+            # The handler is owned by the ApplicationSubmit slice (issue #77).
+            from job_bot.application_submit.handlers.test_handler import (
+                TestHandler,
+            )
+
+            vacancy_tests = TestHandler(
+                session=self.session,
+                ai_client=self.test_ai or self.cover_letter_ai,
             )
             applications = ApplicationsService(
                 self.storage, relevance, cover_letter, vacancy_tests
@@ -607,9 +613,7 @@ class PrepareVacanciesUseCase:
             relevance_obj=relevance,
             factory=self.vacancy_filter_ai_factory,
             rate_limit=(
-                self.command.ai_rate_limit
-                if self.command is not None
-                else None
+                self.command.ai_rate_limit if self.command is not None else None
             ),
         )
         return relevance
