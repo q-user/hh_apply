@@ -1,78 +1,86 @@
 # Project Roadmap
 
-## Current Status: VSA Migration Complete ✅
-- **7 slices extracted** with TDD
-- **782 tests passing** (was 561 → +221)
-- **Ruff clean**, MyPy baseline
-- **All original issues #1-52 closed**
+> Last updated: 2026-06-13 — see [issues](https://github.com/q-user/hh_apply/issues)
+> for the authoritative task list. This document is a high-level summary,
+> not a substitute for the issue tracker.
 
----
+## Current State
 
-## Phase 1: Switchover (Priority: HIGH)
-Make VSA slices the runtime source of truth, deprecate old `hh_applicant_tool` code.
+**VSA foundation is in place**, but the migration is **not** complete.
 
-| Issue | Task | Effort | Dependencies |
-|-------|------|--------|--------------|
-| #53 | Wire Vacancy Search slice + deprecate old collector | M | — |
-| #54 | Wire Application Prep slice + deprecate old prepare | M | #53 |
-| #55 | Wire Application Submit slice + deprecate old worker | M | #54 |
-| #56 | Wire Telegram Bot slice + deprecate old operation | L | #55 |
-| #57 | Wire Channel Monitoring slice + deprecate old code | S | #56 |
-| #58 | Wire MAX Bot slice + deprecate old code | S | #57 |
-| #59 | Wire Config/Auth slice + deprecate old config | M | #53 |
-| — | **Remove dead code** (after all wired) | L | All above |
+- 7 VSA slices exist under `src/job_bot/` (config_auth, vacancy_search,
+  channel_monitoring, max_bot, telegram_bot, application_prep,
+  application_submit)
+- 4 of those slices are "clean VSA" (no legacy imports)
+- 3 are "mixed" (telegram_bot, application_prep, application_submit —
+  VSA structure but services import from `hh_applicant_tool.*`)
+- ~3100 LOC of old `hh_applicant_tool/` use-case code is not yet bridged
+  to VSA
+- Legacy `hh_applicant_tool/` is still the live entry point
+  (`pyproject.toml` `packages`, `main.py`, `container.py`)
+- `main` is 82 commits behind `develop`; no open PR bridging them
+- CI on `develop` is currently broken: 62 ruff errors + 1 pytest
+  failure (issue #82) — this blocks every other PR
 
-**Success Criteria:** All CLI operations use VSA slices; old `hh_applicant_tool/services/*` removed; 782 tests still pass.
-
----
-
-## Phase 2: Features (Priority: MEDIUM)
-
-| Issue | Task | Effort | Notes |
-|-------|------|--------|-------|
-| #47 | SOCKS5 proxy for Telegram bot | S | Unblocks local dev |
-| #49 | Local dev stack (docker-compose.dev.yml) | M | One-command startup |
-| #60 | MAX Bot - Real API integration | M | Research MAX Bot API |
-| #61 | Channel Monitoring - Real implementation | M | Telegram Bot API channels |
-| #62 | Rebranding (package rename) | M | job_bot / vacancy_agent |
-
----
-
-## Phase 3: Quality (Priority: MEDIUM)
+## Phase A: Unblock CI (next 1-2 days)
 
 | Issue | Task | Effort |
 |-------|------|--------|
-| #63 | Integration tests (old vs new parity) | M |
-| #64 | MyPy strict mode on VSA slices | M |
-| #65 | Performance benchmarks & profiling | M |
+| #82 | Fix ruff errors + MagicMockDigest pytest failure on develop | M |
 
----
+This is the **blocker for everything else**. Until CI is green, no
+other VSA work can land cleanly.
 
-## Phase 4: Production Hardening (Priority: LOW)
+## Phase B: Complete VSA switchover (next 1-2 weeks)
+
+Wire the remaining slice(s) and deprecate the corresponding legacy code.
+
+| Issue | Task | Effort | Notes |
+|-------|------|--------|-------|
+| #59 | Wire Config/Auth slice + deprecate old code | M | Last unwired switchover slice |
+| #77 | VSA switchover (port scaffolding, shim contracts) | L | Work partly uncommitted — see `backup/vsa-77-switchover-2026-06-13` branch |
+| #76 | Remove deprecated telegram/channel/MAX service code | M | Follow-up to PR #84 |
+| New A | Bridge review_flow.py (1010 LOC) → VSA | L | — |
+| New B | Bridge vacancy_tests.py (294 LOC) → VSA | M | — |
+| New C | Bridge apply_to_vacancies.py (1117 LOC) → VSA | XL | Orchestrator |
+| New D | Bridge prepare_vacancies.py (685 LOC) → VSA | L | Orchestrator |
+
+**Success criteria:** all 7 VSA slices are clean (zero legacy imports),
+4 old use-case files are bridged, `hh_applicant_tool` is reduced to a
+thin deprecation shim package.
+
+## Phase C: Standardize and clean (next 1 week)
+
+| Issue | Task | Effort |
+|-------|------|--------|
+| New E | Standardize deprecation contract | S |
+| New F | Move utilities to `job_bot/shared/` | M |
+| New G | Fix VSA test isolation | S |
+| New H | Delete dead code, wire/remove `Settings` | S |
+| #63 | Integration tests (work landed via `70b5daf`, verify) | — |
+| #83 | Replace mypy with ty | M |
+| New I | Update documentation | M |
+
+## Phase D: Production hardening (later)
 
 - Observability: OpenTelemetry, structured logs, Prometheus metrics
 - Health endpoints: `/health`, `/ready`
-- Rate limiting: Token bucket per HH API endpoint
-- Secrets management: Vault/1Password integration
-- CI/CD: GitHub Actions with full test suite
+- Rate limiting per HH API endpoint
+- Secrets management
+- Sync `main` with `develop` (currently 82 commits behind)
+- CI/CD improvements
 
----
-
-## Timeline (Estimated)
+## Timeline (rough estimate)
 
 | Week | Focus |
 |------|-------|
-| 1-2 | **Phase 1**: Switchover (complete) |
-| 3-4 | **Phase 2**: Features (SOCKS5, Local dev, MAX, Channels, Rebrand) |
-| 5 | **Phase 3**: Quality (Integration tests, MyPy, Perf) |
-| 6+ | **Phase 4**: Production hardening |
+| 1 | Phase A (unblock CI) |
+| 2-3 | Phase B (VSA switchover completion) |
+| 4 | Phase C (standardize + clean + docs) |
+| 5+ | Phase D (production hardening) |
 
----
+## Blockers
 
-## Current Blockers
-None. All infrastructure ready. VSA foundation stable.
-
----
-
-## Next Action
-Start **Issue #53** - Wire Vacancy Search slice into collector (first switchover).
+1. **#82** — broken CI blocks every PR. Must be fixed first.
+2. **Main behind develop** — `main` is 82 commits behind, no PR bridging
+   them. Decide: rebase merge, or fast-forward once #82 lands.
