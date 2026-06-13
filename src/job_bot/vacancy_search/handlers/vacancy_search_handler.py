@@ -95,7 +95,14 @@ class VacancySearchHandler:
                 if page >= response.get("pages", 1) - 1:
                     break
 
-            except (requests.RequestException, ApiError, BadResponse, ValueError, KeyError, TypeError) as ex:
+            except (
+                requests.RequestException,
+                ApiError,
+                BadResponse,
+                ValueError,
+                KeyError,
+                TypeError,
+            ) as ex:
                 # Log error and continue
                 logger.debug("vacancy search page failed: %s", ex)
                 break
@@ -113,6 +120,13 @@ class VacancySearchHandler:
         try:
             response = self._api_client.get(f"/vacancies/{vacancy_id}")
             return Vacancy.from_hh_api(response)
-        except (requests.RequestException, ApiError, BadResponse, ValueError, KeyError, TypeError) as ex:
+        except (
+            requests.RequestException,
+            ApiError,
+            BadResponse,
+            ValueError,
+            KeyError,
+            TypeError,
+        ) as ex:
             logger.debug("fetch_vacancy_details(%s) failed: %s", vacancy_id, ex)
             return None

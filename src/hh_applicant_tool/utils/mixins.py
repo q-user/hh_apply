@@ -62,7 +62,7 @@ class MegaTool(VersionChecker):
     def is_docker(self) -> bool:
         """Определяет запущена ли утилита внутри docker"""
         return Path("/.dockerenv").exists()
-    
+
     def _check_system(self: HHApplicantTool):
         if not self.storage.settings.get_value("disable_version_check", False):
             self._check_version()

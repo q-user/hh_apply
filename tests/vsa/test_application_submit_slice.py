@@ -733,7 +733,9 @@ class TestApplyOneHandler:
     def test_convert_errors_false_propagates_captcha_required(self) -> None:
         """``convert_errors=False`` -> ``CaptchaRequired`` propagates as-is (issue #73)."""
         from hh_applicant_tool.api.errors import CaptchaRequired
-        from job_bot.application_submit.handlers.apply_one_handler import ApplyOneHandler
+        from job_bot.application_submit.handlers.apply_one_handler import (
+            ApplyOneHandler,
+        )
         from job_bot.application_submit.errors import RetryableError
         from hh_applicant_tool.storage.models.application_draft import (
             ApplicationDraftModel,
@@ -758,16 +760,26 @@ class TestApplyOneHandler:
 
         handler = ApplyOneHandler(api_client=api_client, convert_errors=True)
         with pytest.raises(RetryableError):
-            handler(ApplicationDraftModel(resume_id="r1", vacancy_id=1, status="queued"))
+            handler(
+                ApplicationDraftModel(
+                    resume_id="r1", vacancy_id=1, status="queued"
+                )
+            )
 
         handler = ApplyOneHandler(api_client=api_client, convert_errors=False)
         with pytest.raises(CaptchaRequired):
-            handler(ApplicationDraftModel(resume_id="r1", vacancy_id=1, status="queued"))
+            handler(
+                ApplicationDraftModel(
+                    resume_id="r1", vacancy_id=1, status="queued"
+                )
+            )
 
     def test_convert_errors_false_propagates_limit_exceeded(self) -> None:
         """``convert_errors=False`` -> ``LimitExceeded`` propagates as-is (issue #73)."""
         from hh_applicant_tool.api.errors import LimitExceeded
-        from job_bot.application_submit.handlers.apply_one_handler import ApplyOneHandler
+        from job_bot.application_submit.handlers.apply_one_handler import (
+            ApplyOneHandler,
+        )
         from job_bot.application_submit.errors import RetryableError
         from hh_applicant_tool.storage.models.application_draft import (
             ApplicationDraftModel,
@@ -784,11 +796,19 @@ class TestApplyOneHandler:
 
         handler = ApplyOneHandler(api_client=api_client, convert_errors=True)
         with pytest.raises(RetryableError):
-            handler(ApplicationDraftModel(resume_id="r1", vacancy_id=1, status="queued"))
+            handler(
+                ApplicationDraftModel(
+                    resume_id="r1", vacancy_id=1, status="queued"
+                )
+            )
 
         handler = ApplyOneHandler(api_client=api_client, convert_errors=False)
         with pytest.raises(LimitExceeded):
-            handler(ApplicationDraftModel(resume_id="r1", vacancy_id=1, status="queued"))
+            handler(
+                ApplicationDraftModel(
+                    resume_id="r1", vacancy_id=1, status="queued"
+                )
+            )
 
     def test_call_passes_session_and_xsrf(self) -> None:
         """When a test draft is used, the session/xsrf are forwarded."""

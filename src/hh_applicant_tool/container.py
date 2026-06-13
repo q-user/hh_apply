@@ -196,9 +196,7 @@ class AppContainer:
 
     # ─── Application Prep Slice (VSA) ──────────────────────────────
 
-    def _get_application_prep_slice(
-        self, cover_letter_ai: Any | None = None
-    ):
+    def _get_application_prep_slice(self, cover_letter_ai: Any | None = None):
         """Get or create the ApplicationPrepSlice instance (issue #54).
 
         Args:
@@ -329,7 +327,9 @@ class AppContainer:
 
             max_cfg = (self._tool.config or {}).get("max") or {}
             bot_token = max_cfg.get("bot_token") or ""
-            api_url = max_cfg.get("api_url") or RequestsMaxTransport.DEFAULT_API_URL
+            api_url = (
+                max_cfg.get("api_url") or RequestsMaxTransport.DEFAULT_API_URL
+            )
 
             transport = RequestsMaxTransport(
                 session=self._tool.session,
@@ -445,7 +445,6 @@ class AppContainer:
         # which return thin adapters to match the legacy CLI surface.
         return self._get_channel_monitor_slice()
 
-
     # ─── Use case factories ──────────────────────────────────────
 
     def apply_to_vacancies_use_case(
@@ -484,9 +483,8 @@ class AppContainer:
             email_sender=(self._get_email_sender() if send_email else None),
             test_logger=self._get_test_logger(),
             # Vacancy search service factory (VSA wiring)
-            vacancy_search_service_factory=lambda per_page,
-            total_pages: self.create_vacancy_search_adapter(
-                per_page, total_pages
+            vacancy_search_service_factory=lambda per_page, total_pages: (
+                self.create_vacancy_search_adapter(per_page, total_pages)
             ),
         )
 
@@ -521,9 +519,8 @@ class AppContainer:
             vacancy_filter_ai_factory=tool.get_vacancy_filter_ai,
             test_ai=cover_letter_ai,
             # Vacancy search service factory (VSA wiring)
-            vacancy_search_service_factory=lambda per_page,
-            total_pages: self.create_vacancy_search_adapter(
-                per_page, total_pages
+            vacancy_search_service_factory=lambda per_page, total_pages: (
+                self.create_vacancy_search_adapter(per_page, total_pages)
             ),
             # Application Prep service factory (VSA wiring, issue #54).
             # The factory closes over ``cover_letter_ai`` so that the
@@ -531,8 +528,10 @@ class AppContainer:
             # client when ``--use-ai`` is passed on the CLI (without
             # this, ``use_ai=True`` would be silently dropped because
             # the adapter would build a no-AI slice).
-            application_prep_service_factory=lambda: self.create_application_prep_service(
-                cover_letter_ai=cover_letter_ai
+            application_prep_service_factory=lambda: (
+                self.create_application_prep_service(
+                    cover_letter_ai=cover_letter_ai
+                )
             ),
         )
 
@@ -792,9 +791,7 @@ class _ApplicationPrepAdapter:
 
         # 4. Save draft to legacy storage
         draft = ApplicationDraftModel(
-            search_profile_id=(
-                search_profile.id if search_profile else None
-            ),
+            search_profile_id=(search_profile.id if search_profile else None),
             resume_id=str(resume_id) if resume_id else "",
             vacancy_id=int(vacancy_id) if vacancy_id else 0,
             employer_id=int(employer_id) if employer_id else None,
@@ -876,9 +873,7 @@ class _ApplicationSubmitAdapter:
             # so the surrounding loop's exception handlers fire.
             raise
         except RetryableError as ex:
-            logger.warning(
-                "application_submit adapter: RetryableError: %s", ex
-            )
+            logger.warning("application_submit adapter: RetryableError: %s", ex)
             return False
 
         # Save the draft once on success (no pre-save dead state).
@@ -1132,9 +1127,7 @@ class _ConfigAdapter:
         from job_bot.config_auth.models.credentials import OAuthCredentials
 
         if profile_id is None:
-            profile_id = (
-                getattr(self._tool, "profile_id", None) or "default"
-            )
+            profile_id = getattr(self._tool, "profile_id", None) or "default"
         credentials = OAuthCredentials.from_dict(token)
         self._slice.auth.save_credentials(credentials, profile_id=profile_id)
 

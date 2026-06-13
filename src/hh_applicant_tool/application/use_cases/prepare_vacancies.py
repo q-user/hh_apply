@@ -111,7 +111,9 @@ class PrepareVacanciesUseCase:
         self._clock = clock
 
         # Внедрённый сервис поиска вакансов (VSA wiring)
-        self._injected_vacancy_search_service_factory = vacancy_search_service_factory
+        self._injected_vacancy_search_service_factory = (
+            vacancy_search_service_factory
+        )
 
         # Внедрённый сервис подготовки черновиков (VSA wiring, issue #54)
         # Когда задан — use case делегирует ``ApplicationsService.prepare_one``
@@ -272,9 +274,7 @@ class PrepareVacanciesUseCase:
             # This restores the per-profile filter behaviour that the old
             # ``RelevanceService.ai_client`` assignment used to provide.
             rate_limit = (
-                self.command.ai_rate_limit
-                if self.command is not None
-                else None
+                self.command.ai_rate_limit if self.command is not None else None
             )
             applications.prepare_filter_ai_client(
                 profile,
@@ -613,9 +613,7 @@ class PrepareVacanciesUseCase:
             relevance_obj=relevance,
             factory=self.vacancy_filter_ai_factory,
             rate_limit=(
-                self.command.ai_rate_limit
-                if self.command is not None
-                else None
+                self.command.ai_rate_limit if self.command is not None else None
             ),
         )
         return relevance
