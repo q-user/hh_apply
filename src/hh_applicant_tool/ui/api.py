@@ -457,7 +457,7 @@ class Api:
             return {"status": "ok"}
         except PresetValidationError as e:
             return {"status": "error", "message": str(e)}
-        except (OSError, ValueError, TypeError) as e:
+        except (OSError, ValueError, TypeError, sqlite3.Error) as e:
             logger.error("save_preset error: %s", e)
             return {"status": "error", "message": "Ошибка сохранения пресета"}
 
@@ -475,7 +475,7 @@ class Api:
             self._presets.save_last_used(params)
         except PresetValidationError as e:
             logger.warning("save_last_used_params rejected: %s", e)
-        except (OSError, ValueError, TypeError) as e:
+        except (OSError, ValueError, TypeError, sqlite3.Error) as e:
             logger.error("save_last_used_params error: %s", e)
 
     def get_negotiations_from_db(self) -> list[dict]:
