@@ -40,7 +40,7 @@
 
 - 💬 **Рассылка сообщений по чатам работодателей.** Помогает не затеряться на фоне огромного количества откликов от других соискателей (в 2024 их было по 300 штук на вакансию джуна, сейчас по 3000).
 
-- 🔒 **Безопасность персональных данных.** Ваши email, телефон, пароль и другие личные данные никуда не передаются в отличие от сторонних сервисов. В этом можно убедиться, изучив [открытый исходный код](https://github.com/s3rgeym/hh-applicant-tool/tree/main/src/hh_applicant_tool). Владельцы сторонних сервисов никогда вам не покажут исходники. Они знают о вас все и эти данные спокойно продадут каким-нибудь жуликам, либо те утекут в результате взлома.
+- 🔒 **Безопасность персональных данных.** Ваши email, телефон, пароль и другие личные данные никуда не передаются в отличие от сторонних сервисов. В этом можно убедиться, изучив [открытый исходный код](https://github.com/q-user/hh_apply) — VSA-слайсы в `src/job_bot/`, CLI-обвязка в `src/hh_applicant_tool/`. Владельцы сторонних сервисов никогда вам не покажут исходники. Они знают о вас все и эти данные спокойно продадут каким-нибудь жуликам, либо те утекут в результате взлома.
 
 - 💾 **Сохранение контактов работодателей и прочей информации.** Контакты работодателей и информация о них и их вакансиях сохраняются в базе данных на вашем устройстве, что позволяет производить быстрый поиск нужной информации, в отличие от сайта, при минимальном опыте с SQL (язык запросов, придуманный в свое время для домохозяек).
 
@@ -82,6 +82,7 @@
   - [Описание](#описание)
   - [Предыстория](#предыстория)
   - [Запуск через Docker](#запуск-через-docker)
+  - [Архитектура](#архитектура)
   - [Стандартная установка](#стандартная-установка)
     - [Установка утилиты](#установка-утилиты)
     - [Дополнительные зависимости](#дополнительные-зависимости)
@@ -140,6 +141,25 @@ $$('[data-qa="vacancy-serp__vacancy_response"]').forEach((el) => el.click());
 ```
 
 Оно работало, хоть и не идеально: например, при отклике на некоторые вакансии перебрасывало на другую страницу. Поэтому я пробовал автоматизировать рассылки через `p[yu]ppeteer` (ныне заменен `playwright`), пока не прочитал [документацию](https://github.com/hhru/api) и не обнаружил, что **API** (интерфейс) содержит все необходимые мне методы. Headhunter позволял создавать свое приложение, но там была ручная модерация, а палиться в нарушении правил пользования сайтом (автоматические отклики запрещены) не хотелось. И тогда я [декомпилировал](https://gist.github.com/s3rgeym/eee96bbf91b04f7eb46b7449f8884a00) официальное приложение для **Android**, получил **CLIENT_ID** и **CLIENT_SECRET**, необходимые для работы через **API**. Сейчас же утилита работает в гибридном режиме через **API** и **веб-версию**, так как ряд действий, типа решения тестов, можно выполнить только через сайт. Меня интересовала именно возможность рассылки со своего сервера, а для этого нужна работа через **CLI**, т. е. какого-то графического фронтенда нет и не планируется, но никто не запрещает его вам написать.
+
+---
+
+## Архитектура
+
+Кодовая база разбита на два слоя:
+
+- **`src/job_bot/`** — [Vertical Slice Architecture (VSA)](./docs/vsa_migration_guide.md). Семь слайсов (`vacancy_search`, `config_auth`, `channel_monitoring`, `max_bot`, `telegram_bot`, `application_prep`, `application_submit`) + shared kernel (`storage/`, `api/`, `ai/`, `config/`). Каждый слайс самодостаточен: свои `models/`, `handlers/`, `ports/`, опционально `repositories/` / `services/`, фабрика `slice.py` и публичный `__init__.py`. Межслайсовое взаимодействие — только через порты.
+- **`src/hh_applicant_tool/`** — CLI-обвязка и переходный слой. Содержит точку входа `main.py` (`HHApplicantTool`), composition root `container.py` (`AppContainer` — лениво создаёт VSA-слайсы), операции в `operations/` и UI в `ui/`. До завершения VSA-миграции (см. [ROADMAP](./ROADMAP.md)) этот пакет постепенно сокращается до тонкой шим-обёртки, реэкспортирующей публичный API.
+
+CLI-операции (`apply-worker`, `telegram-bot`, `channel-monitor`, `max-bot`, `apply-vacancies`, `prepare-vacancies` и т. д.) парсят argparse → собирают соответствующий VSA-слайс через `AppContainer` → делегируют выполнение. Например, `apply-worker` (см. `src/hh_applicant_tool/operations/apply_worker.py`) — это тонкий адаптер над `ApplicationSubmitSlice.worker.run`.
+
+Тесты:
+
+- `tests/vsa/` — изолированные тесты VSA-слайсов;
+- `tests/integration/` — сквозные сценарии между слайсами (запускаются через `pytest -m integration`);
+- `tests/test_*.py` (без `vsa/` и `integration/`) — легаси-тесты легаси-кода.
+
+Актуальное состояние миграции — в [ROADMAP.md](./ROADMAP.md) и в [issues](https://github.com/q-user/hh_apply/issues).
 
 ---
 
@@ -846,7 +866,7 @@ $ hh-applicant-tool settings auth.username 'user@example.com'
 > [!IMPORTANT]
 > Почитайте про [язык для поисковых запросов](https://hh.ru/article/1175). Он позволяет отсеивать мусор при поиске подходящих вакансий, например, `(Go OR Golang) NOT PHP NOT JavaScript`.
 
-Утилита использует систему плагинов. Все они лежат в [operations](https://github.com/s3rgeym/hh-applicant-tool/tree/main/src/hh_applicant_tool/operations). Модули, расположенные там, автоматически добавляются как доступные команды. За основу для своего плагина можно взять [whoami.py](https://github.com/s3rgeym/hh-applicant-tool/tree/main/src/hh_applicant_tool/operations/whoami.py).
+Утилита использует систему плагинов. Все они лежат в [operations](https://github.com/q-user/hh_apply/tree/develop/src/hh_applicant_tool/operations) (`src/hh_applicant_tool/operations/`). Модули, расположенные там, автоматически добавляются как доступные команды. Сами операции (например, `apply-worker`, `telegram-bot`, `channel-monitor`, `max-bot`) собирают VSA-слайсы через `AppContainer` (см. `src/hh_applicant_tool/container.py`); за основу для своего плагина можно взять [whoami.py](https://github.com/q-user/hh_apply/tree/develop/src/hh_applicant_tool/operations/whoami.py).
 
 Для тестирования запросов к API используйте команду `call-api` совместно с `jq` для обработки JSON.
 
@@ -1206,6 +1226,26 @@ tool.storage.settings.set_value("_last_script_run", dt.datetime.now())
 # Учтите, что в таком случае токены, которые могут обновиться при выполнении запросов,
 # нужно сохранять вручную
 tool.save_token()
+```
+
+> [!NOTE]
+> Внутренняя бизнес-логика утилиты постепенно переезжает в VSA-слайсы
+> (`src/job_bot/`). CLI-обёртка в `src/hh_applicant_tool/operations/`
+> собирает их через `AppContainer` (см. `src/hh_applicant_tool/container.py`).
+> Прямой импорт `from hh_applicant_tool import HHApplicantTool` остаётся
+> публичным API и будет поддерживаться как минимум до полного завершения
+> VSA-миграции (см. [ROADMAP](./ROADMAP.md)). Для нового кода рекомендуется
+> импортировать VSA-слайсы напрямую:
+
+```python
+from job_bot.vacancy_search import create_vacancy_search_slice
+from job_bot.application_prep import create_application_prep_slice
+from job_bot.application_submit import create_application_submit_slice
+
+vacancy_search = create_vacancy_search_slice()
+prep = create_application_prep_slice()
+submit = create_application_submit_slice()
+# ... используйте prep / submit / vacancy_search через их порты
 ```
 
 Команды тоже можно вызывать:
