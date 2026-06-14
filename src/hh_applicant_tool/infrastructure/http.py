@@ -108,7 +108,7 @@ class RequestsSiteParser:
         try:
             if response.raw._connection and response.raw._connection.sock:
                 ip_address = response.raw._connection.sock.getpeername()[0]
-        except Exception:
+        except Exception:  # noqa: BLE001  # touches urllib3 private API; any failure means IP can't be extracted
             pass
 
         return {

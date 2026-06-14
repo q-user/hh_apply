@@ -69,7 +69,7 @@ class FileTestVacancyLogger:
                 and self._file_path.stat().st_size >= self._max_file_size
             ):
                 self._rotate()
-        except Exception:
+        except OSError:
             # If rotation fails, continue without rotation
             pass
 
@@ -105,7 +105,7 @@ class FileTestVacancyLogger:
             try:
                 with self._file_path.open("r", encoding=self._encoding) as f:
                     lines = f.readlines()
-            except Exception as ex:
+            except (OSError, UnicodeDecodeError) as ex:
                 logger.error("Failed to read log file: %s", ex)
                 return []
 
