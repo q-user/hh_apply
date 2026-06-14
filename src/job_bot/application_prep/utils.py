@@ -56,13 +56,13 @@ def build_filter_ai_client(
     """Build the per-profile filter AI client and inject it via the
     ``ai_client`` setter on ``relevance_obj``.
 
-    Shared helper for the legacy
-    :class:`hh_applicant_tool.services.relevance.RelevanceService` path
-    and the new VSA
+    Shared helper for the VSA
     :class:`job_bot.application_prep.handlers.relevance_handler.RelevanceHandler`
-    path (issue #54 dedupe). Both objects expose the same ``ai_client``
-    property/setter contract, plus ``analyze_resume_heavy`` /
-    ``analyze_resume_light`` methods.
+    (the single source of truth — issue #135 removed the legacy
+    ``hh_applicant_tool.services.relevance.RelevanceService`` path from
+    ``ApplicationPrepSlice``). Both VSA and the legacy shim expose the
+    same ``ai_client`` property/setter contract, plus
+    ``analyze_resume_heavy`` / ``analyze_resume_light`` methods.
 
     Args:
         profile: search profile (duck-typed; reads ``ai_filter_mode`` and
