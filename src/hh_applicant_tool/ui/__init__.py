@@ -18,17 +18,17 @@ def create_window(tool: HHApplicantTool, *, debug: bool = False) -> None:
     def release_on_top() -> None:
         try:
             window.on_top = False
-        except Exception:
+        except Exception:  # noqa: BLE001  # best-effort window.on_top toggle; webview may not be ready
             pass
 
     def bring_to_front() -> None:
         try:
             window.restore()
-        except Exception:
+        except Exception:  # noqa: BLE001  # best-effort window.restore(); webview backend may not support it
             pass
         try:
             window.show()
-        except Exception:
+        except Exception:  # noqa: BLE001  # best-effort window.show(); webview backend may not support it
             pass
         Timer(1.5, release_on_top).start()
 
