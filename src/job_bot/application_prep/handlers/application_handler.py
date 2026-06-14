@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import Any
 
 from job_bot.application_prep.handlers.cover_letter_handler import (
@@ -150,7 +151,10 @@ class ApplicationHandler:
                     ),
                 )
                 cover_letter_status = "generated"
-            except Exception as ex:
+            except Exception as ex:  # noqa: BLE001
+                # Cover letter generation composes AI client + HH API + template
+                # substitution — any failure is treated as a soft "letter not
+                # generated" so the application draft flow can continue.
                 logger.warning(
                     "Не удалось сгенерировать сопроводительное письмо: %s",
                     ex,
@@ -196,7 +200,9 @@ class ApplicationHandler:
                         placeholders=placeholders or {},
                     )
                 )
-            except Exception as ex:
+            except sqlite3.Error as ex:
+                # cover_letter persistence failure should not block the draft
+                # flow; log and continue so the draft is still saved upstream.
                 logger.warning(
                     "Не удалось сохранить cover_letter для draft %s: %s",
                     saved_draft.id,

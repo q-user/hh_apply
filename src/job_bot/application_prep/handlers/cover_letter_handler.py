@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sqlite3
 from typing import TYPE_CHECKING, Any
+
+import requests
 
 from job_bot.application_prep.models.cover_letter import (
     DEFAULT_LETTER_TEMPLATE,
@@ -164,7 +167,10 @@ class CoverLetterHandler:
                 if vacancy_obj is not None:
                     return vacancy_obj.raw_data
                 return None
-            except Exception as ex:
+            except sqlite3.Error as ex:
+                # vacancy_port is a DB-backed lookup; on failure fall through
+                # to the api_client fallback below rather than breaking letter
+                # generation.
                 logger.warning(
                     "vacancy_port.get_vacancy_by_hh_id(%s) failed: %s",
                     vacancy_id,
@@ -174,7 +180,9 @@ class CoverLetterHandler:
         if self._api_client is not None:
             try:
                 return self._api_client.get(f"/vacancies/{vacancy_id}")
-            except Exception as ex:
+            except (requests.RequestException, ValueError) as ex:
+                # HH API can fail on network errors, non-2xx responses
+                # (raise_for_status), or JSON parsing (response.json()).
                 logger.warning(
                     "Не удалось получить полную вакансию %s для письма: %s",
                     vacancy_id,
