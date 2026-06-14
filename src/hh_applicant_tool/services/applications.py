@@ -175,7 +175,9 @@ class ApplicationsService:
                     ),
                 )
                 cover_letter_status = "generated"
-            except Exception as ex:
+            except Exception as ex:  # noqa: BLE001
+                # Deprecated CoverLetterService shim — never break callers
+                # of ApplicationsService; mark the draft as failed instead.
                 logger.warning(
                     "Не удалось сгенерировать сопроводительное письмо: %s",
                     ex,
@@ -218,7 +220,9 @@ class ApplicationsService:
                         for a in raw_answers
                     ]
                     test_status = "generated"
-            except Exception as ex:
+            except Exception as ex:  # noqa: BLE001
+                # Deprecated VacancyTestsService shim — never break callers
+                # of ApplicationsService; mark the draft as manual_required.
                 logger.warning(
                     "Не удалось загрузить тесты для вакансии %s: %s",
                     vacancy_id,

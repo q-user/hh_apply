@@ -14,6 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from hh_applicant_tool.ai.base import AIError
 from hh_applicant_tool.services.daily_digest import (
     LAST_DIGEST_KEY,
     DailyDigestService,
@@ -655,7 +656,7 @@ def test_send_ai_failure_does_not_break_send(storage: sqlite3.Connection):
     storage.commit()
 
     ai = MagicMock()
-    ai.complete.side_effect = RuntimeError("ai down")
+    ai.complete.side_effect = AIError("ai down")
     transport = _make_transport()
     svc = _make_service(storage, transport=transport, ai_client=ai)
 

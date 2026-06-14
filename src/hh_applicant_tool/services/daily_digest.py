@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
+from ..ai.base import AIError
 from ..storage.facade import StorageFacade
 from ..telegram.transport import TelegramTransport, TelegramTransportError
 
@@ -326,7 +327,9 @@ class DailyDigestService:
         )
         try:
             return self._ai_client.complete(prompt).strip() or None
-        except Exception as ex:
+        except AIError as ex:
+            # AI-аннотация — вспомогательное украшение дайджеста; сбой LLM
+            # не должен ломать отправку самого дайджеста.
             logger.warning("AI-аннотация для дайджеста не удалась: %s", ex)
             return None
 

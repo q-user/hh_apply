@@ -622,7 +622,9 @@ class RelevanceService:
         if resume_id:
             try:
                 full_resume = self.api_client.get(f"/resumes/{resume_id}")
-            except Exception as ex:
+            except Exception as ex:  # noqa: BLE001
+                # Deprecated RelevanceService shim — return empty analysis
+                # on any failure so the caller can fall back to a lighter pass.
                 logger.warning("Не удалось получить полное резюме: %s", ex)
                 return ""
 
@@ -671,7 +673,8 @@ class RelevanceService:
 
         try:
             full_resume = self.api_client.get(f"/resumes/{resume_id}")
-        except Exception as ex:
+        except Exception as ex:  # noqa: BLE001
+            # Deprecated RelevanceService shim — see comment above.
             logger.warning("Не удалось получить полное резюме: %s", ex)
             return ""
 
@@ -698,7 +701,9 @@ class RelevanceService:
             return ", ".join(
                 s["name"] for s in key_skills_data if s.get("name")
             )
-        except Exception as ex:
+        except Exception as ex:  # noqa: BLE001
+            # Deprecated RelevanceService shim — key_skills is optional context;
+            # an empty string is the safe fallback for any failure.
             logger.warning(
                 "Не удалось получить key_skills вакансии %s: %s",
                 vacancy_id,
