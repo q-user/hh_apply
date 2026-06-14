@@ -591,9 +591,7 @@ class RelevanceService:
         vacancy_fetcher: Any = None,
     ):
         warnings.warn(
-            "RelevanceService is deprecated; use "
-            "job_bot.application_prep.handlers.RelevanceHandler instead "
-            "(issue #54).",
+            "hh_applicant_tool.services.relevance is deprecated; use job_bot.application_prep instead (issue #54).",
             DeprecationWarning,
             stacklevel=2,
         )

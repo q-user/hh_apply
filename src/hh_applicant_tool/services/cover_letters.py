@@ -77,9 +77,7 @@ class CoverLetterService:
         vacancy_fetcher: "VacancyDescriptionFetcherPort | None" = None,
     ):
         warnings.warn(
-            "CoverLetterService is deprecated; use "
-            "job_bot.application_prep.handlers.CoverLetterHandler instead "
-            "(issue #54).",
+            "hh_applicant_tool.services.cover_letters is deprecated; use job_bot.application_prep instead (issue #54).",
             DeprecationWarning,
             stacklevel=2,
         )

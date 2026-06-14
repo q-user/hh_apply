@@ -235,12 +235,15 @@ class TestApplicationPrepSliceWiring:
             all_messages = " ".join(
                 str(warning.message) for warning in deprecation_warnings
             )
-            # All three old service names appear in the captured warnings
-            assert "CoverLetterService" in all_messages
-            assert "RelevanceService" in all_messages
-            assert "ApplicationsService" in all_messages
+            # Issue #92 standardised contract: every shim message names
+            # its module path (not the class) and points at the VSA slice.
+            assert "hh_applicant_tool.services.applications" in all_messages
+            assert "hh_applicant_tool.services.cover_letters" in all_messages
+            assert "hh_applicant_tool.services.relevance" in all_messages
             # And all point to the new slice
             assert "job_bot.application_prep" in all_messages
+            # All messages follow the canonical template and cite issue #54.
+            assert all_messages.count("issue #54") == 3
 
 
 class TestPerProfileAIInjection:
