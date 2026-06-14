@@ -26,7 +26,7 @@ from ..utils.string import bool2str
 logger = logging.getLogger(__package__)
 
 warnings.warn(
-    "VacancySearchService is deprecated, use job_bot.vacancy_search.VacancySearchSlice instead",
+    "hh_applicant_tool.services.vacancy_search is deprecated; use job_bot.vacancy_search instead (issue #53).",
     DeprecationWarning,
     stacklevel=2,
 )

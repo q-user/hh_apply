@@ -30,7 +30,7 @@ from . import json
 
 # Deprecation warning for VSA migration (issues #70, #59).
 warnings.warn(
-    "hh_applicant_tool.utils.config is deprecated, use job_bot.config_auth instead",
+    "hh_applicant_tool.utils.config is deprecated; use job_bot.config_auth instead (issue #59).",
     DeprecationWarning,
     stacklevel=2,
 )
