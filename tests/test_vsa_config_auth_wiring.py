@@ -311,14 +311,19 @@ class TestHHApplicantToolConfigSwitchover:
         assert tool.config.get("client_id") == "via_slice_client"
         assert tool.config.get("client_secret") == "via_slice_secret"
         # And nested sections (telegram, ai) are still reachable.
-        # Note: ``TelegramConfig.to_dict()`` emits all 3 fields, so
-        # the assertion must include ``allowed_user_ids`` /
-        # ``digest_chat_id`` (which the dataclass fills with
-        # defaults if absent from the on-disk JSON).
+        # Note: ``TelegramConfig.to_dict()`` emits every field, so
+        # the assertion must include every default the dataclass
+        # fills in when the field is absent from the on-disk JSON.
+        # ``poll_timeout`` / ``proxy_url`` were added in issue #59
+        # so the ``job_bot.telegram_bot`` transport can read them
+        # from the VSA model instead of reaching for the legacy
+        # ``utils.config.Config`` class.
         assert tool.config.get("telegram") == {
             "bot_token": "via_slice_bot",
             "allowed_user_ids": [],
             "digest_chat_id": None,
+            "poll_timeout": None,
+            "proxy_url": None,
         }
         assert tool.config.get("ai") == {
             "api_key": "via_slice_ai",

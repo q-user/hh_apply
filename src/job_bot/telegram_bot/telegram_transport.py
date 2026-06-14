@@ -23,7 +23,12 @@ from typing import Any
 import requests
 
 from hh_applicant_tool.constants import CONFIG_DIR, CONFIG_FILENAME
-from hh_applicant_tool.utils.config import Config
+# VSA path (issue #59): the telegram transport used to instantiate
+# the legacy ``hh_applicant_tool.utils.config.Config`` directly. That
+# class is now a deprecation shim, so the transport reads its config
+# through the VSA ``ConfigHandler`` (the same handler the CLI uses
+# via ``HHApplicantTool.config``).
+from job_bot.config_auth.handlers.config_handler import ConfigHandler
 
 # Issue #76: this module is the new home of the legacy
 # ``hh_applicant_tool.telegram.transport`` (issue #56) and is **not**
@@ -116,23 +121,35 @@ class TelegramTransport:
         cls,
         config_path: str | Path | None,
     ) -> TelegramTransportConfig:
-        cfg = Config(
-            Path(config_path) if config_path else cls._default_config_path()
+        # VSA path (issue #59): read the telegram section through
+        # ``ConfigHandler`` so we share the same on-disk format and
+        # ``HH_PROFILE_ID`` handling as the CLI. The legacy
+        # ``utils.config.Config`` class is now a deprecation shim and
+        # would emit a ``DeprecationWarning`` on every transport
+        # construction.
+        resolved_path = (
+            Path(config_path)
+            if config_path
+            else cls._default_config_path()
         )
-        telegram_cfg = cfg.get("telegram") or {}
+        app_config = ConfigHandler().load(resolved_path)
+        telegram_cfg = app_config.telegram
 
-        bot_token = telegram_cfg.get("bot_token")
+        bot_token = telegram_cfg.bot_token
         if not bot_token:
             raise TelegramTransportError(
                 "telegram.bot_token is required in config.json"
             )
 
-        poll_timeout = int(
-            telegram_cfg.get("poll_timeout", DEFAULT_POLL_TIMEOUT)
+        poll_timeout = (
+            int(telegram_cfg.poll_timeout)
+            if telegram_cfg.poll_timeout is not None
+            else DEFAULT_POLL_TIMEOUT
         )
-        allowed_raw = telegram_cfg.get("allowed_user_ids") or []
-        allowed_user_ids = tuple(int(user_id) for user_id in allowed_raw)
-        proxy_url = telegram_cfg.get("proxy_url")
+        allowed_user_ids = tuple(
+            int(user_id) for user_id in (telegram_cfg.allowed_user_ids or [])
+        )
+        proxy_url = telegram_cfg.proxy_url
 
         return TelegramTransportConfig(
             bot_token=bot_token,

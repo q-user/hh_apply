@@ -39,11 +39,20 @@ class AISettings:
 
 @dataclass
 class TelegramSettings:
-    """Telegram bot configuration."""
+    """Telegram bot configuration.
+
+    The ``poll_timeout`` and ``proxy_url`` fields mirror
+    :class:`job_bot.config_auth.models.config.TelegramConfig` so the
+    VSA ``AppConfig`` and the shared-kernel ``Settings`` agree on the
+    on-disk schema (issue #59). Both are optional -- configs that
+    only set ``bot_token`` / ``allowed_user_ids`` keep loading.
+    """
 
     bot_token: str | None = None
     allowed_user_ids: list[int] = field(default_factory=list)
     digest_chat_id: int | None = None
+    poll_timeout: int | None = None
+    proxy_url: str | None = None
 
 
 @dataclass
@@ -120,6 +129,8 @@ class Settings:
                 "bot_token": self.telegram.bot_token,
                 "allowed_user_ids": self.telegram.allowed_user_ids,
                 "digest_chat_id": self.telegram.digest_chat_id,
+                "poll_timeout": self.telegram.poll_timeout,
+                "proxy_url": self.telegram.proxy_url,
             },
             "max": {
                 "bot_token": self.max.bot_token,

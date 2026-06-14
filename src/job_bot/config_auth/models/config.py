@@ -59,22 +59,37 @@ class HHConfig:
 
 @dataclass
 class TelegramConfig:
-    """Telegram bot config."""
+    """Telegram bot config.
+
+    The ``poll_timeout`` and ``proxy_url`` fields are used by the
+    ``job_bot.telegram_bot`` transport (issue #59) -- the VSA model
+    is the canonical source of truth for the bot config, so the
+    transport reads them from here rather than reaching for the
+    legacy ``utils.config.Config`` class. Both are optional and
+    default to ``None`` / ``DEFAULT_POLL_TIMEOUT`` so existing
+    configs (which only have ``bot_token`` / ``allowed_user_ids``)
+    keep loading.
+    """
 
     bot_token: str | None = None
     allowed_user_ids: list[int] = field(default_factory=list)
     digest_chat_id: int | None = None
+    poll_timeout: int | None = None
+    proxy_url: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "bot_token": self.bot_token,
             "allowed_user_ids": list(self.allowed_user_ids),
             "digest_chat_id": self.digest_chat_id,
+            "poll_timeout": self.poll_timeout,
+            "proxy_url": self.proxy_url,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TelegramConfig:
         raw_ids = data.get("allowed_user_ids", []) or []
+        raw_poll_timeout = data.get("poll_timeout")
         return cls(
             bot_token=data.get("bot_token"),
             allowed_user_ids=[int(x) for x in raw_ids],
@@ -83,6 +98,12 @@ class TelegramConfig:
                 if data.get("digest_chat_id") is not None
                 else None
             ),
+            poll_timeout=(
+                int(raw_poll_timeout)
+                if raw_poll_timeout is not None
+                else None
+            ),
+            proxy_url=data.get("proxy_url"),
         )
 
 
