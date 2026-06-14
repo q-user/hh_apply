@@ -139,6 +139,7 @@ class TestConfigToAllSlicesFlow:
             slice_ = create_telegram_bot_slice(
                 database=database,
                 transport=transport,
+                digest_service=digest_service,
                 config={
                     "telegram": {
                         "bot_token": "tok",
@@ -148,14 +149,11 @@ class TestConfigToAllSlicesFlow:
                     }
                 },
             )
-            # Wrap the digest service so the slice sees our stub.
-            slice_._digest_service = digest_service
+            # The slice's ``service.digest`` is the real ``DigestHandler``
+            # wired around the mock we just passed in, so the time-gate
+            # logic in ``maybe_send`` runs against our stub.
 
             # 09:00 — before the gate, no send.
-            # ``slice.service.digest`` is the ``DigestHandler`` (has
-            # ``maybe_send``); ``slice.digest`` is the underlying
-            # service. The handler closes over ``_digest_service``
-            # which we've stubbed above.
             slice_.service.digest.maybe_send(
                 config={"telegram": {"daily_digest_time": "23:59"}},
                 now=datetime(2026, 6, 9, 9, 0, 0),
