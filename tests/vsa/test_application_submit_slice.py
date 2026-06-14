@@ -1649,3 +1649,141 @@ class TestPorts:
 
         port: TestPort = TestHandler(session=MagicMock())
         assert port is not None
+
+
+
+# ─── run_apply_pipeline (issue #89 partial bridge) ─────────────────────
+
+
+class TestRunApplyPipelineBridge:
+    """``slice.run_apply_pipeline`` -- top-level VSA orchestrator for the
+    apply pipeline (issue #89).
+
+    This is the partial bridge from the 1117-LOC legacy
+    ``ApplyToVacanciesUseCase`` to the VSA world. The slice is the
+    single VSA entry point; the legacy use case (passed via the
+    :class:`LegacyUseCasePort` protocol) supplies the per-phase
+    implementation. As each phase is ported to the VSA world, the
+    slice re-routes that phase into its own handlers without changing
+    the legacy public API.
+    """
+
+    def test_run_apply_pipeline_delegates_to_legacy_use_case(
+        self, storage_conn: sqlite3.Connection
+    ) -> None:
+        """The slice's ``run_apply_pipeline`` invokes
+        ``legacy_use_case.run_apply_pipeline`` and returns its result."""
+        from hh_applicant_tool.application.dto import (
+            ApplyToVacanciesCommand,
+            ApplyToVacanciesResult,
+        )
+        from job_bot.application_submit.slice import ApplicationSubmitSlice
+
+        slice_ = ApplicationSubmitSlice(
+            storage_conn=storage_conn, api_client=MagicMock()
+        )
+
+        # Mock legacy use case: satisfies LegacyUseCasePort structurally.
+        legacy = MagicMock()
+        expected = ApplyToVacanciesResult(applied=3, resumes_processed=1)
+        legacy.run_apply_pipeline.return_value = expected
+
+        command = ApplyToVacanciesCommand(resume_id="r1")
+
+        result = slice_.run_apply_pipeline(
+            legacy_use_case=legacy,
+            command=command,
+            cancel_event=None,
+            progress_callback=None,
+        )
+
+        assert result is expected
+        legacy.run_apply_pipeline.assert_called_once_with(
+            command=command,
+            cancel_event=None,
+            progress_callback=None,
+        )
+
+    def test_run_apply_pipeline_forwards_cancel_and_progress(
+        self, storage_conn: sqlite3.Connection
+    ) -> None:
+        """cancel_event and progress_callback are forwarded verbatim."""
+        from hh_applicant_tool.application.dto import ApplyToVacanciesCommand
+        from job_bot.application_submit.slice import ApplicationSubmitSlice
+
+        slice_ = ApplicationSubmitSlice(
+            storage_conn=storage_conn, api_client=MagicMock()
+        )
+
+        legacy = MagicMock()
+        legacy.run_apply_pipeline.return_value = MagicMock()
+
+        cancel = MagicMock()
+        progress = MagicMock()
+        command = ApplyToVacanciesCommand()
+
+        slice_.run_apply_pipeline(
+            legacy_use_case=legacy,
+            command=command,
+            cancel_event=cancel,
+            progress_callback=progress,
+        )
+
+        legacy.run_apply_pipeline.assert_called_once_with(
+            command=command,
+            cancel_event=cancel,
+            progress_callback=progress,
+        )
+
+    def test_run_apply_pipeline_raises_when_legacy_use_case_missing(
+        self, storage_conn: sqlite3.Connection
+    ) -> None:
+        """The slice rejects ``legacy_use_case=None`` with a clear
+        error pointing to issue #89."""
+        from job_bot.application_submit.slice import ApplicationSubmitSlice
+
+        slice_ = ApplicationSubmitSlice(
+            storage_conn=storage_conn, api_client=MagicMock()
+        )
+
+        with pytest.raises(ValueError, match="legacy_use_case"):
+            slice_.run_apply_pipeline(
+                legacy_use_case=None,
+                command=MagicMock(),
+            )
+
+    def test_legacy_use_case_port_is_protocol(
+        self, storage_conn: sqlite3.Connection
+    ) -> None:
+        """The Protocol class is exported from the slice module and is
+        structurally satisfiable."""
+        from job_bot.application_submit.slice import (
+            LegacyUseCasePort,
+        )
+
+        assert LegacyUseCasePort is not None
+        # A MagicMock satisfies the protocol structurally.
+        mock: LegacyUseCasePort = MagicMock()
+        assert mock.run_apply_pipeline is not None
+
+    def test_pipeline_run_result_dataclass(
+        self, storage_conn: sqlite3.Connection
+    ) -> None:
+        """``PipelineRunResult`` is exported and has the expected fields."""
+        from job_bot.application_submit.slice import PipelineRunResult
+
+        r = PipelineRunResult(applied=5, resumes_processed=2, limit_reached=True)
+        assert r.applied == 5
+        assert r.resumes_processed == 2
+        assert r.limit_reached is True
+        assert r.skipped == 0
+        assert r.failed == 0
+
+    def test_legacy_use_case_use_case_satisfies_port_structurally(self) -> None:
+        """The real ``ApplyToVacanciesUseCase`` has a ``run_apply_pipeline``
+        method -- it satisfies the Protocol structurally. Confirms the
+        bridge compiles without runtime import cycles."""
+        from hh_applicant_tool.application import ApplyToVacanciesUseCase
+
+        assert hasattr(ApplyToVacanciesUseCase, "run_apply_pipeline")
+        assert callable(ApplyToVacanciesUseCase.run_apply_pipeline)

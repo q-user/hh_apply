@@ -408,3 +408,114 @@ def test_execute_prefers_ports_over_legacy(tmp_path, monkeypatch):
     test_logger.log.assert_called_once()
     # Legacy-файл не создан (потому что порт перехватил)
     assert not (tmp_path / "vacancies_with_tests.txt").exists()
+
+
+
+# ─── run_apply_pipeline (issue #89 partial bridge) ─────────────────────
+
+
+class TestRunApplyPipelineBridge:
+    """``ApplyToVacanciesUseCase.execute()`` delegates to
+    ``ApplicationSubmitSlice.run_apply_pipeline`` when the slice is
+    wired (issue #89 partial bridge). When no slice is wired, the
+    use case falls back to the legacy inline path -- public surface
+    preserved.
+    """
+
+    def test_execute_delegates_to_slice_when_wired(self) -> None:
+        """With ``application_submit_slice`` injected, ``execute()``
+        calls ``slice.run_apply_pipeline(legacy_use_case=self, ...)``
+        and returns whatever the slice returns."""
+        from hh_applicant_tool.application import (
+            ApplyToVacanciesCommand,
+            ApplyToVacanciesResult,
+        )
+
+        use_case = _build_use_case()
+        expected = ApplyToVacanciesResult(applied=7, resumes_processed=2)
+        slice_ = MagicMock()
+        slice_.run_apply_pipeline.return_value = expected
+        use_case._application_submit_slice = slice_  # type: ignore[attr-defined]
+
+        command = ApplyToVacanciesCommand(resume_id="r1")
+        result = use_case.execute(command)
+
+        assert result is expected
+        slice_.run_apply_pipeline.assert_called_once()
+        call = slice_.run_apply_pipeline.call_args
+        assert call.kwargs["legacy_use_case"] is use_case
+        assert call.kwargs["command"] is command
+        assert call.kwargs["cancel_event"] is None
+        assert call.kwargs["progress_callback"] is None
+
+    def test_execute_forwards_cancel_and_progress_to_slice(self) -> None:
+        """``cancel_event`` and ``progress_callback`` are forwarded to
+        the slice verbatim."""
+        from hh_applicant_tool.application import (
+            ApplyToVacanciesCommand,
+            ApplyToVacanciesResult,
+        )
+
+        use_case = _build_use_case()
+        slice_ = MagicMock()
+        slice_.run_apply_pipeline.return_value = ApplyToVacanciesResult()
+        use_case._application_submit_slice = slice_  # type: ignore[attr-defined]
+
+        cancel = MagicMock()
+        progress = MagicMock()
+        use_case.execute(
+            ApplyToVacanciesCommand(),
+            cancel_event=cancel,
+            progress_callback=progress,
+        )
+
+        call = slice_.run_apply_pipeline.call_args
+        assert call.kwargs["cancel_event"] is cancel
+        assert call.kwargs["progress_callback"] is progress
+
+    def test_execute_runs_inline_when_slice_not_wired(self) -> None:
+        """Without a slice wired, ``execute()`` runs the legacy inline
+        path. We stub the heavy helpers and assert the result is a
+        proper ``ApplyToVacanciesResult`` -- this is the public-surface
+        regression test for issue #89."""
+        from hh_applicant_tool.application import (
+            ApplyToVacanciesCommand,
+            ApplyToVacanciesResult,
+        )
+
+        use_case = _build_use_case()
+        # No slice wired -- legacy inline path runs.
+        assert use_case._application_submit_slice is None  # type: ignore[attr-defined]
+
+        # Stub the heavy helpers so execute() returns quickly.
+        use_case._fetch_published_resumes = MagicMock(  # type: ignore[method-assign]
+            return_value=[]
+        )
+
+        result = use_case.execute(ApplyToVacanciesCommand())
+        assert isinstance(result, ApplyToVacanciesResult)
+        assert result.applied == 0
+        assert result.resumes_processed == 0
+
+    def test_run_apply_pipeline_method_exists_and_is_callable(self) -> None:
+        """The use case exposes a ``run_apply_pipeline`` method that
+        satisfies the ``LegacyUseCasePort`` protocol. The slice calls
+        this method when wired."""
+        from hh_applicant_tool.application import (
+            ApplyToVacanciesCommand,
+            ApplyToVacanciesResult,
+        )
+
+        use_case = _build_use_case()
+        assert hasattr(use_case, "run_apply_pipeline")
+        assert callable(use_case.run_apply_pipeline)
+
+        # Sanity: calling it without a slice and with no resumes
+        # returns an empty result (legacy path).
+        use_case._fetch_published_resumes = MagicMock(  # type: ignore[method-assign]
+            return_value=[]
+        )
+        result = use_case.run_apply_pipeline(
+            command=ApplyToVacanciesCommand()
+        )
+        assert isinstance(result, ApplyToVacanciesResult)
