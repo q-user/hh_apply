@@ -77,9 +77,6 @@ class Settings:
     max: MaxSettings = field(default_factory=MaxSettings)
     smtp: SMTPSettings = field(default_factory=SMTPSettings)
 
-    # Raw config dict for backward compatibility
-    raw: dict[str, Any] = field(default_factory=dict)
-
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Settings:
         """Create Settings from a dictionary (e.g., from YAML/JSON config)."""
@@ -98,7 +95,6 @@ class Settings:
         if "smtp" in data:
             settings.smtp = SMTPSettings(**data["smtp"])
 
-        settings.raw = data
         return settings
 
     def to_dict(self) -> dict[str, Any]:
