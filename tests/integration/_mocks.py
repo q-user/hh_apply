@@ -36,6 +36,27 @@ class MockHHApiResponse:
         if self.status_code >= 400:
             raise RuntimeError(f"HTTP {self.status_code}")
 
+    # ─── dict-like access ─────────────────────────────────────────────
+    # Production handlers in VSA slices call .get() on the response
+    # object, treating it like a parsed dict (see issue #102). These
+    # methods make the mock match that contract without forcing every
+    # call site to do response.json().get(...).
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if isinstance(self._payload, dict):
+            return self._payload.get(key, default)
+        return default
+
+    def __contains__(self, key: object) -> bool:
+        if isinstance(self._payload, dict):
+            return key in self._payload
+        return False
+
+    def __getitem__(self, key: str) -> Any:
+        if isinstance(self._payload, dict):
+            return self._payload[key]
+        raise KeyError(key)
+
 
 class MockHHApiClient:
     """Deterministic stand-in for ``HHApiClient`` used in integration tests.
