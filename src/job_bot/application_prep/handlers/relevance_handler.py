@@ -7,6 +7,8 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
+import requests
+
 from job_bot.application_prep.models.relevance import (
     MAX_RETRIES,
     SCORE_MAX,
@@ -86,7 +88,9 @@ class RelevanceHandler:
         if resume_id and self._api_client is not None:
             try:
                 full_resume = self._api_client.get(f"/resumes/{resume_id}")
-            except Exception as ex:
+            except (requests.RequestException, ValueError) as ex:
+                # HH API can fail on network errors, non-2xx responses
+                # (raise_for_status), or JSON parsing (response.json()).
                 logger.warning("Не удалось получить полное резюме: %s", ex)
                 return ""
 
@@ -142,7 +146,9 @@ class RelevanceHandler:
                 if self._api_client
                 else {}
             )
-        except Exception as ex:
+        except (requests.RequestException, ValueError) as ex:
+            # HH API can fail on network errors, non-2xx responses
+            # (raise_for_status), or JSON parsing (response.json()).
             logger.warning("Не удалось получить полное резюме: %s", ex)
             return ""
 
@@ -171,7 +177,10 @@ class RelevanceHandler:
             return ", ".join(
                 s["name"] for s in key_skills_data if s.get("name")
             )
-        except Exception as ex:
+        except Exception as ex:  # noqa: BLE001
+            # Wraps both the HH API call (network/JSON) and the dict processing
+            # (malformed key_skills entries can raise TypeError/KeyError). Any
+            # failure is treated as "no key skills" for the prompt.
             logger.warning(
                 "Не удалось получить key_skills вакансии %s: %s",
                 vacancy_id,
@@ -218,7 +227,9 @@ class RelevanceHandler:
                 full_vacancy = self._api_client.get(
                     f"/vacancies/{vacancy['id']}"
                 )
-            except Exception as ex:
+            except (requests.RequestException, ValueError) as ex:
+                # HH API can fail on network errors, non-2xx responses
+                # (raise_for_status), or JSON parsing (response.json()).
                 logger.warning(
                     "Не удалось получить полную вакансию %s: %s",
                     vacancy.get("id"),
