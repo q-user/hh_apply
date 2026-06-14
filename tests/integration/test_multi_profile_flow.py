@@ -76,7 +76,7 @@ class TestMultiProfileFlow:
     """Multi-profile prepare-vacancies end-to-end."""
 
     @pytest.mark.xfail(
-        reason="pre-existing, see #100: RelevanceHandler.build_vacancy_context() calls full_vacancy.get() on the API response; MockHHApiResponse has .json() but no .get(). Production code should call .json() first."
+        reason="pre-existing, see #100, #102: MockHHApiResponse returns a requests.Response-shaped object, not a parsed dict. HHApiClient.get() already returns a parsed dict in production, so the production code's .get() call is correct — the bug is the mock shape. Fix: make MockHHApiResponse behave like a dict (or call .json() in the test fixture). Follow-up #102."
     )
     def test_two_profiles_produce_disjoint_drafts(
         self,

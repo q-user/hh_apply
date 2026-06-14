@@ -115,7 +115,7 @@ class TestPrepareToSubmitFlow:
     """End-to-end prepare-vacancies -> apply-worker flow."""
 
     @pytest.mark.xfail(
-        reason="pre-existing, see #100: sqlite3.IntegrityError 'datatype mismatch' on application_drafts INSERT. The legacy schema.sql declares id INTEGER PRIMARY KEY AUTOINCREMENT, but the VSA ApplicationDraftRepository (job_bot.application_prep) writes TEXT UUIDs. Production code fix: align schema.sql id type with the VSA repo (or change repo to INTEGER). Follow-up issue needed."
+        reason="pre-existing, see #100. Two stacked issues: (1) #104: sqlite3.IntegrityError 'datatype mismatch' on application_drafts INSERT — legacy schema.sql declares id INTEGER PRIMARY KEY AUTOINCREMENT but the VSA ApplicationDraftRepository writes TEXT UUIDs. (2) #102: MockHHApiResponse is requests.Response-shaped; the prepare_draft path calls .get() on the response before .json() is taken. The test fails on (2) first, masking (1)."
     )
     def test_prepare_then_submit_succeeds(
         self,
@@ -244,7 +244,7 @@ class TestPrepareToSubmitFlow:
         to ``queued`` with a ``next_attempt_at`` set (status is not
         terminal — the slice's retry handler kicks in).
         """
-        from job_bot.application_submit.errors import (
+        from job_bot.application_submit.services.apply_worker_service import (
             RetryableError,
         )
         from hh_applicant_tool.storage import StorageFacade
