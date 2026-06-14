@@ -244,9 +244,7 @@ class TestPrepareToSubmitFlow:
         to ``queued`` with a ``next_attempt_at`` set (status is not
         terminal — the slice's retry handler kicks in).
         """
-        from job_bot.application_submit.services.apply_worker_service import (
-            RetryableError,
-        )
+        from job_bot.application_submit.errors import RetryableError
         from hh_applicant_tool.storage import StorageFacade
 
         draft_id = _make_draft(test_db, vacancy_id=999)
