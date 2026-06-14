@@ -533,6 +533,15 @@ class AppContainer:
                     cover_letter_ai=cover_letter_ai
                 )
             ),
+            # VSA bridge (issue #90): inject the VSA ``ApplicationPrepSlice``
+            # so ``PrepareVacanciesUseCase.execute()`` delegates the
+            # per-profile → per-vacancy pipeline to
+            # ``ApplicationPrepSlice.run_prepare_pipeline()`` instead of
+            # running its own ``_process_profile`` / ``_process_vacancy``
+            # loop. ``_get_application_prep_slice()`` is the lazy
+            # singleton wired against ``tool.db`` / ``tool.api_client``
+            # — no new connections.
+            application_prep_slice=self._get_application_prep_slice(),
         )
 
 

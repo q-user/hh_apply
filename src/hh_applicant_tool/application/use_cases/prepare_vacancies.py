@@ -22,6 +22,11 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 import requests
 
+from job_bot.application_prep.slice import (
+    ApplicationPrepSlice,
+    PreparePipelineContext,
+    PreparePipelineStats,
+)
 from job_bot.application_prep.utils import build_filter_ai_client
 
 from ...api.errors import BadResponse
@@ -97,6 +102,13 @@ class PrepareVacanciesUseCase:
         vacancy_search_service_factory: Any = None,
         # Application Prep service factory (VSA wiring, issue #54)
         application_prep_service_factory: Any = None,
+        # Application Prep slice (VSA bridge, issue #90). When provided,
+        # the use case delegates the per-profile → per-vacancy pipeline
+        # to ``ApplicationPrepSlice.run_prepare_pipeline()`` instead of
+        # running its own ``_process_profile`` / ``_process_vacancy``
+        # loop. The legacy path (no slice) is preserved for backward
+        # compat with tests that don't wire the slice.
+        application_prep_slice: ApplicationPrepSlice | None = None,
     ) -> None:
         self.api_client = api_client
         self.session = session
@@ -121,6 +133,12 @@ class PrepareVacanciesUseCase:
         self._injected_application_prep_service_factory = (
             application_prep_service_factory
         )
+        # VSA bridge (issue #90): optional ``ApplicationPrepSlice``.
+        # When set, ``execute()`` delegates the per-profile pipeline to
+        # ``ApplicationPrepSlice.run_prepare_pipeline()``. The legacy
+        # ``_process_profile`` / ``_process_vacancy`` path is kept as
+        # a fallback for tests that don't wire the slice.
+        self._application_prep_slice = application_prep_slice
 
         # Состояние, заполняемое в execute().
         self.command: PrepareVacanciesCommand | None = None
@@ -176,6 +194,19 @@ class PrepareVacanciesUseCase:
             str(r["id"]): r for r in resumes
         }
 
+        # VSA bridge (issue #90): when a slice is injected, delegate the
+        # per-profile → per-vacancy pipeline to it. The legacy
+        # ``_process_profile`` / ``_process_vacancy`` path below is kept
+        # as a fallback for tests that don't wire the slice.
+        if self._application_prep_slice is not None:
+            return self._execute_via_slice(
+                profiles=profiles,
+                resumes_by_id=resumes_by_id,
+                command=command,
+                cancel_event=cancel_event,
+                progress_callback=progress_callback,
+            )
+
         for profile in profiles:
             if self._is_cancelled():
                 break
@@ -183,6 +214,72 @@ class PrepareVacanciesUseCase:
             self._process_profile(profile, resumes_by_id, command, result)
 
         return result
+
+    def _execute_via_slice(
+        self,
+        *,
+        profiles: list[SearchProfileModel],
+        resumes_by_id: dict[str, dict[str, Any]],
+        command: PrepareVacanciesCommand,
+        cancel_event: threading.Event | None,
+        progress_callback: ProgressCallback | None,
+    ) -> PrepareVacanciesResult:
+        """Delegate the per-profile pipeline to the VSA slice (issue #90).
+
+        The legacy :meth:`execute` calls this method when
+        ``application_prep_slice`` was injected at construction time.
+        The slice does the per-profile → per-vacancy pipeline
+        (search, AI filter, cover letter, draft save) and returns a
+        :class:`PreparePipelineStats` which we convert to the legacy
+        :class:`PrepareVacanciesResult`.
+
+        Note: the slice method owns cancellation via the
+        ``PreparePipelineContext.cancellation`` port. We pass our
+        ``self._cancellation`` (Clean Architecture port) when set;
+        otherwise we ignore ``cancel_event`` (the legacy
+        ``threading.Event``-based check stays in the legacy path).
+        """
+        if self._application_prep_slice is None:  # pragma: no cover
+            raise RuntimeError(
+                "_execute_via_slice called without application_prep_slice"
+            )
+        context = PreparePipelineContext(
+            api_client=self.api_client,
+            storage=self.storage,
+            session=self.session,
+            cover_letter_ai=self.cover_letter_ai,
+            vacancy_filter_ai_factory=self.vacancy_filter_ai_factory,
+            test_ai=self.test_ai,
+            letter_template=self.letter_template,
+            cancellation=self._cancellation,
+            clock=self._clock,
+            vacancy_search_service_factory=(
+                self._injected_vacancy_search_service_factory
+            ),
+            application_prep_service_factory=(
+                self._injected_application_prep_service_factory
+            ),
+            progress_callback=progress_callback,
+        )
+        stats: PreparePipelineStats = self._application_prep_slice.run_prepare_pipeline(
+            profiles=profiles,
+            resumes_by_id=resumes_by_id,
+            context=context,
+            dry_run=command.dry_run,
+            per_page=command.per_page,
+            total_pages=command.total_pages,
+            force_message=command.force_message,
+            ai_rate_limit=command.ai_rate_limit,
+        )
+        return PrepareVacanciesResult(
+            profiles_processed=stats.profiles_processed,
+            vacancies_seen=stats.vacancies_seen,
+            prepared=stats.prepared,
+            rejected=stats.rejected,
+            skipped=stats.skipped,
+            test_answers=stats.test_answers,
+            failed=stats.failed,
+        )
 
     # ─── Загрузка профилей и резюме ──────────────────────────────
 

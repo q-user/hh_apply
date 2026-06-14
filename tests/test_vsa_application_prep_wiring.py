@@ -896,3 +896,196 @@ class TestSharedBuildFilterAIHelper:
         )
         assert result is ai_client
         assert ai_client.rate_limit == {"rps": 5}
+
+
+
+class TestPrepareVacanciesVsaBridge:
+    """VSA bridge (issue #90): ``PrepareVacanciesUseCase.execute()``
+    delegates the per-profile → per-vacancy pipeline to
+    ``ApplicationPrepSlice.run_prepare_pipeline()`` when a slice is
+    injected, and falls back to the legacy ``_process_profile`` path
+    when no slice is provided (backward compat with existing tests).
+    """
+
+    def test_constructor_accepts_application_prep_slice(self):
+        """``PrepareVacanciesUseCase`` accepts an optional
+        ``application_prep_slice`` constructor parameter (issue #90)."""
+        from hh_applicant_tool.application.use_cases.prepare_vacancies import (
+            PrepareVacanciesUseCase,
+        )
+        from job_bot.application_prep import ApplicationPrepSlice
+
+        slice_ = MagicMock(spec=ApplicationPrepSlice)
+        use_case = PrepareVacanciesUseCase(
+            api_client=MagicMock(),
+            session=MagicMock(),
+            storage=MagicMock(),
+            cover_letter_ai=None,
+            vacancy_filter_ai_factory=None,
+            application_prep_slice=slice_,
+        )
+        assert use_case._application_prep_slice is slice_
+
+    def test_constructor_default_slice_is_none(self):
+        """Default value of ``application_prep_slice`` is ``None``
+        (backward compat with tests that don't wire the slice)."""
+        from hh_applicant_tool.application.use_cases.prepare_vacancies import (
+            PrepareVacanciesUseCase,
+        )
+
+        use_case = PrepareVacanciesUseCase(
+            api_client=MagicMock(),
+            session=MagicMock(),
+            storage=MagicMock(),
+            cover_letter_ai=None,
+            vacancy_filter_ai_factory=None,
+        )
+        assert use_case._application_prep_slice is None
+
+    def test_execute_delegates_to_slice_when_provided(self):
+        """When ``application_prep_slice`` is injected, ``execute()``
+        calls ``slice.run_prepare_pipeline()`` and returns the
+        converted ``PrepareVacanciesResult``."""
+        from hh_applicant_tool.application.dto import (
+            PrepareVacanciesCommand,
+            PrepareVacanciesResult,
+        )
+        from hh_applicant_tool.application.use_cases.prepare_vacancies import (
+            PrepareVacanciesUseCase,
+        )
+        from hh_applicant_tool.storage.models.search_profile import (
+            SearchProfileModel,
+        )
+        from job_bot.application_prep import PreparePipelineStats
+
+        profile = SearchProfileModel(
+            id="p1",
+            name="p1",
+            resume_id="r1",
+            enabled=True,
+            ai_filter_mode="heavy",
+            search_params={},
+        )
+        storage = MagicMock()
+        storage.search_profiles.get.return_value = profile
+        storage.search_profiles.find_enabled.return_value = [profile]
+        api = MagicMock()
+        api.get.return_value = {
+            "items": [
+                {
+                    "id": "r1",
+                    "title": "Backend",
+                    "status": {"id": "published"},
+                }
+            ]
+        }
+
+        slice_ = MagicMock()
+        slice_.run_prepare_pipeline.return_value = PreparePipelineStats(
+            profiles_processed=1,
+            vacancies_seen=2,
+            prepared=1,
+            rejected=1,
+            skipped=0,
+            test_answers=0,
+            failed=0,
+        )
+
+        use_case = PrepareVacanciesUseCase(
+            api_client=api,
+            session=MagicMock(),
+            storage=storage,
+            cover_letter_ai=None,
+            vacancy_filter_ai_factory=None,
+            application_prep_slice=slice_,
+        )
+
+        result = use_case.execute(PrepareVacanciesCommand(search_profile="p1"))
+
+        slice_.run_prepare_pipeline.assert_called_once()
+        call_kwargs = slice_.run_prepare_pipeline.call_args.kwargs
+        assert list(call_kwargs["profiles"]) == [profile]
+        assert call_kwargs["resumes_by_id"] == {"r1": api.get.return_value["items"][0]}
+        assert call_kwargs["dry_run"] is False
+        assert isinstance(result, PrepareVacanciesResult)
+        assert result.profiles_processed == 1
+        assert result.vacancies_seen == 2
+        assert result.prepared == 1
+        assert result.rejected == 1
+        assert result.failed == 0
+
+    def test_execute_falls_back_to_legacy_when_no_slice(self):
+        """When no slice is injected, ``execute()`` does NOT call a
+        slice — it runs the legacy ``_process_profile`` path
+        (backward compat). The test verifies the slice attribute
+        defaults to ``None`` and the legacy methods are present."""
+        from hh_applicant_tool.application.use_cases.prepare_vacancies import (
+            PrepareVacanciesUseCase,
+        )
+
+        use_case = PrepareVacanciesUseCase(
+            api_client=MagicMock(),
+            session=MagicMock(),
+            storage=MagicMock(),
+            cover_letter_ai=None,
+            vacancy_filter_ai_factory=None,
+        )
+
+        # No slice injected → legacy path is the only option.
+        assert use_case._application_prep_slice is None
+        # Legacy methods are still present (the fallback path).
+        assert hasattr(use_case, "_process_profile")
+        assert hasattr(use_case, "_process_vacancy")
+        assert hasattr(use_case, "_build_relevance_service")
+
+    def test_execute_via_slice_helper_builds_context(self):
+        """``_execute_via_slice`` builds a ``PreparePipelineContext``
+        from the use case's dependencies and calls the slice."""
+        from hh_applicant_tool.application.dto import (
+            PrepareVacanciesCommand,
+        )
+        from hh_applicant_tool.application.use_cases.prepare_vacancies import (
+            PrepareVacanciesUseCase,
+        )
+        from job_bot.application_prep import (
+            PreparePipelineContext,
+            PreparePipelineStats,
+        )
+
+        slice_ = MagicMock()
+        slice_.run_prepare_pipeline.return_value = PreparePipelineStats()
+
+        use_case = PrepareVacanciesUseCase(
+            api_client=MagicMock(),
+            session=MagicMock(),
+            storage=MagicMock(),
+            cover_letter_ai=None,
+            vacancy_filter_ai_factory=None,
+            application_prep_slice=slice_,
+        )
+        use_case.command = PrepareVacanciesCommand()
+        use_case.cancel_event = None
+        use_case._execute_via_slice(
+            profiles=[],
+            resumes_by_id={},
+            command=PrepareVacanciesCommand(),
+            cancel_event=None,
+            progress_callback=None,
+        )
+        slice_.run_prepare_pipeline.assert_called_once()
+        call_kwargs = slice_.run_prepare_pipeline.call_args.kwargs
+        assert "context" in call_kwargs
+        assert isinstance(call_kwargs["context"], PreparePipelineContext)
+
+    def test_prepare_pipeline_stats_fields_match_result(self):
+        """``PreparePipelineStats`` field names match
+        ``PrepareVacanciesResult`` so the conversion is trivial."""
+        from job_bot.application_prep import PreparePipelineStats
+        from hh_applicant_tool.application.dto import PrepareVacanciesResult
+
+        stats_fields = set(PreparePipelineStats.__dataclass_fields__.keys())
+        result_fields = set(PrepareVacanciesResult.__dataclass_fields__.keys())
+        assert stats_fields == result_fields, (
+            f"Field mismatch: only in stats={stats_fields - result_fields}, "
+            f"only in result={result_fields - stats_fields}"
+        )
