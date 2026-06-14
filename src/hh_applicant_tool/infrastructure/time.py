@@ -53,7 +53,7 @@ class ThreadingCancellationToken:
             for callback in self._callbacks:
                 try:
                     callback()
-                except Exception:
+                except Exception:  # noqa: BLE001  # user-provided callback errors are intentionally swallowed
                     # Swallow callback errors
                     pass
             self._callbacks.clear()
@@ -88,7 +88,7 @@ class AsyncioCancellationToken:
         for callback in self._callbacks:
             try:
                 callback()
-            except Exception:
+            except Exception:  # noqa: BLE001  # user-provided callback errors are intentionally swallowed
                 # Swallow callback errors
                 pass
         self._callbacks.clear()

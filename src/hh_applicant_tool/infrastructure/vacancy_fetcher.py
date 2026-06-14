@@ -100,7 +100,10 @@ class CachedVacancyDescriptionFetcher:
             if match:
                 try:
                     return decoder.raw_decode(match.group(1))[0]
-                except Exception:
+                except ValueError:
+                    # json.JSONDecodeError is a subclass of ValueError; any
+                    # other ValueError from the decoder means the match
+                    # wasn't a real JSON object, so try the next pattern.
                     continue
 
         return None

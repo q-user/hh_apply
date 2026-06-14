@@ -189,14 +189,14 @@ class PlaywrightCaptchaSolver:
             for browser in self._browser_pool:
                 try:
                     await browser.close()
-                except Exception:
+                except Exception:  # noqa: BLE001  # best-effort browser cleanup on shutdown
                     pass
             self._browser_pool.clear()
 
             if hasattr(self, "_playwright"):
                 try:
                     await self._playwright.stop()
-                except Exception:
+                except Exception:  # noqa: BLE001  # best-effort playwright cleanup on shutdown
                     pass
 
     async def __aenter__(self) -> "PlaywrightCaptchaSolver":
