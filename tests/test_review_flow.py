@@ -22,7 +22,7 @@ from datetime import datetime
 from typing import Any
 from unittest.mock import MagicMock
 
-from hh_applicant_tool.services.review_flow import (
+from job_bot.telegram_bot.services.review_service import (
     CB_CONFIRM_SEND,
     CB_CONFIRM_SKIP,
     CB_COVER_CUSTOM,
@@ -215,10 +215,15 @@ def _state(conn: sqlite3.Connection) -> str:
 
 
 def test_service_can_be_imported():
-    """Сервис экспортируется из ``services``."""
+    """Сервис экспортируется из ``services`` (legacy shim re-export, issue #87)."""
     from hh_applicant_tool.services import ReviewFlowService as Imported
 
     assert Imported is ReviewFlowService
+    # И та же ссылка, что и в VSA-локации (shim = ``from … import …`` без обёртки).
+    from job_bot.telegram_bot.services.review_service import (
+        ReviewFlowService as VSA,
+    )
+    assert Imported is VSA
 
 
 def test_service_instantiation_with_minimal_args(

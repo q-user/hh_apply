@@ -1,6 +1,6 @@
 """OutgoingMessage DTO -- what the slice wants the transport to send.
 
-Kept structurally similar to ``hh_applicant_tool.services.review_flow.OutgoingMessage``
+Kept structurally similar to ``job_bot.telegram_bot.services.review_service.OutgoingMessage``
 so the slice can re-use the existing review/digest services without
 re-wrapping the wire format.
 """
