@@ -84,8 +84,7 @@ class TestVacancySearchToPrepFlow:
         profile = SearchProfile(
             id="p1",
             name="p1",
-            resume_id="r1",
-            search_params={"text": "Python"},
+            keywords="Python",
         )
         results = slices.vacancy_search.search.search_vacancies(
             profile, ACCESS_TOKEN, max_pages=1
@@ -134,8 +133,7 @@ class TestVacancySearchToPrepFlow:
         profile = SearchProfile(
             id="p1",
             name="p1",
-            resume_id="r1",
-            search_params={"text": "Python"},
+            keywords="Python",
         )
         vacancies = slices.vacancy_search.search.search_vacancies(
             profile, ACCESS_TOKEN, max_pages=1
