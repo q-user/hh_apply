@@ -27,7 +27,10 @@ from typing import TYPE_CHECKING, Any
 from job_bot.application_submit.models.test_answer import TestAnswer
 
 if TYPE_CHECKING:
-    from job_bot.application_submit.ports.delay_port import DelayPort
+    # The `delay_port` module is an internal port that has not yet been
+    # extracted from the legacy tree; silence the missing-stub warning
+    # while keeping the type-only forward reference available.
+    from job_bot.application_submit.ports.delay_port import DelayPort  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__package__)
 
@@ -91,10 +94,13 @@ class TestHandler:
         import json as _json
 
         try:
-            return _json.loads(
+            from typing import cast
+
+            payload = _json.loads(
                 response.text[start + len(marker) : end],
                 strict=False,
             )
+            return cast("dict[str, Any]", payload)
         except ValueError as ex:
             raise ValueError("Не могу распарсить vacancyTests.") from ex
 
@@ -113,7 +119,7 @@ class TestHandler:
         solutions = task.get("candidateSolutions") or []
 
         answer_type: str | None = None
-        options_json: list[dict] | None = None
+        options_json: list[dict[str, Any]] | None = None
         selected_solution_id: str | None = None
         generated_answer: str
 
@@ -271,7 +277,9 @@ class TestHandler:
             response.url,
             response.status_code,
         )
-        return response.json()
+        from typing import cast
+
+        return cast("dict[str, Any]", response.json())
 
 
 __all__ = ["TestHandler", "SUBMIT_DELAY_RANGE", "REFUSAL_WITH_LINK_TEMPLATE"]
