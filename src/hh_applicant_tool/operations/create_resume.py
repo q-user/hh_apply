@@ -141,7 +141,9 @@ class Operation(BaseOperation):
 
         try:
             data = _load_template(args.template)
-        except Exception as ex:
+        except (OSError, ValueError) as ex:
+            # _load_template() reads a file (OSError) and parses TOML/markdown
+            # (ValueError for invalid TOML or unparseable MD sections).
             logger.error("Ошибка разбора шаблона: %s", ex)
             return 1
 

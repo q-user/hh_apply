@@ -245,7 +245,9 @@ class Operation(BaseOperation):
                 timeout=self.selector_timeout,
                 state="visible",
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
+            # Captcha is optional; any failure (timeout, page error) is treated
+            # as "no captcha present" so the rest of the login flow can proceed.
             logger.debug("Капчи нет, продолжаем.")
             return
 

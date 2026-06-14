@@ -177,7 +177,9 @@ class CoverLetterService:
         if self._vacancy_fetcher is not None:
             try:
                 return self._vacancy_fetcher.fetch(str(vacancy_id))
-            except Exception as ex:
+            except Exception as ex:  # noqa: BLE001
+                # Deprecated CoverLetterService shim — fall through to the
+                # api_client fallback below rather than breaking callers.
                 logger.warning(
                     "vacancy_fetcher.fetch(%s) failed: %s",
                     vacancy_id,
@@ -187,7 +189,9 @@ class CoverLetterService:
         # Deprecated fallback: прямой вызов api_client
         try:
             return self.api_client.get(f"/vacancies/{vacancy_id}")
-        except Exception as ex:
+        except Exception as ex:  # noqa: BLE001
+            # Deprecated CoverLetterService shim — return None on any
+            # fetch failure so the caller can still generate a template letter.
             logger.warning(
                 "Не удалось получить полную вакансию %s для письма: %s",
                 vacancy_id,
