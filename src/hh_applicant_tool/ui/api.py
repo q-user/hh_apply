@@ -4,10 +4,13 @@ import argparse
 import io
 import json
 import logging
+import sqlite3
 import threading
+import requests
 from contextlib import redirect_stdout
 from typing import TYPE_CHECKING, Any
 
+from ..api.errors import BadResponse
 from ..application import ApplyToVacanciesCommand
 from ..container import AppContainer
 from .presets import PresetsManager, PresetValidationError
@@ -68,7 +71,7 @@ class _ProgressHandler(logging.Handler):
             msg = self.format(record)
             self._count += 1
             self._api._send_progress(self._count, 0, msg)
-        except Exception:
+        except Exception:  # noqa: BLE001  # logging emit — must not raise
             pass
 
 
@@ -295,7 +298,7 @@ class Api:
                 self._window.evaluate_js(
                     f"updateProgress({current}, {total}, {safe_msg})"
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001  # UI bridge — best-effort progress update
                 pass
 
     def _send_auth_event(self, event: str, message: str = "") -> None:
@@ -306,7 +309,7 @@ class Api:
                 self._window.evaluate_js(
                     f"onAuthEvent({safe_event}, {safe_msg})"
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001  # UI bridge — best-effort event notification
                 pass
 
     def _is_invalid_grant(self, exc: BaseException) -> bool:
@@ -318,14 +321,14 @@ class Api:
     def _clear_token(self) -> None:
         try:
             self._tool.config.save_token({})
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # best-effort token clear on invalid_grant
             logger.warning("clear_token config error: %s", e)
         try:
             client = self._tool.api_client
             client.access_token = None
             client.refresh_token = None
             client.access_expires_at = 0
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # best-effort token clear on API client
             logger.warning("clear_token client error: %s", e)
 
     def get_status(self) -> dict[str, Any]:
@@ -337,7 +340,7 @@ class Api:
         try:
             user = self._tool.get_me()
             return {"authorized": True, "user": user}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # UI method — tests force generic Exception via mock
             logger.warning("get_status error: %s", e)
             reason = "error"
             if self._is_invalid_grant(e):
@@ -391,7 +394,7 @@ class Api:
                     message = (
                         "Авторизация не завершена. Окно браузера было закрыто."
                     )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001  # auth worker thread — must recover and notify UI
                 logger.error("start_login worker error: %s", e)
                 detail = str(e) or e.__class__.__name__
                 message = f"Ошибка авторизации: {detail}"
@@ -414,7 +417,7 @@ class Api:
             return []
         try:
             return self._tool.get_resumes()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # UI method — tests force generic Exception via mock
             if self._is_invalid_grant(e):
                 self._clear_token()
                 logger.warning("get_resumes invalid_grant: cleared token")
@@ -438,7 +441,7 @@ class Api:
             }
             self._tool.config.save(**merged)
             return {"status": "ok"}
-        except Exception as e:
+        except (OSError, ValueError, TypeError) as e:
             logger.error("save_config error: %s", e)
             return {
                 "status": "error",
@@ -454,7 +457,7 @@ class Api:
             return {"status": "ok"}
         except PresetValidationError as e:
             return {"status": "error", "message": str(e)}
-        except Exception as e:
+        except (OSError, ValueError, TypeError, sqlite3.Error) as e:
             logger.error("save_preset error: %s", e)
             return {"status": "error", "message": "Ошибка сохранения пресета"}
 
@@ -472,7 +475,7 @@ class Api:
             self._presets.save_last_used(params)
         except PresetValidationError as e:
             logger.warning("save_last_used_params rejected: %s", e)
-        except Exception as e:
+        except (OSError, ValueError, TypeError, sqlite3.Error) as e:
             logger.error("save_last_used_params error: %s", e)
 
     def get_negotiations_from_db(self) -> list[dict]:
@@ -494,7 +497,7 @@ class Api:
             )
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error("get_negotiations_from_db error: %s", e)
             return []
 
@@ -508,7 +511,7 @@ class Api:
                 self._tool.storage.negotiations.save(model)
                 count += 1
             return {"status": "ok", "count": count}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # composes HH API + DB + model conversion
             logger.error("refresh_negotiations error: %s", e)
             return {
                 "status": "error",
@@ -550,7 +553,7 @@ class Api:
             stats["total_skipped"] = sum(stats["skipped_by_reason"].values())
 
             return stats
-        except Exception as e:
+        except sqlite3.Error as e:
             logger.error("get_statistics error: %s", e)
             return {}
 
@@ -604,7 +607,7 @@ class Api:
             if cancel_event.is_set():
                 return {"status": "cancelled"}
             return {"status": "ok"}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # top-level use-case execution
             logger.error("apply_vacancies error: %s", e)
             return {
                 "status": "error",
@@ -640,7 +643,7 @@ class Api:
             result: list[dict] = []
             flatten(data, result)
             return result
-        except Exception as e:
+        except (BadResponse, requests.RequestException) as e:
             logger.error("get_areas error: %s", e)
             return []
 
@@ -652,7 +655,7 @@ class Api:
                 for role in cat.get("roles", []):
                     result.append({"id": role["id"], "name": role["name"]})
             return result
-        except Exception as e:
+        except (BadResponse, requests.RequestException) as e:
             logger.error("get_professional_roles error: %s", e)
             return []
 
@@ -665,6 +668,6 @@ class Api:
                 for sub in item.get("industries", []):
                     result.append({"id": sub["id"], "name": "  " + sub["name"]})
             return result
-        except Exception as e:
+        except (BadResponse, requests.RequestException) as e:
             logger.error("get_industries error: %s", e)
             return []
