@@ -10,6 +10,12 @@ class ApplicationDraftsRepository(BaseRepository):
     # Один черновик на пару (resume_id, vacancy_id) — UPSERT при перезапуске
     # prepare-vacancies обновляет существующую запись вместо ошибки.
     conflict_columns = ("resume_id", "vacancy_id")
+    # ``id`` теперь TEXT (issue #104) с DEFAULT в schema.sql, генерирующим
+    # UUID на стороне SQLite. Чтобы DEFAULT сработал, исключаем колонку из
+    # INSERT, когда модель не задала значение явно (legacy-вызовы оставляют
+    # ``id=None``). VSA-репозиторий (``job_bot.application_prep``) задаёт
+    # UUID явно и не использует этот класс.
+    insert_excludes = ("created_at", "updated_at", "id")
 
     def get_by_resume_vacancy(
         self, resume_id: str, vacancy_id: int

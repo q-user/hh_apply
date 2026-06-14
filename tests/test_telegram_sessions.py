@@ -36,7 +36,7 @@ def test_upsert_by_chat_id(storage: sqlite3.Connection):
     fetched = facade.telegram_sessions.get(123)
     assert fetched is not None
     assert fetched.state == "review_intro"
-    assert fetched.draft_id == 99
+    assert int(fetched.draft_id) == 99
 
 
 def test_payload_json_roundtrip(storage: sqlite3.Connection):

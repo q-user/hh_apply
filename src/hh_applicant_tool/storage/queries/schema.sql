@@ -5,7 +5,7 @@ BEGIN;
 -- Подготовленные черновики откликов: один на пару (resume_id, vacancy_id).
 -- Разделяет фазы подготовки (prepare-vacancies) и отправки (apply-worker).
 CREATE TABLE IF NOT EXISTS application_drafts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
     search_profile_id TEXT,
     resume_id TEXT NOT NULL,
     vacancy_id INTEGER NOT NULL,
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS application_drafts (
 -- Сгенерированные/отредактированные ответы на тесты HH, привязанные к черновику.
 CREATE TABLE IF NOT EXISTS application_test_answers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    draft_id INTEGER NOT NULL,
+    draft_id TEXT NOT NULL,
     task_id TEXT NOT NULL,
     question TEXT,
     answer_type TEXT,
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS application_test_answers (
 -- Очередь асинхронной отправки откликов. Один job на черновик (UNIQUE draft_id).
 CREATE TABLE IF NOT EXISTS apply_jobs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    draft_id INTEGER NOT NULL,
+    draft_id TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'queued',
     attempts INTEGER DEFAULT 0,
     max_attempts INTEGER DEFAULT 3,
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS telegram_sessions (
     chat_id INTEGER PRIMARY KEY,
     user_id INTEGER,
     state TEXT NOT NULL DEFAULT 'idle',
-    draft_id INTEGER,
+    draft_id TEXT,
     current_test_answer_id INTEGER,
     payload_json TEXT,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
