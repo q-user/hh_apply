@@ -13,7 +13,7 @@ has been removed (issue #77).
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from job_bot.application_submit.errors import FatalError, RetryableError
 
@@ -29,14 +29,18 @@ def _get_xsrf_token(session: Any) -> str:
     """Extract the XSRF token from the hh.ru main page HTML."""
     marker = ',"xsrfToken":"'
     response = session.get("https://hh.ru/")
-    start = response.text.find(marker)
+    # ``session`` is typed as ``Any`` here, so ``response.text`` is also ``Any``;
+    # narrow it to ``str`` for slicing. ``requests.Response.text`` is a ``str``
+    # decoded using apparent encoding, never ``bytes``.
+    text: str = cast(str, response.text)
+    start = text.find(marker)
     if start == -1:
         raise FatalError("xsrf token not found in session")
     start += len(marker)
-    end = response.text.find('"', start)
+    end = text.find('"', start)
     if end == -1:
         raise FatalError("malformed xsrf token")
-    return response.text[start:end]
+    return text[start:end]
 
 
 class ApplyOneHandler:
