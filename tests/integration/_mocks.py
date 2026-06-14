@@ -349,11 +349,16 @@ class NoOpDelay:
 
 
 def open_test_connection(db_path) -> sqlite3.Connection:
-    """Open a fresh ``sqlite3.Connection`` with the canonical schema."""
-    from hh_applicant_tool.storage import StorageFacade
+    """Open a fresh ``sqlite3.Connection`` with the canonical schema.
+
+    Issue #94: schema is initialised via ``init_db`` directly (not via
+    ``StorageFacade(conn)``) so this helper no longer pulls in the
+    legacy facade class for a pure side-effect call.
+    """
+    from hh_applicant_tool.storage.utils import init_db
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    StorageFacade(conn)
+    init_db(conn)
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
