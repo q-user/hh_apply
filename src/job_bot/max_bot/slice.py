@@ -22,9 +22,12 @@ Usage::
 from __future__ import annotations
 
 import logging
-from typing import Any, Protocol
+from typing import Any
 
-from job_bot.max_bot.handlers.command_handler import CommandHandler
+from job_bot.max_bot.handlers.command_handler import (
+    CommandHandler,
+    _StorageLike,
+)
 from job_bot.max_bot.handlers.transport_handler import (
     TransportHandler,
     UpdateCallback,
@@ -43,10 +46,6 @@ def _default_on_update(_update: dict[str, Any]) -> None:
     :class:`TransportHandler` callable in tests / smoke runs.
     """
     return None
-
-
-class _StorageLike(Protocol):
-    """Forwarder for the storage port (see command_handler)."""
 
 
 class MaxBotSlice:

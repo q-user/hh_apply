@@ -37,3 +37,12 @@ class MaxTransportPort(Protocol):
             timeout: long-poll timeout in seconds.
         """
         ...
+
+    allowed_user_ids: tuple[int, ...]
+    """Access-control allowlist mirrored onto the transport by the
+    :class:`MaxBotSlice`. Mirrors the Telegram port's surface so the
+    command handler's ``allowed_user_ids`` read is type-safe. The
+    MAX slice sets this attribute at construction time; transports
+    that cannot accept it (e.g. ``spec``-locked test stubs) are
+    tolerated by the slice's defensive ``try/except``.
+    """
