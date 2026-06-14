@@ -20,6 +20,7 @@ from job_bot.application_prep.repositories.relevance_repo import (
 )
 from job_bot.shared.api.client import HHApiClient
 from job_bot.shared.storage.database import Database
+from job_bot.shared.utils.text import strip_tags
 
 if TYPE_CHECKING:
     from job_bot.shared.ai.client import AIClient
@@ -342,8 +343,6 @@ class RelevanceHandler:
     @staticmethod
     def _strip_tags(html: str) -> str:
         """Strip HTML tags from a string."""
-        from hh_applicant_tool.utils.string import strip_tags
-
         return strip_tags(html)
 
     # Implementation of RelevanceStoragePort

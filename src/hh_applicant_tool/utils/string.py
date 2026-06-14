@@ -1,54 +1,38 @@
+"""Legacy :mod:`hh_applicant_tool.utils.string` shim — DEPRECATED (issue #93).
+
+The implementation now lives in :mod:`job_bot.shared.utils.text`.
+This module re-exports the public API and emits a
+:class:`DeprecationWarning` on import so legacy call sites remain
+greppable. New code should depend on the VSA location directly.
+"""
+
 from __future__ import annotations
 
-import random
-import re
-from typing import Any
+import warnings
 
+from job_bot.shared.utils.text import (
+    bool2str,
+    br2nl,
+    list2str,
+    rand_text,
+    shorten,
+    strip_tags,
+    unescape_string,
+)
 
-def shorten(s: str, limit: int = 75, ellipsis: str = "…") -> str:
-    return s[:limit] + bool(s[limit:]) * ellipsis
+warnings.warn(
+    "hh_applicant_tool.utils.string is deprecated, "
+    "use job_bot.shared.utils.text instead",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-
-def rand_text(s: str) -> str:
-    while (
-        temp := re.sub(
-            r"{([^{}]+)}",
-            lambda m: random.choice(
-                m.group(1).split("|"),
-            ),
-            s,
-        )
-    ) != s:
-        s = temp
-    return s
-
-
-def bool2str(v: bool) -> str:
-    return str(v).lower()
-
-
-# К удалению
-def list2str(items: list[Any] | None) -> str:
-    return ",".join(f"{v}" for v in items) if items else ""
-
-
-def unescape_string(text: str) -> str:
-    if not text:
-        return ""
-    return (
-        text.replace(r"\n", "\n")
-        .replace(r"\r", "\r")
-        .replace(r"\t", "\t")
-        .replace(r"\\", "\\")
-    )
-
-
-def br2nl(s: str) -> str:
-    return re.sub(r"<br\s*/?>", "\n", s, flags=re.I)
-
-
-def strip_tags(content: str) -> str:
-    content = br2nl(content)
-    content = re.sub(r"<[^>]+>", "", content)
-    # content = re.sub(r"\s+", " ", content)
-    return content.strip()
+__all__ = [
+    "bool2str",
+    "br2nl",
+    "list2str",
+    "rand_text",
+    "shorten",
+    "strip_tags",
+    "unescape_string",
+]

@@ -1,19 +1,31 @@
+"""Legacy :mod:`hh_applicant_tool.utils.date` shim — DEPRECATED (issue #93).
+
+The implementation now lives in
+:mod:`job_bot.shared.utils.datetime_utils`. This module re-exports the
+public API and emits a :class:`DeprecationWarning` on import so
+legacy call sites remain greppable. New code should depend on the
+VSA location directly.
+"""
+
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any
+import warnings
 
-DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
+from job_bot.shared.utils.datetime_utils import (
+    DATETIME_FORMAT,
+    parse_api_datetime,
+    try_parse_datetime,
+)
 
+warnings.warn(
+    "hh_applicant_tool.utils.date is deprecated, "
+    "use job_bot.shared.utils.datetime_utils instead",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-def parse_api_datetime(dt: str) -> datetime:
-    return datetime.strptime(dt, DATETIME_FORMAT)
-
-
-def try_parse_datetime(dt: Any) -> datetime | Any:
-    for parse in (datetime.fromisoformat, parse_api_datetime):
-        try:
-            return parse(dt)
-        except (ValueError, TypeError):
-            pass
-    return dt
+__all__ = [
+    "DATETIME_FORMAT",
+    "parse_api_datetime",
+    "try_parse_datetime",
+]
