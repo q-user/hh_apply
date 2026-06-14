@@ -61,6 +61,9 @@ def _make_full_vacancy(idx: int) -> dict:
 class TestVacancySearchToPrepFlow:
     """End-to-end: search -> score -> cover letter -> draft."""
 
+    @pytest.mark.xfail(
+        reason="pre-existing, see #100, #102, #103. Two stacked issues: (1) #102: MockHHApiResponse is requests.Response-shaped; VacancySearchHandler calls .get() on the response. (2) #103: SearchProfile() was renamed — resume_id/search_params are gone, replaced by keywords. The fixture below has been migrated to use keywords=, so once #102 lands the test should pass."
+    )
     def test_search_returns_vacancies_from_mock(
         self,
         test_db,
@@ -84,8 +87,7 @@ class TestVacancySearchToPrepFlow:
         profile = SearchProfile(
             id="p1",
             name="p1",
-            resume_id="r1",
-            search_params={"text": "Python"},
+            keywords="Python",
         )
         results = slices.vacancy_search.search.search_vacancies(
             profile, ACCESS_TOKEN, max_pages=1
@@ -95,6 +97,9 @@ class TestVacancySearchToPrepFlow:
         # The access token was forwarded to the mock.
         assert mock_hh_api.access_token == ACCESS_TOKEN
 
+    @pytest.mark.xfail(
+        reason="pre-existing, see #100, #102, #103. Same two stacked issues as test_search_returns_vacancies_from_mock: MockHHApiResponse shape (#102) and SearchProfile rename (#103). Fixture below has been migrated to use keywords=."
+    )
     def test_search_score_letter_draft_end_to_end(
         self,
         test_db,
@@ -134,8 +139,7 @@ class TestVacancySearchToPrepFlow:
         profile = SearchProfile(
             id="p1",
             name="p1",
-            resume_id="r1",
-            search_params={"text": "Python"},
+            keywords="Python",
         )
         vacancies = slices.vacancy_search.search.search_vacancies(
             profile, ACCESS_TOKEN, max_pages=1
@@ -197,6 +201,9 @@ class TestVacancySearchToPrepFlow:
             assert db_draft.cover_letter_status == "generated"
             assert db_draft.search_profile_id == "p1"
 
+    @pytest.mark.xfail(
+        reason="pre-existing, see #100, #102: Same mock-shape issue as test_multi_profile_flow — MockHHApiResponse returns a requests.Response-shaped object, not a parsed dict. HHApiClient.get() already returns a parsed dict in production, so the production code's .get() call is correct — the bug is the mock shape. Follow-up #102."
+    )
     def test_draft_payload_matches_production_prepare_one(
         self,
         test_db,

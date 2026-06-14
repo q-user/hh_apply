@@ -152,14 +152,18 @@ class TestConfigToAllSlicesFlow:
             slice_._digest_service = digest_service
 
             # 09:00 — before the gate, no send.
-            slice_.digest.maybe_send(
+            # ``slice.service.digest`` is the ``DigestHandler`` (has
+            # ``maybe_send``); ``slice.digest`` is the underlying
+            # service. The handler closes over ``_digest_service``
+            # which we've stubbed above.
+            slice_.service.digest.maybe_send(
                 config={"telegram": {"daily_digest_time": "23:59"}},
                 now=datetime(2026, 6, 9, 9, 0, 0),
             )
             digest_service.send.assert_not_called()
 
             # 23:00 — still before the gate, no send.
-            slice_.digest.maybe_send(
+            slice_.service.digest.maybe_send(
                 config={"telegram": {"daily_digest_time": "23:59"}},
                 now=datetime(2026, 6, 9, 23, 0, 0),
             )

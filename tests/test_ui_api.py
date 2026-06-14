@@ -58,6 +58,9 @@ def mock_tool():
     # Реальный storage для тестирования пресетов через Api
     conn = sqlite3.connect(":memory:")
     tool.storage = StorageFacade(conn)
+    # Реальный db_path: иначе DB.validate_db_path (#78) отклонит Mock
+    # в тех тестах, что запускают use case через AppContainer.
+    tool.db_path = ":memory:"
     return tool
 
 

@@ -114,6 +114,9 @@ def _build_worker(test_db, apply_one, *, worker_id: str):
 class TestPrepareToSubmitFlow:
     """End-to-end prepare-vacancies -> apply-worker flow."""
 
+    @pytest.mark.xfail(
+        reason="pre-existing, see #100. Two stacked issues: (1) #104: sqlite3.IntegrityError 'datatype mismatch' on application_drafts INSERT — legacy schema.sql declares id INTEGER PRIMARY KEY AUTOINCREMENT but the VSA ApplicationDraftRepository writes TEXT UUIDs. (2) #102: MockHHApiResponse is requests.Response-shaped; the prepare_draft path calls .get() on the response before .json() is taken. The test fails on (2) first, masking (1)."
+    )
     def test_prepare_then_submit_succeeds(
         self,
         test_db,
@@ -241,7 +244,7 @@ class TestPrepareToSubmitFlow:
         to ``queued`` with a ``next_attempt_at`` set (status is not
         terminal — the slice's retry handler kicks in).
         """
-        from hh_applicant_tool.services.apply_worker import (
+        from job_bot.application_submit.services.apply_worker_service import (
             RetryableError,
         )
         from hh_applicant_tool.storage import StorageFacade
