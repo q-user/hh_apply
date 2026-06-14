@@ -15,7 +15,8 @@ from __future__ import annotations
 import logging
 import sqlite3
 from collections.abc import Callable
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Protocol
 
 from job_bot.application_submit.handlers.apply_one_handler import (
     ApplyOneHandler,
@@ -34,6 +35,59 @@ from job_bot.application_submit.services.worker_service import (
 )
 
 logger = logging.getLogger(__package__)
+
+
+class LegacyUseCasePort(Protocol):
+    """Port describing the legacy ``ApplyToVacanciesUseCase`` surface that
+    :meth:`ApplicationSubmitSlice.run_apply_pipeline` depends on.
+
+    Defined as a :class:`typing.Protocol` so the slice stays decoupled
+    from the legacy package: the use case satisfies the protocol
+    structurally (duck-typed). The slice never imports the legacy class
+    directly -- that would create a circular dependency
+    (``hh_applicant_tool`` -> ``job_bot`` -> ``hh_applicant_tool``).
+
+    The contract is intentionally minimal: the slice only needs to
+    invoke the use case's pipeline entry point. All the heavy lifting
+    (search, relevance, cover letter, filter, email, captcha, storage)
+    stays on the use case side -- see issue #89 for the partial bridge
+    status and follow-up issues for each phase's full VSA port.
+    """
+
+    def run_apply_pipeline(
+        self,
+        *,
+        command: Any,
+        cancel_event: Any | None = None,
+        progress_callback: Any | None = None,
+    ) -> Any:
+        """Run the full search -> score -> cover-letter -> apply pipeline.
+
+        Returns:
+            ``ApplyToVacanciesResult`` with the same shape as
+            ``ApplyToVacanciesUseCase.execute()``.
+        """
+        ...
+
+
+@dataclass
+class PipelineRunResult:
+    """Lightweight result type for :meth:`ApplicationSubmitSlice.run_apply_pipeline`.
+
+    Mirrors :class:`hh_applicant_tool.application.dto.ApplyToVacanciesResult`
+    structurally (we don't import the legacy DTO to keep the slice
+    decoupled from the legacy package). The legacy use case's
+    ``execute()`` converts this to ``ApplyToVacanciesResult`` before
+    returning to the caller -- public surface preserved.
+    """
+
+    resumes_processed: int = 0
+    applied: int = 0
+    limit_reached: bool = False
+    skipped: int = 0
+    failed: int = 0
+
+
 
 
 class ApplicationSubmitSlice:
@@ -131,6 +185,73 @@ class ApplicationSubmitSlice:
         """Convenience for callers that want to type-annotate stats."""
         return RunStats
 
+    def run_apply_pipeline(
+        self,
+        *,
+        legacy_use_case: "LegacyUseCasePort",
+        command: Any,
+        cancel_event: Any | None = None,
+        progress_callback: Any | None = None,
+    ) -> Any:
+        """Top-level VSA orchestrator for the full search -> apply pipeline.
+
+        Bridges the 1117-LOC legacy ``ApplyToVacanciesUseCase`` (issue #89)
+        to the VSA world. The legacy use case's ``execute()`` delegates
+        here when the slice is wired; the slice is the single VSA entry
+        point for the apply pipeline.
+
+        Phases bridged to VSA handlers in this slice (issue #55 wiring):
+          * apply-one: ``self.apply_one`` (per-draft POST /negotiations).
+          * vacancy-test: ``self.tests`` (TestHandler for has_test drafts).
+
+        Phases still legacy (follow-up issues):
+          * resume fetch (``/resumes/mine``) and user fetch (``/me``).
+          * search params building + vacancy iteration
+            (``VacancySearchService``).
+          * AI relevance filtering (``RelevanceService``).
+          * cover letter generation (``CoverLetterService``).
+          * skip policy (relations / archived / excluded filter / AI reject).
+          * site parsing, captcha solving, email sending, employer storage.
+
+        The slice does not re-implement any of the above -- the
+        ``legacy_use_case`` port is the implementation. The slice's
+        role here is to be the single VSA-level entry point so future
+        phase migrations can re-route the work into VSA handlers
+        without changing the legacy public API.
+
+        Args:
+            legacy_use_case: object satisfying :class:`LegacyUseCasePort`
+                (the ``ApplyToVacanciesUseCase`` instance).
+            command: ``ApplyToVacanciesCommand`` DTO.
+            cancel_event: optional ``threading.Event`` for UI cancel.
+            progress_callback: optional ``Callable[[str], None]`` for
+                progress messages.
+
+        Returns:
+            ``ApplyToVacanciesResult`` with the same shape as the
+            legacy ``ApplyToVacanciesUseCase.execute()``. The slice
+            passes through whatever the use case returns; the use case
+            is responsible for converting its internal result into
+            the public DTO.
+        """
+        if legacy_use_case is None:
+            raise ValueError(
+                "run_apply_pipeline requires a legacy_use_case port "
+                "(issue #89 partial bridge: only apply-one + tests are "
+                "in-slice; the rest of the pipeline still runs on the "
+                "legacy use case side)."
+            )
+        logger.debug(
+            "ApplicationSubmitSlice.run_apply_pipeline: delegating to "
+            "legacy use case %s (issue #89 partial bridge)",
+            type(legacy_use_case).__name__,
+        )
+        return legacy_use_case.run_apply_pipeline(
+            command=command,
+            cancel_event=cancel_event,
+            progress_callback=progress_callback,
+        )
+
 
 def create_application_submit_slice(
     storage_conn: sqlite3.Connection,
@@ -198,4 +319,6 @@ __all__ = [
     "RunStats",
     "DEFAULT_IDLE_SLEEP_SECONDS",
     "DEFAULT_MAX_ATTEMPTS",
+    "LegacyUseCasePort",
+    "PipelineRunResult",
 ]

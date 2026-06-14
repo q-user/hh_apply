@@ -125,6 +125,13 @@ class ApplyToVacanciesUseCase:
         vacancy_search_service_factory: Any = None,
         # Application submit adapter (optional, for VSA wiring — issue #55)
         application_submit_adapter: Any = None,
+        # Application submit slice (optional, for top-level VSA wiring
+        # — issue #89 partial bridge). When supplied, ``execute()``
+        # delegates to ``slice.run_apply_pipeline(legacy_use_case=self,
+        # ...)`` instead of running the legacy pipeline inline. The
+        # adapter (above) is still used for per-vacancy submission
+        # inside ``_send_apply_request``; both wirings can coexist.
+        application_submit_slice: Any = None,
     ) -> None:
         self.api_client = api_client
         self.session = session
@@ -169,6 +176,11 @@ class ApplyToVacanciesUseCase:
         # :meth:`_send_apply_request` (прямой ``api_client.post``).
         self._application_submit_adapter = application_submit_adapter
 
+        # Внедрённый VSA-slice (issue #89 partial bridge). Если передан --
+        # ``execute()`` делегирует ему через :meth:`run_apply_pipeline`.
+        # Иначе use case прогоняет pipeline вручную (legacy-путь).
+        self._application_submit_slice = application_submit_slice
+
         # Кеш/инструменты.
         self.json_decoder = JSONDecoder()
 
@@ -183,6 +195,23 @@ class ApplyToVacanciesUseCase:
     ) -> ApplyToVacanciesResult:
         """Запускает рассылку откликов.
 
+        Thin shim (issue #89 partial bridge): if a VSA
+        :class:`job_bot.application_submit.slice.ApplicationSubmitSlice`
+        is wired into this use case (constructor arg
+        ``application_submit_slice``), ``execute()`` delegates the
+        pipeline to ``slice.run_apply_pipeline(legacy_use_case=self,
+        command=command, cancel_event=cancel_event,
+        progress_callback=progress_callback)``. The slice is the
+        top-level VSA entry point; the use case supplies the
+        per-phase implementation via the ``LegacyUseCasePort`` protocol.
+
+        When no slice is wired, ``execute()`` falls back to the legacy
+        inline path (:meth:`run_apply_pipeline`), which constructs the
+        internal services and runs the search -> score -> cover-letter
+        -> apply loop in-process. Public surface is preserved: callers
+        that construct the use case without a slice see identical
+        behavior to pre-issue-#89.
+
         Args:
             command: входные параметры (``ApplyToVacanciesCommand``).
             cancel_event: опциональное событие отмены (UI ставит его
@@ -190,6 +219,57 @@ class ApplyToVacanciesUseCase:
             progress_callback: опциональный колбэк прогресса.
                 Вызывается с теми же строками, что выводятся в stdout,
                 — для интеграции с UI, отличным от redirect_stdout.
+
+        Returns:
+            ``ApplyToVacanciesResult`` со статистикой рассылки.
+        """
+        self.command = command
+        self.cancel_event = cancel_event
+        self.progress_callback = progress_callback
+
+        if self._application_submit_slice is not None:
+            # VSA path (issue #89): the slice's run_apply_pipeline
+            # delegates back to ``self.run_apply_pipeline`` (the port
+            # method) which sets state and runs the body. Net effect
+            # is identical to the inline path; the difference is that
+            # the call is routed through the VSA slice's entry point
+            # so future per-phase migrations can be wired into the
+            # slice without changing this method.
+            return self._application_submit_slice.run_apply_pipeline(
+                legacy_use_case=self,
+                command=command,
+                cancel_event=cancel_event,
+                progress_callback=progress_callback,
+            )
+
+        # Legacy inline path (no VSA slice wired).
+        return self.run_apply_pipeline(
+            command=command,
+            cancel_event=cancel_event,
+            progress_callback=progress_callback,
+        )
+
+    def run_apply_pipeline(
+        self,
+        *,
+        command: ApplyToVacanciesCommand,
+        cancel_event: threading.Event | None = None,
+        progress_callback: ProgressCallback | None = None,
+    ) -> ApplyToVacanciesResult:
+        """VSA-port entry point: run the full pipeline.
+
+        Implements the :class:`job_bot.application_submit.slice.LegacyUseCasePort`
+        contract -- the slice's :meth:`ApplicationSubmitSlice.run_apply_pipeline`
+        calls this method on the use case to do the actual work.
+
+        Public for the VSA path; legacy callers should keep using
+        :meth:`execute` (which now delegates here when no slice is
+        wired, or to the slice when one is).
+
+        Args:
+            command: входные параметры (``ApplyToVacanciesCommand``).
+            cancel_event: опциональное событие отмены.
+            progress_callback: опциональный колбэк прогресса.
 
         Returns:
             ``ApplyToVacanciesResult`` со статистикой рассылки.
