@@ -163,6 +163,13 @@ SHIM_CONTRACT: tuple[ShimSpec, ...] = (
         trigger=lambda: _reload("hh_applicant_tool.utils.config"),
         description="utils.config module (issue #59)",
     ),
+    ShimSpec(
+        module_path="hh_applicant_tool.operations.authorize",
+        vsa_path="job_bot.config_auth",
+        issue=59,
+        trigger=lambda: _reload("hh_applicant_tool.operations.authorize"),
+        description="operations.authorize module (issue #59)",
+    ),
 )
 
 
