@@ -86,6 +86,12 @@ def test_transport_port_is_satisfied_by_structural_stub() -> None:
         ) -> list[dict[str, Any]]:
             return []
 
+        # MaxTransportPort declares allowed_user_ids as part of the
+        # access-control surface (mirrored onto the transport by the
+        # MaxBotSlice). A no-op tuple keeps the stub structurally
+        # conformant without enabling any user filtering.
+        allowed_user_ids: tuple[int, ...] = ()
+
     assert isinstance(_Stub(), MaxTransportPort)
 
 
