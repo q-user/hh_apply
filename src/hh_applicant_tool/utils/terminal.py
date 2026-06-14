@@ -29,7 +29,7 @@ def setup_terminal() -> None:
         if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
             # 0x0004 = ENABLE_VIRTUAL_TERMINAL_PROCESSING
             kernel32.SetConsoleMode(handle, mode.value | 0x0004)
-    except Exception:
+    except Exception:  # noqa: BLE001  # defensive ctypes Windows API call; various low-level errors possible (old Windows, no perms, missing API)
         # Если что-то пошло не так (старая Windows или нет прав),
         # просто продолжаем работу без цветов
         pass
@@ -57,7 +57,7 @@ def print_sixel_mage(image_bytes: bytes) -> None:
 
     try:
         img = img.quantize(colors=256, method=Image.Quantize.MAXCOVERAGE)
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         img = img.quantize(colors=256)
 
     palette = img.getpalette()[: 256 * 3]

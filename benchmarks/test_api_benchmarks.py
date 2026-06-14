@@ -144,7 +144,7 @@ class TestBaseClientBenchmarks:
         def run():
             try:
                 base_client.get("/nonexistent")
-            except Exception:
+            except Exception:  # noqa: BLE001  # benchmark test — broad catch is intentional for latency measurement
                 pass
 
         benchmark(run)

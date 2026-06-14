@@ -555,7 +555,7 @@ class HHApplicantTool(MegaTool):
 
                     try:
                         self.save_cookies()
-                    except Exception as ex:
+                    except Exception as ex:  # noqa: BLE001  # best-effort save_cookies in finally; must not crash on token refresh
                         logger.error(f"Не удалось сохранить cookies: {ex}")
                 return 1
             self._parser.print_help(file=sys.stderr)
@@ -563,7 +563,7 @@ class HHApplicantTool(MegaTool):
         finally:
             try:
                 self._check_system()
-            except Exception:
+            except Exception:  # noqa: BLE001  # best-effort system check on exit; must not mask real exit code
                 # System check is best-effort cleanup; don't let it
                 # mask the real exit code. Log at WARNING with full
                 # traceback so failures are observable in default logs
