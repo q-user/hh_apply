@@ -34,6 +34,8 @@ from job_bot.application_prep.repositories import (
 )
 from job_bot.application_prep.slice import (
     ApplicationPrepSlice,
+    PreparePipelineContext,
+    PreparePipelineStats,
     create_application_prep_slice,
 )
 
@@ -68,5 +70,7 @@ __all__ = [
     "parse_ai_json_response",
     # Slice
     "ApplicationPrepSlice",
+    "PreparePipelineContext",
+    "PreparePipelineStats",
     "create_application_prep_slice",
 ]
