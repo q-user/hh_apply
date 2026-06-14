@@ -110,10 +110,24 @@ def main() -> int:
         "src/hh_applicant_tool/services/relevance.py": [625, 674, 701],
         "src/hh_applicant_tool/ui/__init__.py": [21, 27, 31],
         "src/hh_applicant_tool/utils/terminal.py": [32, 60],
-        "src/job_bot/application_prep/handlers/application_handler.py": [153, 199],
-        "src/job_bot/application_prep/handlers/cover_letter_handler.py": [167, 177],
-        "src/job_bot/application_prep/handlers/relevance_handler.py": [89, 145, 174, 221],
-        "src/job_bot/vacancy_search/handlers/vacancy_search_handler.py": [91, 108],
+        "src/job_bot/application_prep/handlers/application_handler.py": [
+            153,
+            199,
+        ],
+        "src/job_bot/application_prep/handlers/cover_letter_handler.py": [
+            167,
+            177,
+        ],
+        "src/job_bot/application_prep/handlers/relevance_handler.py": [
+            89,
+            145,
+            174,
+            221,
+        ],
+        "src/job_bot/vacancy_search/handlers/vacancy_search_handler.py": [
+            91,
+            108,
+        ],
         "benchmarks/test_api_benchmarks.py": [148],
     }
 

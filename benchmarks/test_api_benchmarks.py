@@ -10,13 +10,12 @@ Benchmarks for measuring API client performance including:
 
 import json
 import time
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 import requests
 
 from hh_applicant_tool.api.client import ApiClient, BaseClient, OAuthClient
-from hh_applicant_tool.api.datatypes import AccessToken
 
 
 class MockResponse:
