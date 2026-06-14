@@ -25,12 +25,17 @@ def storage() -> Iterator[sqlite3.Connection]:
     Возвращает сырой ``sqlite3.Connection`` — тесты могут изучать
     «сырое» состояние (наличие триггеров/PRAGMA) или обернуть в
     ``StorageFacade(conn)`` для доступа к репозиториям.
+
+    Issue #94: schema is initialised via ``init_db`` directly (not via
+    ``StorageFacade(conn)``) so the conftest no longer pulls in the
+    legacy facade class for a pure side-effect call. Tests that need
+    the facade still import it themselves.
     """
-    from hh_applicant_tool.storage import StorageFacade
+    from hh_applicant_tool.storage.utils import init_db
 
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
-    StorageFacade(conn)
+    init_db(conn)
     try:
         yield conn
     finally:

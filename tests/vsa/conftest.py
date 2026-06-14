@@ -38,12 +38,16 @@ def storage_conn() -> Iterator[sqlite3.Connection]:
     shared equivalent of the project-level ``storage`` fixture in
     ``tests/conftest.py`` -- re-defined here so VSA tests can use it
     without depending on the legacy ``hh_applicant_tool`` import path.
+
+    Issue #94: schema is initialised via ``init_db`` directly (not via
+    ``StorageFacade(conn)``) so this fixture no longer pulls in the
+    legacy facade class for a pure side-effect call.
     """
-    from hh_applicant_tool.storage import StorageFacade
+    from hh_applicant_tool.storage.utils import init_db
 
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
-    StorageFacade(conn)
+    init_db(conn)
     try:
         yield conn
     finally:
