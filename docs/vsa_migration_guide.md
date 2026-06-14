@@ -68,25 +68,47 @@ src/job_bot/
 > in-memory, persisted as JSON) and no `services/` subpackage — that
 > is intentional, not a missing directory.
 
-## Slice Status (as of 2026-06-14)
+## Slice Status (as of 2026-06-15)
 
-| Slice | Status | Legacy imports | Issue |
-|-------|--------|----------------|-------|
-| `vacancy_search` | Near-clean | 1 file (`BadResponse`, `ApiError` from `hh_applicant_tool.api`) | #53 (closed), #88 partial |
-| `application_prep` | Mixed | 3 files (AI client, string utils, model shim) | #54 (closed), #89 partial |
-| `application_submit` | Mixed | 3 files (storage models, API errors, time/delay infra) | #55 (closed), #89 partial |
-| `telegram_bot` | Mixed | 6 files (transport, daily digest, review flow, storage facade) | #56 (closed), #87 partial |
-| `channel_monitoring` | Clean | 0 files | #57 (closed) |
-| `max_bot` | Clean | 0 files | #58 (closed) |
-| `config_auth` | Clean | 0 files | #59 (open — legacy retirement pending) |
+All 7 VSA slices are wired. The bulk of the legacy orchestrator code
+(`services/review_flow`, `services/daily_digest`,
+`application/use_cases/apply_to_vacancies`,
+`application/use_cases/prepare_vacancies`, and the `config_auth`
+service paths) has been bridged to VSA in PRs #129–#134 — the
+remaining legacy modules in `src/hh_applicant_tool/services/` and
+`src/hh_applicant_tool/application/use_cases/` are now deprecation
+shims with a standardised `DeprecationWarning` contract (issue #92).
+The next step is *deleting* the shims (tracked in the ROADMAP under
+Phase D); see also the [shim contract table in
+`tests/test_issue_92_deprecation.py`](../tests/test_issue_92_deprecation.py)
+for the canonical list of shims still in place.
 
-The three legacy orchestrators that still live in `src/hh_applicant_tool/`
-and need to be bridged to VSA are tracked by:
+| Slice | Status | Notes |
+|-------|--------|-------|
+| `vacancy_search` | Wired | Backing `services/vacancy_search.py` is a deprecation shim (issue #53) |
+| `application_prep` | Wired | Backing `services/{relevance,cover_letters,applications}` and `use_cases/prepare_vacancies` are deprecation shims (#54, #130) |
+| `application_submit` | Wired | `ApplicationSubmitSlice.run_apply_pipeline` is the new orchestrator; `use_cases/apply_to_vacancies` is a partial bridge (#55, #129) |
+| `telegram_bot` | Wired | `services/{review_flow,daily_digest}` moved to VSA services and the legacy modules are shims (#56, #87, #8) |
+| `channel_monitoring` | Wired | No remaining legacy code paths (#57) |
+| `max_bot` | Wired | No remaining legacy code paths (#58) |
+| `config_auth` | Wired | `utils.config` and `operations.authorize` are deprecation shims (#59) |
 
-- **#87** — `services/review_flow.py` (1 010 LOC) → `telegram_bot`
-- **#88** — `services/applications.py` (the `vacancy_tests` shim) → `application_submit`
-- **#89** — `application/use_cases/apply_to_vacancies.py` (1 118 LOC) → `application_submit`
-- **#90** — `application/use_cases/prepare_vacancies.py` (689 LOC) → `application_prep`
+### Completed bridge PRs (Phase B)
+
+| PR | Issue | Bridge |
+|----|-------|--------|
+| #131 | #59 | `config_auth` switchover |
+| #132 | #87 | `services/review_flow` → `telegram_bot` |
+| #129 | #89 | `use_cases/apply_to_vacancies` → `application_submit` |
+| #130 | #90 | `use_cases/prepare_vacancies` → `application_prep` |
+| #134 | #8 | `services/daily_digest` → `telegram_bot` |
+
+### Remaining
+
+The remaining work is the deprecation shim removal — see the ROADMAP,
+Phase D. The shim modules listed in `tests/test_issue_92_deprecation.py`
+(`SHIM_CONTRACT`) are the candidates for deletion once a removal
+timeline is set.
 
 ## Migration Strategy: Strangler Fig Pattern
 
@@ -108,21 +130,22 @@ and need to be bridged to VSA are tracked by:
 6. ✅ `channel_monitoring` (issue #57)
 7. ✅ `max_bot` (issue #58)
 
-### Phase 3: Bridge & Integration (In progress)
+### Phase 3: Bridge & Integration (Done, 2026-06-14 — issues #59, #87, #89, #90, #8)
 
-1. ✅ CLI entry points — `hh_applicant_tool.operations.apply_worker` now wires
-   `ApplicationSubmitSlice` via `AppContainer` (issue #77, closed 2026-06-13).
-   Other operations (`channel_monitor`, `max_bot`, `telegram_bot`) follow
+1. ✅ CLI entry points — `hh_applicant_tool.operations.apply_worker` wires
+   `ApplicationSubmitSlice` via `AppContainer` (issue #77). The other
+   operations (`channel-monitor`, `max-bot`, `telegram-bot`) follow
    the same pattern.
-2. 🟡 Telegram bot — the slice is wired but the legacy `services/daily_digest.py`
-   and `services/review_flow.py` are still the engines behind the slice
-   adapters. Bridging happens in issue #87.
+2. ✅ Telegram bot — `services/review_flow.py` and `services/daily_digest.py`
+   moved to `job_bot.telegram_bot.services.*` (issues #87, #8).
 3. 🟡 UI — `hh_applicant_tool/ui/api.py` still depends on the legacy
    `AppContainer` + `HHApplicantTool` facade. There is no VSA UI slice
    yet; the legacy UI is a thin wrapper that calls `AppContainer.*` use
    cases, so it works through the VSA-bridged container.
-4. 🟡 Deprecate old `hh_applicant_tool` package — blocked on issues
-   #59, #76, #87, #88, #89, #90.
+4. 🟡 Deprecate old `hh_applicant_tool` package — the shims are
+   standardised (issue #92) and the slices are wired, but the shim
+   modules themselves are still in place. Deletion is the next major
+   work item (ROADMAP Phase D).
 
 ## Slice Design Principles
 
@@ -277,22 +300,35 @@ uv run --frozen mypy src/
 - [x] `channel_monitoring` (issue #57)
 - [x] `max_bot` (issue #58)
 
-### Phase 3: Integration — IN PROGRESS
+### Phase 3: Bridge & Integration — DONE (#59, #76, #87, #88, #89, #90, #8)
 - [x] CLI `apply-worker` rewired to `ApplicationSubmitSlice` (issue #77)
 - [x] CLI `channel-monitor` rewired to `ChannelMonitorSlice` (issue #57)
 - [x] CLI `max-bot` rewired to `MaxBotSlice` (issue #58)
 - [x] CLI `telegram-bot` rewired to `TelegramBotSlice` (issue #56)
 - [x] `AppContainer` lazily instantiates all 7 slices (issue #77)
-- [x] Settings unified through `ConfigAuthSlice` (issue #59 partial)
-- [ ] Bridge `services/review_flow.py` to `telegram_bot` (issue #87)
-- [ ] Bridge `services/daily_digest.py` to `telegram_bot` (alongside #87)
-- [ ] Bridge `services/relevance.py` to `application_prep`
-- [ ] Bridge `services/vacancy_search.py` to `vacancy_search`
-- [ ] Bridge `services/cover_letters.py` to `application_prep`
-- [ ] Bridge `application/use_cases/apply_to_vacancies.py` to `application_submit` (issue #89)
-- [ ] Bridge `application/use_cases/prepare_vacancies.py` to `application_prep` (issue #90)
-- [ ] Remove `services/applications.py` vacancy_tests shim (issue #88)
-- [ ] Deprecate `hh_applicant_tool` package (blocked on #59, #76, #87–#90)
+- [x] Settings unified through `ConfigAuthSlice` (issue #59, PR #131)
+- [x] Bridge `services/review_flow.py` to `telegram_bot` (issue #87, PR #132)
+- [x] Bridge `services/daily_digest.py` to `telegram_bot` (issue #8, PR #134)
+- [x] Bridge `application/use_cases/apply_to_vacancies.py` to `application_submit` (issue #89, PR #129)
+- [x] Bridge `application/use_cases/prepare_vacancies.py` to `application_prep` (issue #90, PR #130)
+- [x] Remove deprecated telegram/channel/MAX service code (issue #76, PR #123)
+- [x] Standardise deprecation contract for shim modules (issue #92, PR #126)
+- [x] Move cross-cutting utilities to `job_bot/shared` (issue #93, PR #127)
+- [x] Migrate `tests/vsa/conftest.py` to VSA storage (issue #94, PR #122)
+- [x] Delete dead code and decorative `Settings` class (issue #95, PR #125)
+- [x] Update VSA documentation (issue #96, PR #124)
+
+### Phase 4: Deprecation shim removal — NEXT
+
+- [ ] Decide on the removal timeline (target a major version bump, e.g. 2.0)
+- [ ] Delete deprecation shim modules listed in
+      `tests/test_issue_92_deprecation.py` `SHIM_CONTRACT` once the
+      public API has been stable for a release cycle
+- [ ] Replace `hh_applicant_tool.main:main` with a VSA-native `__main__`
+- [ ] Audit and remove legacy tests under `tests/test_*.py` that
+      exercise the shims (kept today only as contract tests)
+- [ ] Sync `main` with `develop` (the natural cut line for the next
+      release)
 
 ## Benefits of VSA
 

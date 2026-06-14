@@ -149,7 +149,7 @@ $$('[data-qa="vacancy-serp__vacancy_response"]').forEach((el) => el.click());
 Кодовая база разбита на два слоя:
 
 - **`src/job_bot/`** — [Vertical Slice Architecture (VSA)](./docs/vsa_migration_guide.md). Семь слайсов (`vacancy_search`, `config_auth`, `channel_monitoring`, `max_bot`, `telegram_bot`, `application_prep`, `application_submit`) + shared kernel (`storage/`, `api/`, `ai/`, `config/`). Каждый слайс самодостаточен: свои `models/`, `handlers/`, `ports/`, опционально `repositories/` / `services/`, фабрика `slice.py` и публичный `__init__.py`. Межслайсовое взаимодействие — только через порты.
-- **`src/hh_applicant_tool/`** — CLI-обвязка и переходный слой. Содержит точку входа `main.py` (`HHApplicantTool`), composition root `container.py` (`AppContainer` — лениво создаёт VSA-слайсы), операции в `operations/` и UI в `ui/`. До завершения VSA-миграции (см. [ROADMAP](./ROADMAP.md)) этот пакет постепенно сокращается до тонкой шим-обёртки, реэкспортирующей публичный API.
+- **`src/hh_applicant_tool/`** — CLI-обвязка и переходный слой. Содержит точку входа `main.py` (`HHApplicantTool`), composition root `container.py` (`AppContainer` — лениво создаёт VSA-слайсы), операции в `operations/` и UI в `ui/`. VSA-миграция по сути завершена: весь оставшийся код в этом пакете — либо deprecation-шимы со стандартизованным контрактом ([issue #92](https://github.com/q-user/hh_apply/issues/92), `tests/test_issue_92_deprecation.py`), либо CLI/UI, у которых пока нет VSA-слайса. Следующий шаг — поэтапное удаление шимов (см. [ROADMAP](./ROADMAP.md), Phase D).
 
 CLI-операции (`apply-worker`, `telegram-bot`, `channel-monitor`, `max-bot`, `apply-vacancies`, `prepare-vacancies` и т. д.) парсят argparse → собирают соответствующий VSA-слайс через `AppContainer` → делегируют выполнение. Например, `apply-worker` (см. `src/hh_applicant_tool/operations/apply_worker.py`) — это тонкий адаптер над `ApplicationSubmitSlice.worker.run`.
 
@@ -1229,13 +1229,13 @@ tool.save_token()
 ```
 
 > [!NOTE]
-> Внутренняя бизнес-логика утилиты постепенно переезжает в VSA-слайсы
-> (`src/job_bot/`). CLI-обёртка в `src/hh_applicant_tool/operations/`
-> собирает их через `AppContainer` (см. `src/hh_applicant_tool/container.py`).
-> Прямой импорт `from hh_applicant_tool import HHApplicantTool` остаётся
-> публичным API и будет поддерживаться как минимум до полного завершения
-> VSA-миграции (см. [ROADMAP](./ROADMAP.md)). Для нового кода рекомендуется
-> импортировать VSA-слайсы напрямую:
+> Внутренняя бизнес-логика утилиты живёт в VSA-слайсах (`src/job_bot/`);
+> CLI-операции в `src/hh_applicant_tool/operations/` собирают их
+> через `AppContainer` (см. `src/hh_applicant_tool/container.py`).
+> Прямой импорт `from hh_applicant_tool import HHApplicantTool` пока
+> остаётся публичным API и будет поддерживаться до удаления
+> deprecation-шимов в рамках Phase D из [ROADMAP](./ROADMAP.md). Для
+> нового кода рекомендуется импортировать VSA-слайсы напрямую:
 
 ```python
 from job_bot.vacancy_search import create_vacancy_search_slice
