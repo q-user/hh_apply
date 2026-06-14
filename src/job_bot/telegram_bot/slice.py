@@ -31,8 +31,10 @@ logger = logging.getLogger(__package__)
 
 def _default_digest_service(storage: Any, transport: Any, config: Any) -> Any:
     """Build a :class:`DailyDigestService` from the slice's dependencies."""
-    from hh_applicant_tool.services.daily_digest import DailyDigestService
     from hh_applicant_tool.storage import StorageFacade
+    from job_bot.telegram_bot.services.daily_digest_service import (
+        DailyDigestService,
+    )
 
     return DailyDigestService(
         storage=StorageFacade(storage),

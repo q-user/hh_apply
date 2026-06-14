@@ -142,6 +142,24 @@ def _build_review_flow() -> Any:
     return ReviewFlowService(storage=MagicMock(), transport=MagicMock())
 
 
+def _build_daily_digest() -> Any:
+    """Reload the shim and instantiate the re-exported ``DailyDigestService``.
+
+    The daily-digest shim is a module-level re-export (the body has been
+    moved to ``job_bot.telegram_bot.services.daily_digest_service``), so
+    the deprecation warning fires on import. Reloading the module is
+    enough to surface the contract message; instantiating the
+    re-exported class additionally proves the public surface still
+    works through the legacy import path (issue #8 / #54).
+    """
+    _reload("hh_applicant_tool.services.daily_digest")
+    from hh_applicant_tool.services.daily_digest import DailyDigestService
+
+    storage_facade = MagicMock()
+    transport = MagicMock()
+    return DailyDigestService(storage=storage_facade, transport=transport)
+
+
 # The canonical contract table.  Tests are parametrised over this list.
 SHIM_CONTRACT: tuple[ShimSpec, ...] = (
     ShimSpec(
@@ -192,6 +210,13 @@ SHIM_CONTRACT: tuple[ShimSpec, ...] = (
         issue=87,
         trigger=_build_review_flow,
         description="services.review_flow module (issue #87)",
+    ),
+    ShimSpec(
+        module_path="hh_applicant_tool.services.daily_digest",
+        vsa_path="job_bot.telegram_bot.services.daily_digest_service",
+        issue=54,
+        trigger=_build_daily_digest,
+        description="services.daily_digest module (issue #8 / #54)",
     ),
 )
 
@@ -338,6 +363,16 @@ def test_shim_class_warning_is_in_dunder_init(spec: ShimSpec) -> None:
     ) or ".services.cover_letters import CoverLetterService" in (
         trigger_src
     ) or ".services.relevance import RelevanceService" in trigger_src
+    # ``_build_daily_digest`` / ``_build_review_flow`` also import a
+    # Service class from the legacy shim, but they are *module-level*
+    # re-export shims (the deprecation warning fires on import, not in
+    # ``__init__``). Treat them as module-level shims.
+    is_module_level_re_export = (
+        ".services.review_flow import ReviewFlowService" in trigger_src
+        or ".services.daily_digest import DailyDigestService" in trigger_src
+    )
+    if is_module_level_re_export:
+        is_class_trigger = False
 
     if not is_class_trigger:
         # Module-level shim: the warning is expected at import time
