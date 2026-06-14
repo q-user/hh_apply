@@ -318,7 +318,7 @@ class TestConnectionPoolingBenchmarks:
 
         def run():
             for _ in range(20):
-                client = BaseClient(
+                _client = BaseClient(  # noqa: F841 - measured for cost
                     base_url="https://api.test/",
                     delay=0.0,
                     timeout=30.0,
