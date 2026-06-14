@@ -10,6 +10,9 @@ Public API::
         DigestHandler,
         ReviewHandler,
         TransportHandler,
+        TelegramTransport,
+        TelegramTransportConfig,
+        TelegramTransportError,
         Command,
         OutgoingMessage,
         InlineButton,
@@ -31,6 +34,11 @@ from job_bot.telegram_bot.models.command import Command
 from job_bot.telegram_bot.models.digest import DigestOutcome
 from job_bot.telegram_bot.models.message import InlineButton, OutgoingMessage
 from job_bot.telegram_bot.services.bot_service import BotService
+from job_bot.telegram_bot.telegram_transport import (
+    TelegramTransport,
+    TelegramTransportConfig,
+    TelegramTransportError,
+)
 from job_bot.telegram_bot.slice import (
     TelegramBotSlice,
     create_telegram_bot_slice,
@@ -50,6 +58,10 @@ __all__ = [
     "DigestHandler",
     "ReviewHandler",
     "TransportHandler",
+    # Transport
+    "TelegramTransport",
+    "TelegramTransportConfig",
+    "TelegramTransportError",
     # Models
     "Command",
     "OutgoingMessage",

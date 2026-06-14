@@ -27,7 +27,7 @@ from hh_applicant_tool.storage.models.application_draft import (
 )
 from hh_applicant_tool.storage.models.search_profile import SearchProfileModel
 from hh_applicant_tool.storage.models.setting import SettingModel
-from hh_applicant_tool.telegram.transport import (
+from job_bot.telegram_bot.telegram_transport import (
     TelegramTransport,
     TelegramTransportError,
 )

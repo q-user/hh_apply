@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Protocol
 
-from hh_applicant_tool.telegram.transport import TelegramTransportError
+from job_bot.telegram_bot.telegram_transport import TelegramTransportError
 from job_bot.shared.storage.ports import StoragePort
 from job_bot.telegram_bot.models.command import (
     CMD_CANCEL,

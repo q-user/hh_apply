@@ -168,10 +168,10 @@ def _build_notifier(tool: "HHApplicantTool", args: BaseNamespace):
 
     The VSA ``WorkerService`` accepts ``notifier: Callable[[str, str], None]``
     which receives ``(kind, text)`` for success/failure. We forward to
-    the legacy ``TelegramTransport`` if a bot token is configured and
+    the ``TelegramTransport`` if a bot token is configured and
     ``--no-telegram`` is not set.
     """
-    from hh_applicant_tool.telegram import (
+    from job_bot.telegram_bot.telegram_transport import (
         TelegramTransport,
         TelegramTransportConfig,
         TelegramTransportError,

@@ -58,7 +58,7 @@ from hh_applicant_tool.storage.models.application_test_answer import (
 from hh_applicant_tool.storage.models.telegram_session import (
     TelegramSessionModel,
 )
-from hh_applicant_tool.telegram.transport import TelegramTransport
+from job_bot.telegram_bot.telegram_transport import TelegramTransport
 
 CHAT_ID = 12345
 

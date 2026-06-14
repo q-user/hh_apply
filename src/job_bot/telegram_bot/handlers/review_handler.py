@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from hh_applicant_tool.telegram.transport import TelegramTransportError
+from job_bot.telegram_bot.telegram_transport import TelegramTransportError
 from job_bot.shared.storage.ports import StoragePort
 from job_bot.telegram_bot.ports.review_port import ReviewFlowPort
 from job_bot.telegram_bot.ports.transport_port import TelegramTransportPort

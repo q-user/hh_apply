@@ -13,7 +13,7 @@ import sqlite3
 from unittest.mock import MagicMock, Mock
 
 from hh_applicant_tool.storage.facade import StorageFacade
-from hh_applicant_tool.telegram import (
+from job_bot.telegram_bot.telegram_transport import (
     TelegramTransport,
     TelegramTransportConfig,
 )

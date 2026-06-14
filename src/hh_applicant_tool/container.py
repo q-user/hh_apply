@@ -365,7 +365,7 @@ class AppContainer:
         """
         if self._telegram_bot_slice is None:
             from job_bot.telegram_bot.slice import create_telegram_bot_slice
-            from hh_applicant_tool.telegram.transport import (
+            from job_bot.telegram_bot.telegram_transport import (
                 TelegramTransport,
                 TelegramTransportConfig,
             )

@@ -27,7 +27,7 @@ from ..storage.models.application_test_answer import (
 )
 from ..storage.models.apply_job import ApplyJobModel
 from ..storage.models.telegram_session import TelegramSessionModel
-from ..telegram.transport import TelegramTransport
+from job_bot.telegram_bot.telegram_transport import TelegramTransport
 
 if TYPE_CHECKING:
     from ..application.ports import AIClientPort, Clock
