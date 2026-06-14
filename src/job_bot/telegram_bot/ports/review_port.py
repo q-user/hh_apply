@@ -1,8 +1,8 @@
 """ReviewFlowPort -- Protocol contract for the review state machine.
 
 The slice's :class:`ReviewHandler` depends on this Protocol; the concrete
-:class:`hh_applicant_tool.services.review_flow.ReviewFlowService` is
-provided by the slice (via the default factory) or by tests.
+:class:`job_bot.telegram_bot.services.review_service.ReviewFlowService`
+is provided by the slice (via the default factory) or by tests.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ class ReviewFlowPort(Protocol):
     """Interface used by the slice's review handler.
 
     Mirrors the public surface of
-    :class:`hh_applicant_tool.services.review_flow.ReviewFlowService`.
+    :class:`job_bot.telegram_bot.services.review_service.ReviewFlowService`.
     """
 
     def process_message(self, update: dict[str, Any]) -> list[Any]:

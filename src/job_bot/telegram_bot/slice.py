@@ -3,7 +3,7 @@
 The slice aggregates the command / digest / review handlers, exposes them
 through small ports and re-uses the existing ``TelegramTransport``,
 ``DailyDigestService`` and ``ReviewFlowService`` from
-``hh_applicant_tool`` (no re-implementation).
+``job_bot.telegram_bot.services`` (VSA — issue #87).
 
 Usage::
 
@@ -43,8 +43,8 @@ def _default_digest_service(storage: Any, transport: Any, config: Any) -> Any:
 
 def _default_review_service(storage: Any, transport: Any, config: Any) -> Any:
     """Build a :class:`ReviewFlowService` from the slice's dependencies."""
-    from hh_applicant_tool.services.review_flow import ReviewFlowService
     from hh_applicant_tool.storage import StorageFacade
+    from job_bot.telegram_bot.services.review_service import ReviewFlowService
 
     return ReviewFlowService(
         storage=StorageFacade(storage),

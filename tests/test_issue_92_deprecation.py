@@ -126,6 +126,22 @@ def _build_relevance() -> Any:
     return RelevanceService(api_client=MagicMock())
 
 
+def _build_review_flow() -> Any:
+    """Reload the shim and instantiate the re-exported ``ReviewFlowService``.
+
+    The review-flow shim is a module-level re-export (the body has been
+    moved to ``job_bot.telegram_bot.services.review_service``), so the
+    deprecation warning fires on import. Reloading the module is enough
+    to surface the contract message; instantiating the re-exported class
+    additionally proves the public surface still works through the
+    legacy import path (issue #87).
+    """
+    _reload("hh_applicant_tool.services.review_flow")
+    from hh_applicant_tool.services.review_flow import ReviewFlowService
+
+    return ReviewFlowService(storage=MagicMock(), transport=MagicMock())
+
+
 # The canonical contract table.  Tests are parametrised over this list.
 SHIM_CONTRACT: tuple[ShimSpec, ...] = (
     ShimSpec(
@@ -169,6 +185,13 @@ SHIM_CONTRACT: tuple[ShimSpec, ...] = (
         issue=59,
         trigger=lambda: _reload("hh_applicant_tool.operations.authorize"),
         description="operations.authorize module (issue #59)",
+    ),
+    ShimSpec(
+        module_path="hh_applicant_tool.services.review_flow",
+        vsa_path="job_bot.telegram_bot.services.review_service",
+        issue=87,
+        trigger=_build_review_flow,
+        description="services.review_flow module (issue #87)",
     ),
 )
 
