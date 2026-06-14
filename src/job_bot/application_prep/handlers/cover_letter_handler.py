@@ -20,6 +20,7 @@ from job_bot.application_prep.repositories.cover_letter_repo import (
 )
 from job_bot.shared.api.client import HHApiClient
 from job_bot.shared.storage.database import Database
+from job_bot.shared.utils.text import rand_text, strip_tags
 
 if TYPE_CHECKING:
     from job_bot.shared.ai.client import AIClient
@@ -102,8 +103,6 @@ class CoverLetterHandler:
         Uses a simple template substitution that supports the
         {opt1|opt2} alternative syntax.
         """
-        from hh_applicant_tool.utils.string import rand_text
-
         return rand_text(self._template) % placeholders
 
     def _generate_via_ai(
@@ -194,8 +193,6 @@ class CoverLetterHandler:
     @staticmethod
     def _strip_tags(html: str) -> str:
         """Strip HTML tags from a string."""
-        from hh_applicant_tool.utils.string import strip_tags
-
         return strip_tags(html)
 
     # Implementation of CoverLetterPort persistence methods
