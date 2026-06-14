@@ -163,7 +163,7 @@ def has_token() -> bool:
     try:
         data = json.loads(cfg.read_text(encoding="utf-8"))
         return bool(data.get("token"))
-    except Exception:
+    except (OSError, ValueError):
         return False
 
 
@@ -267,7 +267,7 @@ def run_ui() -> int:
         from hh_applicant_tool.main import main as hh_main
 
         return hh_main(["ui"]) or 0
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - top-level UI launcher; we log and exit non-zero
         print(f"\nОшибка UI: {e}\n")
         return 1
 
@@ -287,7 +287,7 @@ def run_authorize() -> int:
         from hh_applicant_tool.main import main as hh_main
 
         return hh_main(["authorize", "--no-headless", "--manual"]) or 0
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - top-level authorize launcher; we log and exit non-zero
         print(f"\nОшибка авторизации: {e}\n")
         return 1
 
@@ -346,7 +346,7 @@ def _getch() -> str:
             ch = msvcrt.getwch()
             print(ch)
             return ch
-        except Exception:
+        except Exception:  # noqa: BLE001 - msvcrt.getwch() can fail on no console/EOF; fall back to input()
             return input().strip()
     else:
         try:
@@ -362,7 +362,7 @@ def _getch() -> str:
                 termios.tcsetattr(fd, termios.TCSADRAIN, old)
             print(ch)
             return ch
-        except Exception:
+        except Exception:  # noqa: BLE001 - termios/tty can fail on non-TTY/redirected stdin; fall back to input()
             return input().strip()
 
 
