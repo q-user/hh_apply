@@ -1,7 +1,7 @@
 """TelegramTransportPort -- Protocol contract for the transport layer.
 
 The slice's transport handler depends on this Protocol; the concrete
-:class:`hh_applicant_tool.telegram.transport.TelegramTransport` is provided
+:class:`job_bot.telegram_bot.telegram_transport.TelegramTransport` is provided
 by the producer of the slice (CLI / tests).
 """
 
@@ -14,7 +14,7 @@ class TelegramTransportPort(Protocol):
     """Minimal transport interface used by the slice.
 
     Matches the public surface of
-    :class:`hh_applicant_tool.telegram.transport.TelegramTransport`.
+    :class:`job_bot.telegram_bot.telegram_transport.TelegramTransport`.
     """
 
     def get_updates(self, offset: int | None = None) -> list[dict[str, Any]]:

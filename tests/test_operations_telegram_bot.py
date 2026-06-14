@@ -30,7 +30,7 @@ import pytest
 from hh_applicant_tool.operations.telegram_bot import Operation
 from hh_applicant_tool.services.daily_digest import DigestResult
 from hh_applicant_tool.storage.facade import StorageFacade
-from hh_applicant_tool.telegram.transport import (
+from job_bot.telegram_bot.telegram_transport import (
     TelegramTransport,
     TelegramTransportConfig,
 )

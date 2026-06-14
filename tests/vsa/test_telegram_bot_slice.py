@@ -58,7 +58,7 @@ def storage_conn() -> sqlite3.Connection:
 @pytest.fixture
 def transport() -> MagicMock:
     """Mocked :class:`TelegramTransport` with a default ``send_message`` reply."""
-    from hh_applicant_tool.telegram.transport import TelegramTransport
+    from job_bot.telegram_bot.telegram_transport import TelegramTransport
 
     t = MagicMock(spec=TelegramTransport)
     t.allowed_user_ids = (USER_ID,)
@@ -316,7 +316,7 @@ class TestTransportHandler:
         assert transport.get_updates.call_count == 2
 
     def test_reconnect_after_error(self, transport: MagicMock) -> None:
-        from hh_applicant_tool.telegram.transport import (
+        from job_bot.telegram_bot.telegram_transport import (
             TelegramTransportError,
         )
 
@@ -492,7 +492,7 @@ class TestCommandHandler:
 
     def test_empty_allowed_user_ids_allows_all(self, storage_conn) -> None:
         # If allowed_user_ids is empty -> no filtering
-        from hh_applicant_tool.telegram.transport import TelegramTransport
+        from job_bot.telegram_bot.telegram_transport import TelegramTransport
 
         t = MagicMock(spec=TelegramTransport)
         t.allowed_user_ids = ()

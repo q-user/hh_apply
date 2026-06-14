@@ -8,7 +8,7 @@ through small ports and re-uses the existing ``TelegramTransport``,
 Usage::
 
     from job_bot.telegram_bot.slice import create_telegram_bot_slice
-    from hh_applicant_tool.telegram.transport import TelegramTransport
+    from job_bot.telegram_bot.telegram_transport import TelegramTransport
 
     transport = TelegramTransport(config=cfg)
     slice_ = create_telegram_bot_slice(database=db, transport=transport)
@@ -174,7 +174,7 @@ def create_telegram_bot_slice(
         database: a :class:`job_bot.shared.storage.database.Database` (or a
             raw ``sqlite3.Connection``).
         transport: a :class:`TelegramTransportPort` (typically the
-            ``TelegramTransport`` from ``hh_applicant_tool.telegram``).
+            ``TelegramTransport`` from ``job_bot.telegram_bot.telegram_transport``).
         config: optional config mapping (with a ``telegram`` sub-dict);
             passed to the default digest / review services.
         digest_service: optional override for the daily digest service.

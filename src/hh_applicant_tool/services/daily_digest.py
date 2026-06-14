@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..ai.base import AIError
 from ..storage.facade import StorageFacade
-from ..telegram.transport import TelegramTransport, TelegramTransportError
+from job_bot.telegram_bot.telegram_transport import TelegramTransport, TelegramTransportError
 
 if TYPE_CHECKING:
     from ..application.ports import AIClientPort, Clock

@@ -7,7 +7,7 @@ from unittest.mock import Mock
 import pytest
 import requests
 
-from hh_applicant_tool.telegram.transport import TelegramTransport
+from job_bot.telegram_bot.telegram_transport import TelegramTransport
 
 
 def _response(
@@ -184,7 +184,7 @@ def test_no_proxy_when_not_configured(tmp_path: Path):
 
 def test_proxy_via_telegram_transport_config():
     """Test that proxy can be passed via TelegramTransportConfig directly."""
-    from hh_applicant_tool.telegram.transport import TelegramTransportConfig
+    from job_bot.telegram_bot.telegram_transport import TelegramTransportConfig
 
     config = TelegramTransportConfig(
         bot_token="test-token",
@@ -207,7 +207,7 @@ def test_proxy_via_telegram_transport_config():
 
 def test_no_proxy_via_telegram_transport_config():
     """Test that no proxy is set when proxy_url is None in TelegramTransportConfig."""
-    from hh_applicant_tool.telegram.transport import TelegramTransportConfig
+    from job_bot.telegram_bot.telegram_transport import TelegramTransportConfig
 
     config = TelegramTransportConfig(
         bot_token="test-token",

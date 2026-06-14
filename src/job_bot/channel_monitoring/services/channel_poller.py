@@ -34,7 +34,7 @@ class ChannelPoller:
         transport: a :class:`TelegramTransportPort` (the same one used
             by the Telegram bot slice -- typically a
             :class:`TelegramTransport` from
-            ``hh_applicant_tool.telegram.transport``).
+            ``job_bot.telegram_bot.telegram_transport``).
         channel: the :class:`Channel` to poll.
         handler: a :class:`ChannelHandler` for persistence + parsing.
     """
