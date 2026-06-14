@@ -201,9 +201,6 @@ class TestVacancySearchToPrepFlow:
             assert db_draft.cover_letter_status == "generated"
             assert db_draft.search_profile_id == "p1"
 
-    @pytest.mark.xfail(
-        reason="pre-existing, see #100, #102: Same mock-shape issue as test_multi_profile_flow — MockHHApiResponse returns a requests.Response-shaped object, not a parsed dict. HHApiClient.get() already returns a parsed dict in production, so the production code's .get() call is correct — the bug is the mock shape. Follow-up #102."
-    )
     def test_draft_payload_matches_production_prepare_one(
         self,
         test_db,
