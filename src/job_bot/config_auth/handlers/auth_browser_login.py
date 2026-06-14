@@ -47,12 +47,14 @@ from job_bot.config_auth.handlers.auth_handler import (
 
 if TYPE_CHECKING:
     # Imported under :data:`TYPE_CHECKING` so static type-checkers see
-    # the symbol but the runtime import is deferred. This keeps the
-    # public type surface of the module stable while letting the
-    # actual Playwright import be lazy. ``import-not-found`` is
-    # ignored because Playwright is an *optional* dependency of the
-    # ``[playwright]`` extra and is not on the strict mypy path.
-    from playwright.async_api import (  # type: ignore[import-not-found]
+    # the symbol but the runtime import is deferred via
+    # :func:`_require_playwright`. This keeps the public type surface
+    # of the module stable while letting the actual Playwright import
+    # be lazy, so the legacy ``operations/authorize`` shim (and the
+    # CLI parser that scans every ``operations/`` module) can be
+    # loaded on machines where the ``[playwright]`` extra is not
+    # installed.
+    from playwright.async_api import (
         Browser,
         BrowserContext,
         Page,
@@ -328,7 +330,14 @@ class Operation:
                     "auth.last_login", str(datetime.now())
                 )
                 cookies = await context.cookies()
-                self._set_session_cookies(cookies)
+                # ``playwright``'s ``Cookie`` is a ``TypedDict`` — at
+                # runtime the values are regular ``dict``​​s, which
+                # is exactly what :meth:`_set_session_cookies` has
+                # always consumed. The ``cast`` bridges the typed
+                # return without a public-API change.
+                self._set_session_cookies(
+                    cast("list[dict[str, Any]]", cookies)
+                )
 
             finally:
                 logger.debug("Закрытие браузера")
@@ -384,6 +393,11 @@ class Operation:
                 "Требуется ввод капчи! Используйте --kitty или --sixel."
             )
 
+        if captcha_element is None:
+            # ``wait_for_selector`` is typed as ``ElementHandle | None``
+            # even with ``state="visible"``; treat a ``None`` return the
+            # same as the timeout branch above (no captcha → continue).
+            return
         img_bytes = await captcha_element.screenshot()
         print("\n[!] Требуется ввод капчи.")
         # Deferred import -- see the module-level comment for the
