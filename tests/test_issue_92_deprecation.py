@@ -160,6 +160,33 @@ def _build_daily_digest() -> Any:
     return DailyDigestService(storage=storage_facade, transport=transport)
 
 
+def _build_reply_employers() -> Any:
+    """Reload the ``reply_employers`` shim and instantiate ``Operation``.
+
+    The shim is a class shim (issue #137): the deprecation warning
+    fires in :meth:`Operation.__init__` (per the contract used by
+    :class:`RelevanceService`), not at module import. Reloading the
+    module + instantiating ``Operation()`` triggers the warn.
+    """
+    _reload("hh_applicant_tool.operations.reply_employers")
+    from hh_applicant_tool.operations.reply_employers import Operation
+
+    return Operation()
+
+
+def _build_clear_negotiations() -> Any:
+    """Reload the ``clear_negotiations`` shim and instantiate ``Operation``.
+
+    The shim is a class shim (issue #137): the deprecation warning
+    fires in :meth:`Operation.__init__` (per the contract used by
+    :class:`RelevanceService`), not at module import.
+    """
+    _reload("hh_applicant_tool.operations.clear_negotiations")
+    from hh_applicant_tool.operations.clear_negotiations import Operation
+
+    return Operation()
+
+
 # The canonical contract table.  Tests are parametrised over this list.
 SHIM_CONTRACT: tuple[ShimSpec, ...] = (
     ShimSpec(
@@ -217,6 +244,20 @@ SHIM_CONTRACT: tuple[ShimSpec, ...] = (
         issue=54,
         trigger=_build_daily_digest,
         description="services.daily_digest module (issue #8 / #54)",
+    ),
+    ShimSpec(
+        module_path="hh_applicant_tool.operations.reply_employers",
+        vsa_path="job_bot.employer_engagement",
+        issue=137,
+        trigger=_build_reply_employers,
+        description="operations.reply_employers module (issue #137)",
+    ),
+    ShimSpec(
+        module_path="hh_applicant_tool.operations.clear_negotiations",
+        vsa_path="job_bot.negotiations.lifecycle",
+        issue=137,
+        trigger=_build_clear_negotiations,
+        description="operations.clear_negotiations module (issue #137)",
     ),
 )
 
@@ -358,11 +399,11 @@ def test_shim_class_warning_is_in_dunder_init(spec: ShimSpec) -> None:
     shims have a trigger that just imports the module.
     """
     trigger_src = inspect.getsource(spec.trigger)
-    is_class_trigger = ".services.applications import ApplicationsService" in (
-        trigger_src
-    ) or ".services.cover_letters import CoverLetterService" in (
-        trigger_src
-    ) or ".services.relevance import RelevanceService" in trigger_src
+    is_class_trigger = (
+        ".services.applications import ApplicationsService" in (trigger_src)
+        or ".services.cover_letters import CoverLetterService" in (trigger_src)
+        or ".services.relevance import RelevanceService" in trigger_src
+    )
     # ``_build_daily_digest`` / ``_build_review_flow`` also import a
     # Service class from the legacy shim, but they are *module-level*
     # re-export shims (the deprecation warning fires on import, not in
