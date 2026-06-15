@@ -11,10 +11,10 @@ from job_bot.application_prep.models.cover_letter import (
     CoverLetterCreate,
 )
 from job_bot.shared.storage.database import Database
-from job_bot.shared.storage.repository import BaseRepository
+from job_bot.shared.storage.repository import BaseSqliteRepository
 
 
-class CoverLetterRepository(BaseRepository[CoverLetter]):
+class CoverLetterRepository(BaseSqliteRepository):
     """Repository for cover letters."""
 
     def __init__(self, database: Database) -> None:

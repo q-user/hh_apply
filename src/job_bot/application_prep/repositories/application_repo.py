@@ -11,10 +11,10 @@ from job_bot.application_prep.models.application import (
     ApplicationDraftCreate,
 )
 from job_bot.shared.storage.database import Database
-from job_bot.shared.storage.repository import BaseRepository
+from job_bot.shared.storage.repository import BaseSqliteRepository
 
 
-class ApplicationDraftRepository(BaseRepository[ApplicationDraft]):
+class ApplicationDraftRepository(BaseSqliteRepository):
     """Repository for application drafts."""
 
     def __init__(self, database: Database) -> None:
