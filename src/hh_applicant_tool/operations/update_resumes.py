@@ -5,9 +5,10 @@ import argparse
 import logging
 from typing import TYPE_CHECKING
 
+from job_bot.shared.utils.text import shorten
+
 from ..api import ApiError, datatypes
 from ..main import BaseNamespace, BaseOperation
-from ..utils.string import shorten
 
 if TYPE_CHECKING:
     from ..main import HHApplicantTool

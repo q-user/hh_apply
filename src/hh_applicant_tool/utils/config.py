@@ -23,6 +23,7 @@ backed by the VSA slice.
 
 from __future__ import annotations
 
+import json
 import platform
 import warnings
 from functools import cache
@@ -30,8 +31,6 @@ from os import getenv
 from pathlib import Path
 from threading import Lock
 from typing import Any
-
-from . import json
 
 # Deprecation contract (issue #92): canonical format, ``stacklevel=2``,
 # module-level emission so the warning fires the first time the
@@ -63,7 +62,11 @@ from job_bot.config_auth import (  # noqa: E402
     UserProfile,
     create_config_auth_slice,
 )
-from job_bot.config_auth.ports import AuthPort, ConfigPort, UserPort  # noqa: E402
+from job_bot.config_auth.ports import (  # noqa: E402
+    AuthPort,
+    ConfigPort,
+    UserPort,
+)
 
 __all__ = [
     # Back-compat: legacy ``Config`` + ``get_config_path`` are kept so

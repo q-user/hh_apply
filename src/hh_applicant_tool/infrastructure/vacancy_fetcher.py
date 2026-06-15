@@ -83,7 +83,7 @@ class CachedVacancyDescriptionFetcher:
         """
         import re
 
-        from ..utils.json import JSONDecoder
+        from job_bot.shared.utils.json_utils import JSONDecoder
 
         decoder = JSONDecoder()
 

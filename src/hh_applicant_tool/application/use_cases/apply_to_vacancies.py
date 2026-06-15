@@ -30,10 +30,18 @@ from typing import TYPE_CHECKING, Any, Callable, cast
 
 import requests
 
+from job_bot.shared.utils.json_utils import JSONDecoder
+from job_bot.shared.utils.text import rand_text, strip_tags, unescape_string
+
 from ...ai.base import AIError
-from ...api.errors import BadResponse, Redirect
 from ...api.datatypes import SearchVacancy
-from ...api.errors import ApiError, CaptchaRequired, LimitExceeded
+from ...api.errors import (
+    ApiError,
+    BadResponse,
+    CaptchaRequired,
+    LimitExceeded,
+    Redirect,
+)
 from ...services import (
     DEFAULT_LETTER_TEMPLATE,
     CoverLetterService,
@@ -44,8 +52,6 @@ from ...services import (
     build_search_params,
 )
 from ...storage.repositories.errors import RepositoryError
-from ...utils.json import JSONDecoder
-from ...utils.string import rand_text, strip_tags, unescape_string
 from ..dto import ApplyToVacanciesCommand, ApplyToVacanciesResult
 
 if TYPE_CHECKING:

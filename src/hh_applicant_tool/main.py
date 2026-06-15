@@ -24,6 +24,8 @@ from . import ai, api, utils
 
 if TYPE_CHECKING:
     from .container import AppContainer
+from job_bot.shared.utils.logging import setup_logger
+
 from .constants import (
     CONFIG_DIR,
     COOKIES_FILENAME,
@@ -39,7 +41,6 @@ from .constants import (
 # directly from ``.constants``.
 from .storage import StorageFacade
 from .utils.cookiejar import HHOnlyCookieJar
-from .utils.log import setup_logger
 from .utils.mixins import MegaTool
 
 logger = logging.getLogger(__package__)

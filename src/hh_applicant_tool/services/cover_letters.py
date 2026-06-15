@@ -26,8 +26,7 @@ import re
 import warnings
 from typing import TYPE_CHECKING, Any
 
-
-from ..utils.string import rand_text, strip_tags
+from job_bot.shared.utils.text import rand_text, strip_tags
 
 if TYPE_CHECKING:
     from ..application.ports import VacancyDescriptionFetcherPort
