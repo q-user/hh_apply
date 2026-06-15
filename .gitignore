@@ -78,3 +78,4 @@ logs/
 
 # Agent task notes / scratch prompts (not project artifacts)
 /prompts/
+.gh_issue_bodies/
