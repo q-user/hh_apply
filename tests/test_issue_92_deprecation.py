@@ -30,7 +30,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-
 # ─── Canonical message template ─────────────────────────────────
 
 
@@ -124,6 +123,44 @@ def _build_relevance() -> Any:
     from hh_applicant_tool.services.relevance import RelevanceService
 
     return RelevanceService(api_client=MagicMock())
+
+
+def _build_query() -> Any:
+    """Reload the shim and instantiate ``Operation`` for the ``query`` command.
+
+    The ``query`` / ``sql`` shim is a class shim (issue #137) — the
+    deprecation warning fires on ``Operation.__init__`` so the
+    existing CLI dispatch can load the module without polluting
+    test runs.
+    """
+    _reload("hh_applicant_tool.operations.query")
+    from hh_applicant_tool.operations.query import Operation
+
+    return Operation()
+
+
+def _build_create_resume() -> Any:
+    """Reload the shim and instantiate ``Operation`` for ``create-resume``.
+
+    The ``create-resume`` shim is a class shim (issue #137) — the
+    deprecation warning fires on ``Operation.__init__``.
+    """
+    _reload("hh_applicant_tool.operations.create_resume")
+    from hh_applicant_tool.operations.create_resume import Operation
+
+    return Operation()
+
+
+def _build_clone_resume() -> Any:
+    """Reload the shim and instantiate ``Operation`` for ``clone-resume``.
+
+    The ``clone-resume`` shim is a class shim (issue #137) — the
+    deprecation warning fires on ``Operation.__init__``.
+    """
+    _reload("hh_applicant_tool.operations.clone_resume")
+    from hh_applicant_tool.operations.clone_resume import Operation
+
+    return Operation()
 
 
 def _build_review_flow() -> Any:
@@ -258,6 +295,27 @@ SHIM_CONTRACT: tuple[ShimSpec, ...] = (
         issue=137,
         trigger=_build_clear_negotiations,
         description="operations.clear_negotiations module (issue #137)",
+    ),
+    ShimSpec(
+        module_path="hh_applicant_tool.operations.query",
+        vsa_path="job_bot.dev_tools",
+        issue=137,
+        trigger=_build_query,
+        description="operations.query module (issue #137)",
+    ),
+    ShimSpec(
+        module_path="hh_applicant_tool.operations.create_resume",
+        vsa_path="job_bot.resume_management",
+        issue=137,
+        trigger=_build_create_resume,
+        description="operations.create_resume module (issue #137)",
+    ),
+    ShimSpec(
+        module_path="hh_applicant_tool.operations.clone_resume",
+        vsa_path="job_bot.resume_management",
+        issue=137,
+        trigger=_build_clone_resume,
+        description="operations.clone_resume module (issue #137)",
     ),
 )
 
@@ -403,6 +461,9 @@ def test_shim_class_warning_is_in_dunder_init(spec: ShimSpec) -> None:
         ".services.applications import ApplicationsService" in (trigger_src)
         or ".services.cover_letters import CoverLetterService" in (trigger_src)
         or ".services.relevance import RelevanceService" in trigger_src
+        or ".operations.query import Operation" in trigger_src
+        or ".operations.create_resume import Operation" in trigger_src
+        or ".operations.clone_resume import Operation" in trigger_src
     )
     # ``_build_daily_digest`` / ``_build_review_flow`` also import a
     # Service class from the legacy shim, but they are *module-level*
