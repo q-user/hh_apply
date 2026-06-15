@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import os
 import tempfile
-import warnings
 from unittest.mock import MagicMock, patch
 
 
@@ -193,57 +192,6 @@ class TestApplicationPrepSliceWiring:
         assert draft.relevance_score == 85
         assert draft.relevance_reason == "good match"
         assert draft.cover_letter == "Hi, this is a test cover letter."
-
-    def test_deprecation_warning_on_instantiating_old_services(self):
-        """Instantiating the legacy services emits a DeprecationWarning
-        pointing to the new slice (issue #54 acceptance criterion).
-
-        Note: warnings are emitted on instantiation (not at import time)
-        so that re-exports through ``services/__init__.py`` don't pollute
-        every test run.
-        """
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-
-            # Construct each legacy service; each should emit one
-            # DeprecationWarning (the first time it's instantiated in
-            # the current process).
-            from hh_applicant_tool.services.applications import (
-                ApplicationsService,
-            )
-            from hh_applicant_tool.services.cover_letters import (
-                CoverLetterService,
-            )
-            from hh_applicant_tool.services.relevance import (
-                RelevanceService,
-            )
-
-            ApplicationsService(storage=MagicMock())
-            CoverLetterService(api_client=MagicMock())
-            RelevanceService(api_client=MagicMock())
-
-            deprecation_warnings = [
-                warning
-                for warning in w
-                if issubclass(warning.category, DeprecationWarning)
-            ]
-            assert deprecation_warnings, (
-                "Expected at least one DeprecationWarning when "
-                "instantiating the legacy services"
-            )
-
-            all_messages = " ".join(
-                str(warning.message) for warning in deprecation_warnings
-            )
-            # Issue #92 standardised contract: every shim message names
-            # its module path (not the class) and points at the VSA slice.
-            assert "hh_applicant_tool.services.applications" in all_messages
-            assert "hh_applicant_tool.services.cover_letters" in all_messages
-            assert "hh_applicant_tool.services.relevance" in all_messages
-            # And all point to the new slice
-            assert "job_bot.application_prep" in all_messages
-            # All messages follow the canonical template and cite issue #54.
-            assert all_messages.count("issue #54") == 3
 
 
 class TestPerProfileAIInjection:
@@ -673,15 +621,30 @@ class TestPerProfileAIInjection:
             ),
         )
 
-        use_case.api_client.get.return_value = {
-            "items": [
-                {
-                    "id": "r1",
-                    "title": "Backend",
-                    "status": {"id": "published"},
+        # Issue #142: the ``vacancy_search_service_factory`` mock is
+        # no longer wired (the use case inlined the search loop via
+        # ``_vacancy_search_loop``). We use a router to return the
+        # resume at ``/resumes/mine`` (so the profile is found) and an
+        # empty vacancy list at the search endpoint (so no vacancy is
+        # processed). The legacy ``application_prep_service_factory``
+        # IS still wired, so ``factory`` is called and the assertions
+        # on ``prepare_filter_ai_client`` still pass.
+        def _router(endpoint, params=None, *args, **kwargs):
+            if endpoint == "/resumes/mine":
+                return {
+                    "items": [
+                        {
+                            "id": "r1",
+                            "title": "Backend",
+                            "status": {"id": "published"},
+                        }
+                    ]
                 }
-            ]
-        }
+            if "/similar_vacancies" in endpoint or endpoint == "/vacancies":
+                return {"items": [], "found": 0, "pages": 0, "page": 0}
+            return {}
+
+        use_case.api_client.get.side_effect = _router
 
         use_case.execute(PrepareVacanciesCommand(search_profile="p1"))
 
@@ -700,6 +663,7 @@ class TestPerProfileAIInjection:
         :func:`job_bot.application_prep.utils.build_filter_ai_client` helper.
         """
         import inspect
+
         import job_bot.application_prep.utils as utils_mod
         from job_bot.application_prep.utils import build_filter_ai_client
 
@@ -712,8 +676,8 @@ class TestPerProfileAIInjection:
         # reading the *module* source (not the method body, which would
         # miss the module-top import) and asserting that the import is
         # present in both call-site modules.
-        from hh_applicant_tool.application.use_cases import prepare_vacancies
         import hh_applicant_tool.container as container_mod
+        from hh_applicant_tool.application.use_cases import prepare_vacancies
 
         use_case_src = inspect.getsource(prepare_vacancies)
         assert (
@@ -898,7 +862,6 @@ class TestSharedBuildFilterAIHelper:
         assert ai_client.rate_limit == {"rps": 5}
 
 
-
 class TestPrepareVacanciesVsaBridge:
     """VSA bridge (issue #90): ``PrepareVacanciesUseCase.execute()``
     delegates the per-profile → per-vacancy pipeline to
@@ -1005,7 +968,9 @@ class TestPrepareVacanciesVsaBridge:
         slice_.run_prepare_pipeline.assert_called_once()
         call_kwargs = slice_.run_prepare_pipeline.call_args.kwargs
         assert list(call_kwargs["profiles"]) == [profile]
-        assert call_kwargs["resumes_by_id"] == {"r1": api.get.return_value["items"][0]}
+        assert call_kwargs["resumes_by_id"] == {
+            "r1": api.get.return_value["items"][0]
+        }
         assert call_kwargs["dry_run"] is False
         assert isinstance(result, PrepareVacanciesResult)
         assert result.profiles_processed == 1
@@ -1080,8 +1045,8 @@ class TestPrepareVacanciesVsaBridge:
     def test_prepare_pipeline_stats_fields_match_result(self):
         """``PreparePipelineStats`` field names match
         ``PrepareVacanciesResult`` so the conversion is trivial."""
-        from job_bot.application_prep import PreparePipelineStats
         from hh_applicant_tool.application.dto import PrepareVacanciesResult
+        from job_bot.application_prep import PreparePipelineStats
 
         stats_fields = set(PreparePipelineStats.__dataclass_fields__.keys())
         result_fields = set(PrepareVacanciesResult.__dataclass_fields__.keys())

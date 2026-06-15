@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Callable, Iterable, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, cast
 
 import requests
 
@@ -228,100 +228,51 @@ class ApplicationPrepSlice:
             context.progress_callback,
         )
 
-        # Build the per-profile "applications" service. VSA path (issue
-        # #54) takes priority when ``application_prep_service_factory``
-        # is provided; otherwise build the legacy ``ApplicationsService``
-        # trio (VSA RelevanceHandler + CoverLetterService + TestHandler).
+        # Build the per-profile "applications" handler. VSA path (issue
+        # #54, #142): always uses the slice's own VSA handlers — the
+        # legacy ``CoverLetterService`` / ``ApplicationsService`` /
+        # ``VacancySearchService`` shims were removed, so there is no
+        # legacy fallback to bridge. The VSA
+        # :class:`ApplicationHandler.prepare_draft` has the same
+        # signature as the legacy
+        # :meth:`ApplicationsService.prepare_one` (it accepts
+        # ``search_profile_id`` instead of a profile object, so we
+        # pass ``profile.id``); relevance / cover-letter behaviour
+        # matches the duck-type contract documented on the slice.
         applications: Any
-        if context.application_prep_service_factory is not None:
-            applications = context.application_prep_service_factory()
-            if applications is not None:
-                # Restore per-profile filter AI client (issue #54).
-                if hasattr(applications, "prepare_filter_ai_client"):
-                    applications.prepare_filter_ai_client(
-                        profile,
-                        resume,
-                        context.vacancy_filter_ai_factory,
-                        rate_limit=ai_rate_limit,
-                    )
-                if context.cover_letter_ai is not None and hasattr(
-                    applications, "set_cover_letter_ai_client"
-                ):
-                    applications.set_cover_letter_ai_client(
-                        context.cover_letter_ai
-                    )
-        else:
-            # Issue #135: the legacy AI relevance shim is no longer wired
-            # here. The VSA :class:`RelevanceHandler` is the single source
-            # of truth for relevance filtering, so we reuse the slice's
-            # shared handler instance and inject the per-profile filter AI
-            # client via :func:`build_filter_ai_client`. The VSA handler is
-            # duck-type compatible with the legacy
-            # :class:`hh_applicant_tool.services.applications.ApplicationsService`
-            # (``is_suitable_heavy`` / ``is_suitable_light`` returning
-            # :class:`RelevanceResult` with ``suitable`` / ``score`` alias /
-            # ``reason``).
-            build_filter_ai_client(
-                profile=profile,
-                resume=resume,
-                relevance_obj=self._relevance_handler,
-                factory=context.vacancy_filter_ai_factory,
-                rate_limit=ai_rate_limit,
-            )
-            from hh_applicant_tool.services import CoverLetterService
+        build_filter_ai_client(
+            profile=profile,
+            resume=resume,
+            relevance_obj=self._relevance_handler,
+            factory=context.vacancy_filter_ai_factory,
+            rate_limit=ai_rate_limit,
+        )
+        applications = self._application_handler
+        if context.cover_letter_ai is not None:
+            self._cover_letter_handler.ai_client = context.cover_letter_ai
 
-            cover_letter = CoverLetterService(
-                context.api_client,
-                context.cover_letter_ai,
-                template=context.letter_template,
-            )
-            from job_bot.application_submit.handlers.test_handler import (
-                TestHandler,
-            )
-
-            vacancy_tests = TestHandler(
-                session=context.session,
-                ai_client=context.test_ai or context.cover_letter_ai,
-            )
-            from hh_applicant_tool.services import ApplicationsService
-
-            # Issue #135: the legacy ``ApplicationsService`` is typed
-            # against the deprecated AI-relevance shim. The VSA
-            # ``RelevanceHandler`` is duck-type compatible (same
-            # ``is_suitable_heavy`` / ``is_suitable_light`` contract and
-            # ``RelevanceResult`` shape) so we cast to ``Any`` for the
-            # one interop call site.
-            applications = ApplicationsService(
-                context.storage,
-                cast("Any", self._relevance_handler),
-                cover_letter,
-                vacancy_tests,
-            )
-
-        # Build per-profile search params and search service.
+        # Build per-profile search params and run the search.
+        # Issue #142: the legacy ``VacancySearchService`` shim was
+        # removed, so the search loop is now inlined here against
+        # the legacy ``api_client`` (``context.api_client``) and the
+        # per-profile ``search_params`` / ``per_page`` /
+        # ``total_pages`` knobs. A future VSA slice can take over
+        # the search loop by pre-injecting a
+        # ``vacancy_search_handler`` into the pipeline context.
         search_params = self._pipeline_profile_search_params(profile)
         per_page = self._pipeline_profile_per_page(profile, per_page)
         total_pages = self._pipeline_profile_total_pages(profile, total_pages)
-
-        if context.vacancy_search_service_factory is not None:
-            search_service = context.vacancy_search_service_factory(
-                per_page, total_pages
-            )
-        else:
-            from hh_applicant_tool.services import VacancySearchService
-
-            search_service = VacancySearchService(
-                context.api_client,
-                per_page=per_page,
-                total_pages=total_pages,
-            )
 
         from hh_applicant_tool.api.errors import ApiError, BadResponse
 
         try:
             vacancies = list(
-                search_service.search(
-                    search_params, resume_id=getattr(profile, "resume_id", None)
+                self._pipeline_vacancy_search(
+                    search_params,
+                    per_page=per_page,
+                    total_pages=total_pages,
+                    resume_id=getattr(profile, "resume_id", None),
+                    api_client=context.api_client,
                 )
             )
         except (requests.RequestException, ApiError, BadResponse) as ex:
@@ -398,10 +349,10 @@ class ApplicationPrepSlice:
         )
 
         try:
-            draft = applications.prepare_one(
+            draft = applications.prepare_draft(
                 resume=resume,
                 vacancy=merged,
-                search_profile=profile,
+                search_profile_id=getattr(profile, "id", None),
                 resume_analysis="",
                 ai_filter_mode=getattr(profile, "ai_filter_mode", None),
                 placeholders=self._pipeline_build_placeholders(resume),
@@ -703,6 +654,53 @@ class ApplicationPrepSlice:
             "vacancy_name": "",
             "employer_name": "",
         }
+
+    @staticmethod
+    def _pipeline_vacancy_search(
+        search_params: dict[str, Any],
+        *,
+        per_page: int,
+        total_pages: int,
+        resume_id: str | None,
+        api_client: Any,
+    ) -> Iterator[dict[str, Any]]:
+        """Legacy vacancy search loop, inlined after the
+        :class:`hh_applicant_tool.services.vacancy_search.VacancySearchService`
+        shim was removed (issue #142).
+
+        Iterates vacancies by paginating ``/vacancies`` (when ``text``
+        is present in ``search_params``) or
+        ``/resumes/{resume_id}/similar_vacancies`` (when ``text`` is
+        absent). Yields the raw ``SearchVacancy`` dicts returned by
+        the API, matching the legacy service's contract.
+
+        The slice uses the legacy ``api_client`` for I/O (the VSA
+        :class:`HHApiClient` migration is tracked separately).
+        """
+        has_text = bool(search_params.get("text"))
+        for page in range(total_pages):
+            params = dict(search_params)
+            params["page"] = page
+            params["per_page"] = per_page
+
+            if has_text:
+                endpoint = "/vacancies"
+            else:
+                if not resume_id:
+                    raise ValueError(
+                        "resume_id is required for similar_vacancies endpoint"
+                    )
+                endpoint = f"/resumes/{resume_id}/similar_vacancies"
+
+            res = api_client.get(endpoint, params)
+            items = res.get("items") or []
+            if not items:
+                return
+
+            yield from items
+
+            if page >= res.get("pages", 0) - 1:
+                return
 
     @property
     def relevance(self) -> RelevancePort:

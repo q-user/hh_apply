@@ -410,7 +410,6 @@ def test_execute_prefers_ports_over_legacy(tmp_path, monkeypatch):
     assert not (tmp_path / "vacancies_with_tests.txt").exists()
 
 
-
 # ─── run_apply_pipeline (issue #89 partial bridge) ─────────────────────
 
 
@@ -515,7 +514,5 @@ class TestRunApplyPipelineBridge:
         use_case._fetch_published_resumes = MagicMock(  # type: ignore[method-assign]
             return_value=[]
         )
-        result = use_case.run_apply_pipeline(
-            command=ApplyToVacanciesCommand()
-        )
+        result = use_case.run_apply_pipeline(command=ApplyToVacanciesCommand())
         assert isinstance(result, ApplyToVacanciesResult)

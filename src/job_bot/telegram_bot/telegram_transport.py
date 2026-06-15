@@ -23,6 +23,7 @@ from typing import Any
 import requests
 
 from hh_applicant_tool.constants import CONFIG_DIR, CONFIG_FILENAME
+
 # VSA path (issue #59): the telegram transport used to instantiate
 # the legacy ``hh_applicant_tool.utils.config.Config`` directly. That
 # class is now a deprecation shim, so the transport reads its config
@@ -128,9 +129,7 @@ class TelegramTransport:
         # would emit a ``DeprecationWarning`` on every transport
         # construction.
         resolved_path = (
-            Path(config_path)
-            if config_path
-            else cls._default_config_path()
+            Path(config_path) if config_path else cls._default_config_path()
         )
         app_config = ConfigHandler().load(resolved_path)
         telegram_cfg = app_config.telegram

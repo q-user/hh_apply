@@ -1,34 +1,13 @@
 """Сервисный слой для подготовки и отправки откликов.
 
-Содержит переиспользуемые компоненты, вынесенные из монолитного
-``operations/apply_vacancies.py``. Сервисы принимают зависимости через
-конструктор (``api_client``, ``ai_client``, ``storage``), что упрощает
-юнит-тестирование и переиспользование в других операциях
-(``prepare-vacancies`` — issue #5, ``apply-worker`` — issue #10).
+Все legacy-сервисы (issue #54) были удалены в issue #142
+(Phase D shim removal). VSA-эквиваленты живут в
+``job_bot.application_prep.handlers`` / ``job_bot.vacancy_search.handlers``
+и доступны через соответствующие слайсы.
+
+Этот ``__init__.py`` остаётся как маркер пакета, чтобы существующие
+импорты ``from hh_applicant_tool import services`` (если такие есть)
+не падали. Внутренний ``services/`` пакет сейчас пуст; shim-файлы
+удалены в коммите ``refactor(vsa): remove application_prep service
+shims + utils.config (Refs #142)``.
 """
-
-from __future__ import annotations
-
-from .applications import ApplicationsService
-from .cover_letters import DEFAULT_LETTER_TEMPLATE, CoverLetterService
-from .relevance import (
-    RelevanceResult,
-    RelevanceService,
-    build_filter_system_prompt_heavy,
-    build_filter_system_prompt_light,
-    parse_ai_json_response,
-)
-from .vacancy_search import VacancySearchService, build_search_params
-
-__all__ = (
-    "ApplicationsService",
-    "CoverLetterService",
-    "DEFAULT_LETTER_TEMPLATE",
-    "RelevanceResult",
-    "RelevanceService",
-    "VacancySearchService",
-    "build_filter_system_prompt_heavy",
-    "build_filter_system_prompt_light",
-    "build_search_params",
-    "parse_ai_json_response",
-)

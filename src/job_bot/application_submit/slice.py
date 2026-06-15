@@ -88,8 +88,6 @@ class PipelineRunResult:
     failed: int = 0
 
 
-
-
 class ApplicationSubmitSlice:
     """Aggregates the apply-submission flow.
 

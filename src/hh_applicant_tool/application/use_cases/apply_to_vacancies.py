@@ -30,8 +30,21 @@ from typing import TYPE_CHECKING, Any, Callable, cast
 
 import requests
 
+from job_bot.application_prep.handlers.cover_letter_handler import (
+    CoverLetterHandler,
+)
+from job_bot.application_prep.handlers.relevance_handler import (
+    RelevanceHandler,
+)
+from job_bot.application_prep.models.cover_letter import DEFAULT_LETTER_TEMPLATE
+from job_bot.application_prep.utils import (
+    build_filter_system_prompt_heavy,
+    build_filter_system_prompt_light,
+)
+from job_bot.shared.storage.database import Database
 from job_bot.shared.utils.json_utils import JSONDecoder
 from job_bot.shared.utils.text import rand_text, strip_tags, unescape_string
+from job_bot.vacancy_search import build_search_params
 
 from ...ai.base import AIError
 from ...api.datatypes import SearchVacancy
@@ -42,20 +55,10 @@ from ...api.errors import (
     LimitExceeded,
     Redirect,
 )
-from ...services import (
-    DEFAULT_LETTER_TEMPLATE,
-    CoverLetterService,
-    RelevanceService,
-    VacancySearchService,
-    build_filter_system_prompt_heavy,
-    build_filter_system_prompt_light,
-    build_search_params,
-)
 from ...storage.repositories.errors import RepositoryError
 from ..dto import ApplyToVacanciesCommand, ApplyToVacanciesResult
 
 if TYPE_CHECKING:
-    from ...utils.config import Config
     from ..ports import (
         CancellationToken,
         CaptchaSolverPort,
@@ -76,9 +79,9 @@ class ApplyToVacanciesUseCase:
 
     Use case не знает про argparse, ``HHApplicantTool`` или UI. Он
     получает «сырые» зависимости через конструктор, конструирует
-    внутренние сервисы (``CoverLetterService``,
-    ``VacancySearchService``, ``RelevanceService``) и оркестрирует
-    рассылку. На выходе — ``ApplyToVacanciesResult`` со статистикой.
+    внутренние VSA-хендлеры (``CoverLetterHandler``,
+    ``RelevanceHandler``) и оркестрирует рассылку. На выходе —
+    ``ApplyToVacanciesResult`` со статистикой.
 
     Attributes:
         api_client: ``api.client.ApiClient`` — HTTP-клиент HH API.
@@ -92,7 +95,7 @@ class ApplyToVacanciesUseCase:
         xsrf_token: XSRF-токен текущей сессии (используется
             ``VacancyTestsService`` при отправке тестовых откликов).
         smtp: ``smtplib.SMTP`` клиент или ``None``.
-        config: ``utils.Config`` (для шаблонов ``apply_mail_*``
+        config: legacy dict-like config (для шаблонов ``apply_mail_*``
             и секции ``smtp``).
 
         (Phase 2 ports — опционально, заменяют прямые вызовы)
@@ -119,7 +122,7 @@ class ApplyToVacanciesUseCase:
         vacancy_filter_ai: Any = None,
         vacancy_filter_ai_factory: Callable[[str], Any] | None = None,
         smtp: Any = None,
-        config: "Config | None" = None,
+        config: Any = None,
         # Phase 2 ports (optional, backward compatible)
         captcha_solver: "CaptchaSolverPort | None" = None,
         site_parser: "SiteParserPort | None" = None,
@@ -138,6 +141,18 @@ class ApplyToVacanciesUseCase:
         # adapter (above) is still used for per-vacancy submission
         # inside ``_send_apply_request``; both wirings can coexist.
         application_submit_slice: Any = None,
+        # VSA handler DI (issue #142). If not supplied, default factories
+        # build VSA handlers from the constructor's ``api_client`` /
+        # ``cover_letter_ai``. Tests can pass mocks via these params to
+        # avoid the legacy shim's class-level monkey-patching.
+        relevance_handler: "RelevanceHandler | None" = None,
+        cover_letter_handler: "CoverLetterHandler | None" = None,
+        vacancy_search_handler: Any = None,
+        # Database backing for default VSA handler factories (in-memory
+        # when not supplied). The use case does not write via the VSA
+        # handlers (it uses ``storage`` for persistence), so a real
+        # database is unnecessary at this level.
+        database: "Database | None" = None,
     ) -> None:
         self.api_client = api_client
         self.session = session
@@ -159,18 +174,29 @@ class ApplyToVacanciesUseCase:
         self._test_logger = test_logger
 
         # Состояние, заполняемое в execute().
-        # ``command``, ``cover_letter_service``, ``vacancy_search_service``
-        # и ``relevance_service`` обязательно проставляются в :meth:`execute`
-        # -- это единственный публичный вход use case'а, поэтому mypy видит
-        # атрибуты без ``| None`` и все обращения ``self.command.X``,
-        # ``self.vacancy_search_service.Y`` и ``self.relevance_service.Z``
-        # ниже не нуждаются в ``# type: ignore[union-attr]``.
+        # ``command``, ``cover_letter_handler``, ``vacancy_search_handler``
+        # и ``relevance_handler`` обязательно проставляются в :meth:`execute`
+        # / :meth:`run_apply_pipeline` -- это единственные публичные входы
+        # use case'а, поэтому mypy видит атрибуты без ``| None`` и все
+        # обращения ``self.command.X``, ``self.vacancy_search_handler.Y``
+        # и ``self.relevance_handler.Z`` ниже не нуждаются в
+        # ``# type: ignore[union-attr]``.
         self.command: ApplyToVacanciesCommand
         self.cancel_event: threading.Event | None = None
         self.progress_callback: ProgressCallback | None = None
-        self.cover_letter_service: CoverLetterService
-        self.vacancy_search_service: VacancySearchService
-        self.relevance_service: RelevanceService
+        self.cover_letter_handler_instance: CoverLetterHandler
+        self.vacancy_search_handler_instance: Any
+        self.relevance_handler_instance: RelevanceHandler
+
+        # VSA handler DI (issue #142). Pre-injected handlers (for tests
+        # or upstream VSA wiring) are used verbatim; otherwise default
+        # factories build them at pipeline-run time so that the
+        # ``cover_letter_ai`` / ``api_client`` that arrive via the
+        # ``use_ai`` flag and the runtime API client are honoured.
+        self._relevance_handler = relevance_handler
+        self._cover_letter_handler = cover_letter_handler
+        self._vacancy_search_handler = vacancy_search_handler
+        self._database = database
 
         # Внедрённый сервис поиска вакансов (VSA wiring)
         self._injected_vacancy_search_service_factory = (
@@ -284,32 +310,12 @@ class ApplyToVacanciesUseCase:
         self.cancel_event = cancel_event
         self.progress_callback = progress_callback
 
-        # Конструируем внутренние сервисы.
+        # Конструируем внутренние VSA-сервисы (issue #142).
         cover_letter_template = (
             command.letter_file_content or DEFAULT_LETTER_TEMPLATE
         )
-        self.cover_letter_service = CoverLetterService(
-            self.api_client,
-            self.cover_letter_ai,
-            template=cover_letter_template,
-        )
-        # Use injected vacancy search service factory (VSA wiring) or fall back to old service
-        if self._injected_vacancy_search_service_factory is not None:
-            self.vacancy_search_service = (
-                self._injected_vacancy_search_service_factory(
-                    command.per_page, command.total_pages
-                )
-            )
-        else:
-            self.vacancy_search_service = VacancySearchService(
-                self.api_client,
-                per_page=command.per_page,
-                total_pages=command.total_pages,
-            )
-        self.relevance_service = RelevanceService(
-            self.api_client,
-            ai_client=None,
-            relevance_rules=(self.command.relevance_rules),
+        self._build_vsa_handlers(
+            command=command, cover_letter_template=cover_letter_template
         )
 
         result = ApplyToVacanciesResult()
@@ -523,31 +529,28 @@ class ApplyToVacanciesUseCase:
         ``self.vacancy_filter_ai``) создаётся AI-клиент с нужным
         ``system_prompt``, и его ``rate_limit`` подгоняется под
         ``command.ai_rate_limit``. Возвращает текст анализа резюме
-        (используется CoverLetterService).
+        (используется CoverLetterHandler).
 
         Returns:
             Текст анализа резюме (resume_analysis) — используется
-            ``CoverLetterService`` при AI-генерации письма.
+            ``CoverLetterHandler`` при AI-генерации письма.
         """
         ai_filter = self.command.ai_filter
         if not ai_filter:
             return ""
 
+        relevance_handler = self.relevance_handler_instance
         if ai_filter == "heavy":
-            resume_analysis = self.relevance_service.analyze_resume_heavy(
-                resume
-            )
+            resume_analysis = relevance_handler.analyze_resume_heavy(resume)
             system_prompt = build_filter_system_prompt_heavy(
                 resume_analysis,
-                relevance_rules=self.relevance_service.relevance_rules,
+                relevance_rules=relevance_handler._relevance_rules,
             )
         elif ai_filter == "light":
-            resume_analysis = self.relevance_service.analyze_resume_light(
-                resume
-            )
+            resume_analysis = relevance_handler.analyze_resume_light(resume)
             system_prompt = build_filter_system_prompt_light(
                 resume_analysis,
-                relevance_rules=self.relevance_service.relevance_rules,
+                relevance_rules=relevance_handler._relevance_rules,
             )
         else:
             raise ValueError(f"Неизвестный режим AI фильтра: {ai_filter}")
@@ -566,7 +569,7 @@ class ApplyToVacanciesUseCase:
 
         if self.command.ai_rate_limit and self.vacancy_filter_ai is not None:
             self.vacancy_filter_ai.rate_limit = self.command.ai_rate_limit
-        self.relevance_service.ai_client = self.vacancy_filter_ai
+        relevance_handler.ai_client = self.vacancy_filter_ai
         return resume_analysis
 
     # ─── Skip policy ─────────────────────────────────────────────
@@ -641,12 +644,13 @@ class ApplyToVacanciesUseCase:
                     vacancy["alternate_url"],
                 )
                 return "ai_already_skipped"
+            relevance_handler = self.relevance_handler_instance
             if ai_filter == "heavy":
-                is_suitable = self.relevance_service.is_suitable_heavy(
+                is_suitable = relevance_handler.is_suitable_heavy(
                     cast(dict[str, Any], vacancy)
                 ).suitable
             elif ai_filter == "light":
-                is_suitable = self.relevance_service.is_suitable_light(
+                is_suitable = relevance_handler.is_suitable_light(
                     cast(dict[str, Any], vacancy)
                 ).suitable
             else:
@@ -854,7 +858,7 @@ class ApplyToVacanciesUseCase:
         resume_analysis: str,
         resume: dict[str, Any],
     ) -> str:
-        return self.cover_letter_service.generate(
+        return self.cover_letter_handler_instance.generate_cover_letter(
             cast(dict[str, Any], vacancy),
             message_placeholders,
             resume_analysis=resume_analysis,
@@ -1157,10 +1161,146 @@ class ApplyToVacanciesUseCase:
     def _get_vacancies(
         self, resume_id: str | None = None
     ):  # -> Iterator[SearchVacancy]
-        yield from self.vacancy_search_service.search(
+        yield from self._legacy_vacancy_search(
             self._base_search_params(),
             resume_id=resume_id,
+            per_page=self.command.per_page,  # type: ignore[union-attr]
+            total_pages=self.command.total_pages,  # type: ignore[union-attr]
         )
+
+    # ─── VSA handler factories (issue #142) ────────────────────
+
+    def _build_vsa_handlers(
+        self, *, command: ApplyToVacanciesCommand, cover_letter_template: str
+    ) -> None:
+        """Build the VSA handlers used inside :meth:`run_apply_pipeline`.
+
+        Issue #142: the legacy ``CoverLetterService`` /
+        ``RelevanceService`` / ``VacancySearchService`` shims were
+        removed; this use case now uses the VSA
+        :class:`CoverLetterHandler` and :class:`RelevanceHandler`
+        directly. The VSA handlers are constructed lazily here (rather
+        than in ``__init__``) so the runtime ``cover_letter_ai`` /
+        ``api_client`` and the ``use_ai`` flag are honoured at
+        pipeline-run time. Tests can pre-inject mocks via the
+        ``relevance_handler`` / ``cover_letter_handler`` /
+        ``vacancy_search_handler`` constructor params to avoid the
+        legacy shim's class-level monkey-patching.
+
+        The handlers do not write to ``self._database`` (the use case
+        persists drafts via ``self.storage``), so a temp-file-backed
+        database is sufficient when the caller does not supply one.
+        The temp file is used (rather than ``":memory:"``) because
+        each ``Database.connect()`` opens a fresh SQLite connection
+        and ``:memory:`` databases don't share state across
+        connections -- the VSA handlers' init scripts assume a
+        persistent database.
+        """
+        # Database backing the VSA handlers. The use case never
+        # persists via these handlers (it uses ``self.storage`` for
+        # that), so a real DB is unnecessary. We allocate a temp file
+        # path on disk so the VSA handlers' per-connection table
+        # creation actually persists across connections.
+        database = self._database
+        if database is None:
+            import tempfile
+
+            tmp_db = tempfile.NamedTemporaryFile(
+                prefix="apply_vacancies_vsa_", suffix=".db", delete=False
+            )
+            tmp_db.close()
+            database = Database(tmp_db.name)
+
+        # Cover letter handler: respects ``cover_letter_template`` from
+        # the command, defaulting to the VSA ``DEFAULT_LETTER_TEMPLATE``
+        # when the user did not provide a ``letter_file``.
+        if self._cover_letter_handler is None:
+            self.cover_letter_handler_instance = CoverLetterHandler(
+                database=database,
+                api_client=self.api_client,
+                ai_client=self.cover_letter_ai,
+                template=cover_letter_template,
+            )
+        else:
+            self.cover_letter_handler_instance = self._cover_letter_handler
+
+        # Relevance handler: the legacy ``RelevanceService`` accepted
+        # ``relevance_rules`` at construction; the VSA handler stores
+        # it as ``_relevance_rules`` and reads it from
+        # ``profile.relevance_rules`` (which the VSA slice also does).
+        # The per-resume command in this use case is the only
+        # relevance-rule source, so we pass it through the AI client
+        # factory via the prompt text (issue #54 followup). The
+        # attribute is still consulted by the use case's
+        # ``_init_ai_filter`` to feed the system prompt.
+        if self._relevance_handler is None:
+            self.relevance_handler_instance = RelevanceHandler(
+                database=database,
+                api_client=self.api_client,
+                ai_client=None,
+                relevance_rules=command.relevance_rules,
+            )
+        else:
+            self.relevance_handler_instance = self._relevance_handler
+
+        # Vacancy search: the VSA ``VacancySearchHandler`` has a
+        # different shape (it persists vacancies to its own DB-backed
+        # table) and the use case's flow does not need the
+        # persistence side-effect. We expose a plain
+        # ``_legacy_vacancy_search`` shim that hits the same
+        # ``/vacancies`` / ``/resumes/{id}/similar_vacancies``
+        # endpoints without persisting. If a future VSA slice wants
+        # to take over the search loop, it can pre-inject a
+        # ``vacancy_search_handler`` whose ``search_vacancies_raw``
+        # yields the same dict shape — but that path is not wired
+        # here (kept for future work).
+        self.vacancy_search_handler_instance = self._vacancy_search_handler
+
+    def _legacy_vacancy_search(
+        self,
+        search_params: dict[str, Any],
+        *,
+        resume_id: str | None,
+        per_page: int,
+        total_pages: int,
+    ):
+        """Legacy vacancy search loop, inlined here after the
+        :class:`VacancySearchService` shim was removed (issue #142).
+
+        Iterates vacancies by paginating ``/vacancies`` (when ``text``
+        is present in ``search_params``) or
+        ``/resumes/{resume_id}/similar_vacancies`` (when ``text`` is
+        absent). Yields the raw ``SearchVacancy`` dicts returned by
+        the API, matching the legacy service's contract.
+        """
+        has_text = bool(search_params.get("text"))
+
+        for page in range(total_pages):
+            logger.debug("Загружаем вакансии со страницы: %d", page + 1)
+            params = dict(search_params)
+            params["page"] = page
+            params["per_page"] = per_page
+
+            if has_text:
+                endpoint = "/vacancies"
+            else:
+                if not resume_id:
+                    raise ValueError(
+                        "resume_id is required for similar_vacancies endpoint"
+                    )
+                endpoint = f"/resumes/{resume_id}/similar_vacancies"
+
+            res = self.api_client.get(endpoint, params)
+            logger.debug("Количество вакансий: %s", res.get("found"))
+
+            items = res.get("items") or []
+            if not items:
+                return
+
+            yield from items
+
+            if page >= res.get("pages", 0) - 1:
+                return
 
     # ─── Excluded filter ─────────────────────────────────────────
 

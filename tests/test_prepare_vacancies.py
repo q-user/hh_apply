@@ -24,9 +24,9 @@ from hh_applicant_tool.application.dto import (
 from hh_applicant_tool.application.use_cases.prepare_vacancies import (
     PrepareVacanciesUseCase,
 )
-from hh_applicant_tool.services.relevance import RelevanceResult
 from hh_applicant_tool.storage.facade import StorageFacade
 from hh_applicant_tool.storage.models.search_profile import SearchProfileModel
+from job_bot.application_prep.models.relevance import RelevanceResult
 
 # ─── Helpers ───────────────────────────────────────────────────────
 
@@ -168,6 +168,7 @@ def _build_use_case(
     cover_letter_ai: Any = None,
     vacancy_filter_ai_factory: Any = None,
     test_ai: Any = None,
+    relevance_handler: Any = None,
 ) -> PrepareVacanciesUseCase:
     return PrepareVacanciesUseCase(
         api_client=api,
@@ -176,6 +177,7 @@ def _build_use_case(
         cover_letter_ai=cover_letter_ai,
         vacancy_filter_ai_factory=vacancy_filter_ai_factory,
         test_ai=test_ai,
+        relevance_handler=relevance_handler,
     )
 
 
@@ -238,29 +240,24 @@ def test_prepare_one_vacancy_no_test_saves_prepared(
 def test_prepare_one_vacancy_with_test_saves_answers(
     storage: sqlite3.Connection,
 ):
-    """Вакансия с has_test: fetch_tests вызван, ответы сохранены."""
+    """Вакансия с has_test: черновик помечен ``test_status='manual_required'``.
+
+    Issue #142: test-answer generation was moved from the prepare
+    phase to the application_submit phase (issue #77 VSA). The
+    prepare phase now just marks the draft as
+    ``test_status='manual_required'`` (or ``generated`` only if a
+    dedicated test-handler integration is wired in the VSA slice).
+    The legacy ``VacancyTestsService`` shim was removed; the VSA
+    :class:`job_bot.application_submit.handlers.test_handler.TestHandler`
+    lives in the submit slice and runs in its own pipeline stage.
+    This test verifies the prepare-side bookkeeping: the draft is
+    saved, ``has_test`` is True, and ``test_status`` reflects the
+    manual_required status (no AI-generated answers in the prepare
+    phase).
+    """
     facade = _make_facade(storage)
     facade.search_profiles.save(_profile("p1"))
     storage.commit()
-
-    # Тестовые данные HH формата: ключ = vacancy_id (str).
-    test_data_for_vacancy = {
-        "uidPk": "u1",
-        "guid": "g1",
-        "startTime": "t1",
-        "required": "true",
-        "tasks": [
-            {
-                "id": "task-1",
-                "description": "Какой http код?",
-                "candidateSolutions": [
-                    {"id": "1", "text": "200"},
-                    {"id": "2", "text": "404"},
-                ],
-            },
-        ],
-    }
-    tests_payload = {"1": test_data_for_vacancy}
 
     api = _make_api(
         resumes=[_resume("r1")],
@@ -277,30 +274,32 @@ def test_prepare_one_vacancy_with_test_saves_answers(
 
     use_case = _build_use_case(facade, api)
 
-    session = _make_session()
-    session.get.return_value.text = (
-        ',"vacancyTests":' + _to_json(tests_payload) + ',"counters":'
-    )
-    session.get.return_value.status_code = 200
-    use_case.session = session
-
     result = use_case.execute(PrepareVacanciesCommand(search_profile="p1"))
     storage.commit()
 
     api.post.assert_not_called()
     assert result.prepared == 1
-    assert result.test_answers == 1
+    # No test answers in the prepare phase (issue #142).
+    assert result.test_answers == 0
 
     saved = facade.application_drafts.get_by_resume_vacancy("r1", 1)
     assert saved is not None
     assert saved.has_test is True
-    assert saved.test_status == "generated"
-    # Ответ сохранён
-    answers = facade.application_test_answers.find_by_draft(saved.id)
-    assert len(answers) == 1
-    assert answers[0].task_id == "task-1"
-    assert answers[0].draft_id == saved.id
-    assert answers[0].selected_solution_id in {"1", "2"}
+    # ``test_status`` is ``None`` when ``response_url`` is set because
+    # the VSA application_prep slice defers test-answer generation to
+    # the application_submit slice. The draft is saved with the
+    # ``response_url`` so the submit phase can pick it up.
+    assert saved.test_status is None
+    # ``manual_required`` would only be set when ``has_test=True`` and
+    # ``response_url`` is missing (no way to fetch the test
+    # automatically). The draft is saved with ``response_url`` so the
+    # application_submit phase can pick it up and generate the test
+    # answers there.
+    # No ``application_test_answers`` rows in the prepare phase
+    # (issue #142) — those are written by the application_submit
+    # slice. The draft is saved with the ``response_url`` so the
+    # submit phase can pick it up and generate the test answers
+    # there.
 
 
 def _to_json(obj: Any) -> str:
@@ -315,7 +314,15 @@ def _to_json(obj: Any) -> str:
 def test_prepare_one_ai_rejected_saves_skipped(
     storage: sqlite3.Connection,
 ):
-    """AI отклоняет → draft.rejected + skipped_vacancies(ai_rejected)."""
+    """AI отклоняет → draft.rejected + skipped_vacancies(ai_rejected).
+
+    Issue #142: the legacy ``RelevanceService`` class-method monkey-
+    patching was replaced by injecting a mock VSA
+    :class:`RelevanceHandler` via the use case's new ``relevance_handler``
+    DI parameter. The mock's ``is_suitable_heavy`` returns a rejected
+    :class:`RelevanceResult`, and ``analyze_resume_heavy`` returns a
+    string (the cache is in-memory in the VSA handler).
+    """
     facade = _make_facade(storage)
     facade.search_profiles.save(_profile("p1", ai_filter_mode="heavy"))
     storage.commit()
@@ -333,23 +340,20 @@ def test_prepare_one_ai_rejected_saves_skipped(
         primary_stack=["cobol"],
         reason="wrong stack",
     )
-    ai_client = MagicMock()
-    # relevance service вызывает ``_ask_ai_suitability`` → парсит JSON.
-    # Проще подменить ``is_suitable_heavy`` на уровне сервиса.
-    factory = MagicMock(return_value=ai_client)
-    use_case = _build_use_case(facade, api, vacancy_filter_ai_factory=factory)
-
-    # Подменяем метод RelevanceService.is_suitable_heavy после построения.
-    from hh_applicant_tool.services import RelevanceService
-
-    original = RelevanceService.is_suitable_heavy
-    RelevanceService.is_suitable_heavy = MagicMock(  # type: ignore[assignment]
+    relevance_handler = MagicMock()
+    relevance_handler.is_suitable_heavy = MagicMock(
         return_value=rejected_result
     )
-    try:
-        result = use_case.execute(PrepareVacanciesCommand(search_profile="p1"))
-    finally:
-        RelevanceService.is_suitable_heavy = original  # type: ignore[assignment]
+    relevance_handler.is_suitable_light = MagicMock(
+        return_value=rejected_result
+    )
+    relevance_handler.analyze_resume_heavy = MagicMock(return_value="analysis")
+    relevance_handler.analyze_resume_light = MagicMock(return_value="analysis")
+    relevance_handler._relevance_rules = None
+
+    use_case = _build_use_case(facade, api, relevance_handler=relevance_handler)
+
+    result = use_case.execute(PrepareVacanciesCommand(search_profile="p1"))
     storage.commit()
 
     api.post.assert_not_called()
@@ -421,10 +425,12 @@ def test_duplicate_run_upserts_drafts_and_answers(
 
     # Один draft
     assert facade.application_drafts.count_total() == 1
-    # Один test_answer (UPSERT)
+    # Issue #142: test-answer generation moved to the application_submit
+    # phase, so the prepare phase writes no ``application_test_answers``
+    # rows. The draft is upserted correctly.
     saved = facade.application_drafts.get_by_resume_vacancy("r1", 1)
     answers = facade.application_test_answers.find_by_draft(saved.id)
-    assert len(answers) == 1
+    assert answers == []
 
 
 # ─── 5. Dry-run → no DB writes ─────────────────────────────────────
@@ -812,34 +818,48 @@ def test_cancel_event_stops_iteration(storage: sqlite3.Connection):
 def test_never_calls_api_post_with_test_vacancy(
     storage: sqlite3.Connection,
 ):
-    """Safety test: full use case с тестами + реджектом + обычными — POST не вызывается."""
+    """Safety test: full use case с тестами + реджектом + обычными — POST не вызывается.
+
+    Issue #142: the legacy ``RelevanceService`` class-method monkey-
+    patching was replaced by injecting a mock VSA
+    :class:`RelevanceHandler` via the ``relevance_handler`` DI
+    parameter. The mock's ``is_suitable_heavy`` returns a per-vacancy
+    selective result so one vacancy is rejected and one is approved.
+    """
     facade = _make_facade(storage)
     facade.search_profiles.save(_profile("p1"))
     storage.commit()
 
-    # Подменяем relevance чтобы одна вакансия отклонилась, другая прошла.
-    from hh_applicant_tool.services import RelevanceService
-
-    original = RelevanceService.is_suitable_heavy
-
-    def _selective(vacancy: dict[str, Any]) -> RelevanceResult:
-        if vacancy.get("id") == 2:
-            return RelevanceResult(
-                suitable=False,
-                relevance_score=5,
-                success_probability=5,
-                reason="rejected",
-            )
-        return RelevanceResult(
-            suitable=True,
-            relevance_score=90,
-            success_probability=80,
-            reason="ok",
-        )
-
-    RelevanceService.is_suitable_heavy = MagicMock(  # type: ignore[assignment]
-        side_effect=_selective
+    # Подменяем relevance через DI.
+    rejected_result = RelevanceResult(
+        suitable=False,
+        relevance_score=5,
+        success_probability=5,
+        reason="rejected",
     )
+    approved_result = RelevanceResult(
+        suitable=True,
+        relevance_score=90,
+        success_probability=80,
+        reason="ok",
+    )
+
+    def _selective_heavy(vacancy: dict[str, Any]) -> RelevanceResult:
+        if vacancy.get("id") == 2:
+            return rejected_result
+        return approved_result
+
+    relevance_handler = MagicMock()
+    relevance_handler.is_suitable_heavy = MagicMock(
+        side_effect=_selective_heavy
+    )
+    relevance_handler.is_suitable_light = MagicMock(
+        return_value=approved_result
+    )
+    relevance_handler.analyze_resume_heavy = MagicMock(return_value="analysis")
+    relevance_handler.analyze_resume_light = MagicMock(return_value="analysis")
+    relevance_handler._relevance_rules = None
+
     try:
         api = _make_api(
             resumes=[_resume("r1")],
@@ -879,14 +899,14 @@ def test_never_calls_api_post_with_test_vacancy(
         )
         session.get.return_value.status_code = 200
         use_case = _build_use_case(
-            facade, api, vacancy_filter_ai_factory=MagicMock()
+            facade, api, relevance_handler=relevance_handler
         )
         use_case.session = session
 
         result = use_case.execute(PrepareVacanciesCommand(search_profile="p1"))
         storage.commit()
     finally:
-        RelevanceService.is_suitable_heavy = original  # type: ignore[assignment]
+        pass
 
     # api.post не вызывался НИ РАЗУ
     api.post.assert_not_called()
@@ -897,4 +917,8 @@ def test_never_calls_api_post_with_test_vacancy(
     assert result.prepared == 1
     assert result.rejected == 1
     assert result.skipped == 2
-    assert result.test_answers == 1
+    # Issue #142: test-answer generation moved to the application_submit
+    # phase, so the prepare phase records ``test_answers=0``. The
+    # draft itself carries ``response_url`` for the submit phase to
+    # pick up.
+    assert result.test_answers == 0

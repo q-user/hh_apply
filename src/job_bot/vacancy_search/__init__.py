@@ -9,6 +9,7 @@ from .models import (
 )
 from .ports import SearchProfilePort, VacancyPort, VacancySearchPort
 from .slice import VacancySearchSlice, create_vacancy_search_slice
+from .utils import build_search_params
 
 __all__ = [
     # Models
@@ -24,4 +25,6 @@ __all__ = [
     # Slice
     "VacancySearchSlice",
     "create_vacancy_search_slice",
+    # Utilities
+    "build_search_params",
 ]

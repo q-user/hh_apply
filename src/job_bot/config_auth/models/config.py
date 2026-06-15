@@ -99,9 +99,7 @@ class TelegramConfig:
                 else None
             ),
             poll_timeout=(
-                int(raw_poll_timeout)
-                if raw_poll_timeout is not None
-                else None
+                int(raw_poll_timeout) if raw_poll_timeout is not None else None
             ),
             proxy_url=data.get("proxy_url"),
         )
