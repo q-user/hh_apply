@@ -84,6 +84,8 @@ class PreparePipelineStats:
     skipped: int = 0
     test_answers: int = 0
     failed: int = 0
+
+
 class ApplicationPrepSlice:
     """Application Preparation slice - encapsulates all draft preparation functionality.
 
@@ -128,7 +130,6 @@ class ApplicationPrepSlice:
             relevance=self._relevance_handler,
             cover_letter=self._cover_letter_handler,
         )
-
 
     # ─── Top-level prepare-vacancies orchestrator (issue #90) ─────────────────
 
@@ -230,7 +231,7 @@ class ApplicationPrepSlice:
         # Build the per-profile "applications" service. VSA path (issue
         # #54) takes priority when ``application_prep_service_factory``
         # is provided; otherwise build the legacy ``ApplicationsService``
-        # trio (RelevanceService + CoverLetterService + TestHandler).
+        # trio (VSA RelevanceHandler + CoverLetterService + TestHandler).
         applications: Any
         if context.application_prep_service_factory is not None:
             applications = context.application_prep_service_factory()
@@ -243,21 +244,32 @@ class ApplicationPrepSlice:
                         context.vacancy_filter_ai_factory,
                         rate_limit=ai_rate_limit,
                     )
-                if (
-                    context.cover_letter_ai is not None
-                    and hasattr(applications, "set_cover_letter_ai_client")
+                if context.cover_letter_ai is not None and hasattr(
+                    applications, "set_cover_letter_ai_client"
                 ):
                     applications.set_cover_letter_ai_client(
                         context.cover_letter_ai
                     )
         else:
-            relevance = self._pipeline_build_relevance_service(
+            # Issue #135: the legacy AI relevance shim is no longer wired
+            # here. The VSA :class:`RelevanceHandler` is the single source
+            # of truth for relevance filtering, so we reuse the slice's
+            # shared handler instance and inject the per-profile filter AI
+            # client via :func:`build_filter_ai_client`. The VSA handler is
+            # duck-type compatible with the legacy
+            # :class:`hh_applicant_tool.services.applications.ApplicationsService`
+            # (``is_suitable_heavy`` / ``is_suitable_light`` returning
+            # :class:`RelevanceResult` with ``suitable`` / ``score`` alias /
+            # ``reason``).
+            build_filter_ai_client(
                 profile=profile,
                 resume=resume,
-                context=context,
-                ai_rate_limit=ai_rate_limit,
+                relevance_obj=self._relevance_handler,
+                factory=context.vacancy_filter_ai_factory,
+                rate_limit=ai_rate_limit,
             )
             from hh_applicant_tool.services import CoverLetterService
+
             cover_letter = CoverLetterService(
                 context.api_client,
                 context.cover_letter_ai,
@@ -266,21 +278,30 @@ class ApplicationPrepSlice:
             from job_bot.application_submit.handlers.test_handler import (
                 TestHandler,
             )
+
             vacancy_tests = TestHandler(
                 session=context.session,
                 ai_client=context.test_ai or context.cover_letter_ai,
             )
             from hh_applicant_tool.services import ApplicationsService
+
+            # Issue #135: the legacy ``ApplicationsService`` is typed
+            # against the deprecated AI-relevance shim. The VSA
+            # ``RelevanceHandler`` is duck-type compatible (same
+            # ``is_suitable_heavy`` / ``is_suitable_light`` contract and
+            # ``RelevanceResult`` shape) so we cast to ``Any`` for the
+            # one interop call site.
             applications = ApplicationsService(
-                context.storage, relevance, cover_letter, vacancy_tests
+                context.storage,
+                cast("Any", self._relevance_handler),
+                cover_letter,
+                vacancy_tests,
             )
 
         # Build per-profile search params and search service.
         search_params = self._pipeline_profile_search_params(profile)
         per_page = self._pipeline_profile_per_page(profile, per_page)
-        total_pages = self._pipeline_profile_total_pages(
-            profile, total_pages
-        )
+        total_pages = self._pipeline_profile_total_pages(profile, total_pages)
 
         if context.vacancy_search_service_factory is not None:
             search_service = context.vacancy_search_service_factory(
@@ -288,6 +309,7 @@ class ApplicationPrepSlice:
             )
         else:
             from hh_applicant_tool.services import VacancySearchService
+
             search_service = VacancySearchService(
                 context.api_client,
                 per_page=per_page,
@@ -295,6 +317,7 @@ class ApplicationPrepSlice:
             )
 
         from hh_applicant_tool.api.errors import ApiError, BadResponse
+
         try:
             vacancies = list(
                 search_service.search(
@@ -303,8 +326,7 @@ class ApplicationPrepSlice:
             )
         except (requests.RequestException, ApiError, BadResponse) as ex:
             self._pipeline_notify(
-                f"❌ Профиль {profile_id}: "
-                f"ошибка поиска — {ex}",
+                f"❌ Профиль {profile_id}: ошибка поиска — {ex}",
                 context.progress_callback,
             )
             return
@@ -366,10 +388,15 @@ class ApplicationPrepSlice:
         )
         merged = self._pipeline_merge_vacancy(vacancy, full_vacancy)
         self._pipeline_save_vacancy_to_storage(merged, context.storage)
-        self._pipeline_save_employer_to_storage(merged, context.api_client, context.storage)
+        self._pipeline_save_employer_to_storage(
+            merged, context.api_client, context.storage
+        )
 
         from hh_applicant_tool.api.errors import ApiError, BadResponse
-        from hh_applicant_tool.storage.repositories.errors import RepositoryError
+        from hh_applicant_tool.storage.repositories.errors import (
+            RepositoryError,
+        )
+
         try:
             draft = applications.prepare_one(
                 resume=resume,
@@ -433,7 +460,11 @@ class ApplicationPrepSlice:
                 context.progress_callback,
             )
         else:
-            extra = " (test=manual_required)" if getattr(saved_draft, "has_test", False) else ""
+            extra = (
+                " (test=manual_required)"
+                if getattr(saved_draft, "has_test", False)
+                else ""
+            )
             self._pipeline_notify(
                 f"[PREPARE] {alt} — draft={saved_draft.id}{extra}",
                 context.progress_callback,
@@ -496,7 +527,10 @@ class ApplicationPrepSlice:
         vacancy_id = vacancy.get("id")
         if vacancy_id is None:
             return False
-        from hh_applicant_tool.storage.repositories.errors import RepositoryError
+        from hh_applicant_tool.storage.repositories.errors import (
+            RepositoryError,
+        )
+
         try:
             if resume_id and any(
                 storage.skipped_vacancies.find(
@@ -523,7 +557,10 @@ class ApplicationPrepSlice:
         created_at = (
             context.clock.now() if context.clock is not None else datetime.now()
         )
-        from hh_applicant_tool.storage.repositories.errors import RepositoryError
+        from hh_applicant_tool.storage.repositories.errors import (
+            RepositoryError,
+        )
+
         try:
             context.storage.skipped_vacancies.save(
                 {
@@ -544,7 +581,10 @@ class ApplicationPrepSlice:
         vacancy: dict[str, Any], storage: Any
     ) -> None:
         """Persist vacancy (+ contacts) to storage."""
-        from hh_applicant_tool.storage.repositories.errors import RepositoryError
+        from hh_applicant_tool.storage.repositories.errors import (
+            RepositoryError,
+        )
+
         try:
             storage.vacancies.save(vacancy)
         except RepositoryError as ex:
@@ -565,6 +605,7 @@ class ApplicationPrepSlice:
         if not employer_id:
             return
         from hh_applicant_tool.api.errors import ApiError, BadResponse
+
         try:
             profile = api_client.get(f"/employers/{employer_id}")
         except (requests.RequestException, ApiError, BadResponse) as ex:
@@ -573,7 +614,10 @@ class ApplicationPrepSlice:
                 ex,
             )
             return
-        from hh_applicant_tool.storage.repositories.errors import RepositoryError
+        from hh_applicant_tool.storage.repositories.errors import (
+            RepositoryError,
+        )
+
         try:
             storage.employers.save(profile)
         except RepositoryError as ex:
@@ -587,8 +631,12 @@ class ApplicationPrepSlice:
         if vacancy_id is None:
             return None
         from hh_applicant_tool.api.errors import ApiError, BadResponse
+
         try:
-            return cast("dict[str, Any] | None", api_client.get(f"/vacancies/{vacancy_id}"))
+            return cast(
+                "dict[str, Any] | None",
+                api_client.get(f"/vacancies/{vacancy_id}"),
+            )
         except (requests.RequestException, ApiError, BadResponse) as ex:
             logger.debug(
                 "Не удалось получить полную вакансию %s: %s",
@@ -618,33 +666,11 @@ class ApplicationPrepSlice:
         return merged
 
     @staticmethod
-    def _pipeline_build_relevance_service(
-        *,
-        profile: Any,
-        resume: dict[str, Any],
-        context: PreparePipelineContext,
-        ai_rate_limit: int,
-    ) -> Any:
-        """Build :class:`RelevanceService` for the legacy fallback path."""
-        from hh_applicant_tool.services import RelevanceService
-        relevance = RelevanceService(
-            context.api_client,
-            ai_client=None,
-            relevance_rules=getattr(profile, "relevance_rules", None),
-        )
-        build_filter_ai_client(
-            profile=profile,
-            resume=resume,
-            relevance_obj=relevance,
-            factory=context.vacancy_filter_ai_factory,
-            rate_limit=ai_rate_limit,
-        )
-        return relevance
-
-    @staticmethod
     def _pipeline_profile_search_params(profile: Any) -> dict[str, Any]:
         """Extract search params from profile (drops per_page/total_pages)."""
-        params: dict[str, Any] = dict(getattr(profile, "search_params", None) or {})
+        params: dict[str, Any] = dict(
+            getattr(profile, "search_params", None) or {}
+        )
         params.pop("per_page", None)
         params.pop("total_pages", None)
         return params
