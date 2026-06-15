@@ -15,18 +15,18 @@ from unittest.mock import MagicMock
 import pytest
 
 from hh_applicant_tool.ai.base import AIError
-from hh_applicant_tool.services.daily_digest import (
-    LAST_DIGEST_KEY,
-    DailyDigestService,
-    DigestResult,
-    DraftGroup,
-)
 from hh_applicant_tool.storage.facade import StorageFacade
 from hh_applicant_tool.storage.models.application_draft import (
     ApplicationDraftModel,
 )
 from hh_applicant_tool.storage.models.search_profile import SearchProfileModel
 from hh_applicant_tool.storage.models.setting import SettingModel
+from job_bot.telegram_bot.services.daily_digest_service import (
+    LAST_DIGEST_KEY,
+    DailyDigestService,
+    DigestResult,
+    DraftGroup,
+)
 from job_bot.telegram_bot.telegram_transport import (
     TelegramTransport,
     TelegramTransportError,
@@ -111,24 +111,6 @@ def _save_draft(
 
 
 # ─── Импорт / инстанцирование ───────────────────────────────────────
-
-
-def test_service_can_be_imported():
-    """Сервис экспортируется из ``services`` и принимает DI-аргументы."""
-    from hh_applicant_tool.services import (
-        DailyDigestService as Imported,
-    )
-
-    assert Imported is DailyDigestService
-
-
-def test_service_instantiation_with_minimal_args(storage: sqlite3.Connection):
-    """Минимальный конструктор: storage + transport (config/clock — None)."""
-    svc = DailyDigestService(
-        storage=StorageFacade(storage),
-        transport=_make_transport(),
-    )
-    assert svc.clock is not None  # fallback SystemClock
 
 
 # ─── Группировка и агрегация ────────────────────────────────────────

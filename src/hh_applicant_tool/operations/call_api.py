@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from collections import defaultdict
@@ -8,7 +9,6 @@ from typing import TYPE_CHECKING, Any
 
 from ..api import ApiError
 from ..main import BaseNamespace, BaseOperation
-from ..utils import json
 
 if TYPE_CHECKING:
     from ..main import HHApplicantTool

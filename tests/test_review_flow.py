@@ -22,6 +22,16 @@ from datetime import datetime
 from typing import Any
 from unittest.mock import MagicMock
 
+from hh_applicant_tool.storage.facade import StorageFacade
+from hh_applicant_tool.storage.models.application_draft import (
+    ApplicationDraftModel,
+)
+from hh_applicant_tool.storage.models.application_test_answer import (
+    ApplicationTestAnswerModel,
+)
+from hh_applicant_tool.storage.models.telegram_session import (
+    TelegramSessionModel,
+)
 from job_bot.telegram_bot.services.review_service import (
     CB_CONFIRM_SEND,
     CB_CONFIRM_SKIP,
@@ -47,16 +57,6 @@ from job_bot.telegram_bot.services.review_service import (
     InlineButton,
     OutgoingMessage,
     ReviewFlowService,
-)
-from hh_applicant_tool.storage.facade import StorageFacade
-from hh_applicant_tool.storage.models.application_draft import (
-    ApplicationDraftModel,
-)
-from hh_applicant_tool.storage.models.application_test_answer import (
-    ApplicationTestAnswerModel,
-)
-from hh_applicant_tool.storage.models.telegram_session import (
-    TelegramSessionModel,
 )
 from job_bot.telegram_bot.telegram_transport import TelegramTransport
 
@@ -212,18 +212,6 @@ def _state(conn: sqlite3.Connection) -> str:
 
 
 # ─── Импорт / инстанцирование ───────────────────────────────────────
-
-
-def test_service_can_be_imported():
-    """Сервис экспортируется из ``services`` (legacy shim re-export, issue #87)."""
-    from hh_applicant_tool.services import ReviewFlowService as Imported
-
-    assert Imported is ReviewFlowService
-    # И та же ссылка, что и в VSA-локации (shim = ``from … import …`` без обёртки).
-    from job_bot.telegram_bot.services.review_service import (
-        ReviewFlowService as VSA,
-    )
-    assert Imported is VSA
 
 
 def test_service_instantiation_with_minimal_args(

@@ -37,10 +37,11 @@ from typing import Any
 
 import requests
 
+from job_bot.shared.utils.text import strip_tags
+
 from ..ai.base import AIError
 from ..api import BadResponse
 from ..api.errors import ApiError
-from ..utils.string import strip_tags
 
 logger = logging.getLogger(__package__)
 

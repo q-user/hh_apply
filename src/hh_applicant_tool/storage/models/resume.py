@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from hh_applicant_tool.utils.date import try_parse_datetime
-
-from .base import BaseModel, mapped
+from hh_applicant_tool.storage.models.base import (  # noqa: F401
+    BaseModel,
+    mapped,
+)  # BaseModel re-exported for callers
+from job_bot.shared.utils.datetime_utils import try_parse_datetime
 
 
 class ResumeModel(BaseModel):

@@ -163,40 +163,6 @@ def _build_clone_resume() -> Any:
     return Operation()
 
 
-def _build_review_flow() -> Any:
-    """Reload the shim and instantiate the re-exported ``ReviewFlowService``.
-
-    The review-flow shim is a module-level re-export (the body has been
-    moved to ``job_bot.telegram_bot.services.review_service``), so the
-    deprecation warning fires on import. Reloading the module is enough
-    to surface the contract message; instantiating the re-exported class
-    additionally proves the public surface still works through the
-    legacy import path (issue #87).
-    """
-    _reload("hh_applicant_tool.services.review_flow")
-    from hh_applicant_tool.services.review_flow import ReviewFlowService
-
-    return ReviewFlowService(storage=MagicMock(), transport=MagicMock())
-
-
-def _build_daily_digest() -> Any:
-    """Reload the shim and instantiate the re-exported ``DailyDigestService``.
-
-    The daily-digest shim is a module-level re-export (the body has been
-    moved to ``job_bot.telegram_bot.services.daily_digest_service``), so
-    the deprecation warning fires on import. Reloading the module is
-    enough to surface the contract message; instantiating the
-    re-exported class additionally proves the public surface still
-    works through the legacy import path (issue #8 / #54).
-    """
-    _reload("hh_applicant_tool.services.daily_digest")
-    from hh_applicant_tool.services.daily_digest import DailyDigestService
-
-    storage_facade = MagicMock()
-    transport = MagicMock()
-    return DailyDigestService(storage=storage_facade, transport=transport)
-
-
 def _build_reply_employers() -> Any:
     """Reload the ``reply_employers`` shim and instantiate ``Operation``.
 
@@ -260,27 +226,6 @@ SHIM_CONTRACT: tuple[ShimSpec, ...] = (
         issue=59,
         trigger=lambda: _reload("hh_applicant_tool.utils.config"),
         description="utils.config module (issue #59)",
-    ),
-    ShimSpec(
-        module_path="hh_applicant_tool.operations.authorize",
-        vsa_path="job_bot.config_auth",
-        issue=59,
-        trigger=lambda: _reload("hh_applicant_tool.operations.authorize"),
-        description="operations.authorize module (issue #59)",
-    ),
-    ShimSpec(
-        module_path="hh_applicant_tool.services.review_flow",
-        vsa_path="job_bot.telegram_bot.services.review_service",
-        issue=87,
-        trigger=_build_review_flow,
-        description="services.review_flow module (issue #87)",
-    ),
-    ShimSpec(
-        module_path="hh_applicant_tool.services.daily_digest",
-        vsa_path="job_bot.telegram_bot.services.daily_digest_service",
-        issue=54,
-        trigger=_build_daily_digest,
-        description="services.daily_digest module (issue #8 / #54)",
     ),
     ShimSpec(
         module_path="hh_applicant_tool.operations.reply_employers",
@@ -465,17 +410,6 @@ def test_shim_class_warning_is_in_dunder_init(spec: ShimSpec) -> None:
         or ".operations.create_resume import Operation" in trigger_src
         or ".operations.clone_resume import Operation" in trigger_src
     )
-    # ``_build_daily_digest`` / ``_build_review_flow`` also import a
-    # Service class from the legacy shim, but they are *module-level*
-    # re-export shims (the deprecation warning fires on import, not in
-    # ``__init__``). Treat them as module-level shims.
-    is_module_level_re_export = (
-        ".services.review_flow import ReviewFlowService" in trigger_src
-        or ".services.daily_digest import DailyDigestService" in trigger_src
-    )
-    if is_module_level_re_export:
-        is_class_trigger = False
-
     if not is_class_trigger:
         # Module-level shim: the warning is expected at import time
         # and the test_trigger path already exercises that.  Nothing

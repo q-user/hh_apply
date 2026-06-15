@@ -1,11 +1,11 @@
 import builtins
+import json
 from dataclasses import Field, asdict, dataclass, field, fields
 from datetime import datetime
 from logging import getLogger
 from typing import Any, Callable, Mapping, Self, dataclass_transform, get_origin
 
-from hh_applicant_tool.utils import json
-from hh_applicant_tool.utils.date import try_parse_datetime
+from job_bot.shared.utils.datetime_utils import try_parse_datetime
 
 logger = getLogger(__package__)
 

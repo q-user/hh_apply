@@ -20,8 +20,9 @@ import warnings
 from collections.abc import Iterator, Mapping
 from typing import Any
 
+from job_bot.shared.utils.text import bool2str
+
 from ..api.datatypes import PaginatedItems, SearchVacancy
-from ..utils.string import bool2str
 
 logger = logging.getLogger(__package__)
 
