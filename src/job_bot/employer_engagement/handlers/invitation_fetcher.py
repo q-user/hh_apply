@@ -133,6 +133,9 @@ class InvitationFetcher:
         if updated_at.tzinfo is None:
             updated_at = updated_at.replace(tzinfo=dt.timezone.utc)
         days = (self._now - updated_at).days
+        if self._period is None:
+            # No period filter configured — keep the invitation.
+            return True
         return days <= self._period
 
     @staticmethod

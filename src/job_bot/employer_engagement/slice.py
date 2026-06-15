@@ -136,8 +136,8 @@ class EmployerEngagementSlice:
         self._resume_title = self._pick_resume_title()
 
         self._fetcher = InvitationFetcher(
-            source=api,  # type: ignore[arg-type]
-            messages=api,  # type: ignore[arg-type]
+            source=api,
+            messages=api,
             resumes=self._resumes,
             resume_id=self._resume_id,
             only_invitations=self._only_invitations,
@@ -145,8 +145,8 @@ class EmployerEngagementSlice:
             blacklisted_employers=self._blacklisted,
         )
         self._composer = ReplyComposer(
-            actions=api,  # type: ignore[arg-type]
-            messages=api,  # type: ignore[arg-type]
+            actions=api,
+            messages=api,
             ai_client=ai_client,
             reply_template=reply_message,
             system_prompt=system_prompt,

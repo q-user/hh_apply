@@ -63,7 +63,7 @@ class NegotiationLifecycleSlice:
         self._api = api
         self._blacklisted = set(blacklisted_employers or ())
         self._state_machine = state_machine or LifecycleStateMachine(
-            api=api,  # type: ignore[arg-type]
+            api=api,
             blacklisted_employers=self._blacklisted,
         )
 
