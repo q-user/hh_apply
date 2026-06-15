@@ -11,10 +11,10 @@ from job_bot.application_prep.models.relevance import (
     RelevanceResult,
 )
 from job_bot.shared.storage.database import Database
-from job_bot.shared.storage.repository import BaseRepository
+from job_bot.shared.storage.repository import BaseSqliteRepository
 
 
-class RelevanceAnalysisRepository(BaseRepository[RelevanceAnalysis]):
+class RelevanceAnalysisRepository(BaseSqliteRepository):
     """Repository for relevance analyses."""
 
     def __init__(self, database: Database) -> None:

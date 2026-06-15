@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from job_bot.shared.storage.database import Database
-from job_bot.shared.storage.repository import BaseRepository
+from job_bot.shared.storage.repository import BaseSqliteRepository
 from job_bot.vacancy_search.models.vacancy import Vacancy
 
 
-class VacancyRepository(BaseRepository[Vacancy]):
+class VacancyRepository(BaseSqliteRepository):
     """Repository for vacancies."""
 
     def __init__(self, database: Database) -> None:

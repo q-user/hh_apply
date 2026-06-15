@@ -5,14 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 from job_bot.shared.storage.database import Database
-from job_bot.shared.storage.repository import BaseRepository
+from job_bot.shared.storage.repository import BaseSqliteRepository
 from job_bot.vacancy_search.models.search_profile import (
     SearchProfile,
     SearchProfileUpdate,
 )
 
 
-class SearchProfileRepository(BaseRepository[SearchProfile]):
+class SearchProfileRepository(BaseSqliteRepository):
     """Repository for search profiles."""
 
     def __init__(self, database: Database) -> None:
