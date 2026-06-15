@@ -226,13 +226,47 @@ def test_legacy_errors_module_uses_canonical_deprecation_warning() -> None:
     )
 
 
-def test_legacy_api_package_uses_canonical_deprecation_warning() -> None:
-    """Importing the legacy ``hh_applicant_tool.api`` package emits a DeprecationWarning.
+def test_legacy_errors_warning_message_matches_canonical_contract() -> None:
+    """The errors submodule's warning message matches ``CONTRACT_RE``.
 
-    The package re-exports both the old datatypes and errors. We
-    deprecate the *package*, not just the submodules, because
-    ``from hh_applicant_tool.api import BadResponse`` is one of the
-    active call sites (vacancy_search_handler.py).
+    The ``CaptchaRequired`` / ``LimitExceeded`` exception classes are
+    re-exported by this shim, but they actually live in
+    ``job_bot.application_submit.errors`` — the contract regex only
+    points at the *primary* VSA target (``job_bot.shared.api.errors``)
+    and the second-step migration note lives in the shim's docstring.
+    """
+    from tests.test_issue_92_deprecation import CONTRACT_RE
+
+    sys.modules.pop("hh_applicant_tool.api.errors", None)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        importlib.import_module("hh_applicant_tool.api.errors")
+
+    matches = [
+        w
+        for w in caught
+        if issubclass(w.category, DeprecationWarning)
+        and "hh_applicant_tool.api.errors" in str(w.message)
+    ]
+    assert matches, "no DeprecationWarning for the errors shim was captured"
+    message = str(matches[0].message)
+
+    match = CONTRACT_RE.match(message)
+    assert match is not None, (
+        f"errors shim's message does not match the canonical contract: {message!r}"
+    )
+    assert match.group("module") == "hh_applicant_tool.api.errors"
+    assert match.group("vsa") == "job_bot.shared.api.errors"
+    assert match.group("issue") == "152"
+
+
+def test_legacy_api_package_plain_import_emits_no_warning() -> None:
+    """A plain ``import hh_applicant_tool.api`` does not emit any DeprecationWarning.
+
+    The package is a :pep:`562` lazy re-export; the warning fires
+    only on attribute access. This guards against regressing to a
+    top-level ``warnings.warn`` that would pollute every test run
+    (and every production ``from . import api`` call).
     """
     sys.modules.pop("hh_applicant_tool.api", None)
     sys.modules.pop("hh_applicant_tool.api.datatypes", None)
@@ -241,17 +275,102 @@ def test_legacy_api_package_uses_canonical_deprecation_warning() -> None:
         warnings.simplefilter("always")
         importlib.import_module("hh_applicant_tool.api")
 
-    matches = [
+    package_warnings = [
         w
         for w in caught
         if issubclass(w.category, DeprecationWarning)
         and "hh_applicant_tool.api" in str(w.message)
         and "issue #152" in str(w.message)
     ]
-    assert matches, (
-        "expected a DeprecationWarning for hh_applicant_tool.api; "
-        f"got: {[str(w.message) for w in caught]}"
+    assert package_warnings == [], (
+        "plain import of hh_applicant_tool.api should NOT emit a "
+        f"DeprecationWarning; got: {[str(w.message) for w in package_warnings]}"
     )
+
+
+def test_legacy_api_package_emits_canonical_warning_on_attribute_access() -> (
+    None
+):
+    """Attribute access on the lazy package shim fires exactly one package warning.
+
+    We pre-load the errors submodule so its own deprecation shim is
+    cached in ``sys.modules``; otherwise the package shim's
+    ``importlib.import_module`` call would chain into the errors
+    submodule's module-level ``warnings.warn`` and produce a second
+    warning.  The contract we care about is *the package shim's*
+    warning — exactly one, with the canonical message.
+    """
+    # Pre-load the errors submodule so its own module-level warn
+    # is consumed before we exercise the package shim.
+    importlib.import_module("hh_applicant_tool.api.errors")
+
+    sys.modules.pop("hh_applicant_tool.api", None)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        # Plain import of the package — no warning expected.
+        importlib.import_module("hh_applicant_tool.api")
+        # Attribute access fires the package shim's warning.
+        pkg = sys.modules["hh_applicant_tool.api"]
+        _ = pkg.BadResponse
+
+    package_warnings = [
+        w
+        for w in caught
+        if issubclass(w.category, DeprecationWarning)
+        and "hh_applicant_tool.api" in str(w.message)
+        and "issue #152" in str(w.message)
+    ]
+    assert len(package_warnings) == 1, (
+        "expected exactly one DeprecationWarning from the package shim; "
+        f"got: {[str(w.message) for w in package_warnings]}"
+    )
+
+
+def test_legacy_api_package_warning_message_matches_canonical_contract() -> (
+    None
+):
+    """The package shim's warning message matches ``CONTRACT_RE``.
+
+    The canonical regex (in ``tests/test_issue_92_deprecation.py``)
+    is anchored at both ends with ``^...$``, so trailing prose would
+    break the match.  The ``CaptchaRequired`` / ``LimitExceeded``
+    second-step migration note lives in the module docstring, not
+    in the warning message.
+    """
+    # Import the contract regex from the canonical contract test
+    # (read-only reference — we don't modify the contract test).
+    from tests.test_issue_92_deprecation import CONTRACT_RE
+
+    # Pre-load the errors submodule to isolate the package shim's
+    # warning in the catch context (see above).
+    importlib.import_module("hh_applicant_tool.api.errors")
+
+    sys.modules.pop("hh_applicant_tool.api", None)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        importlib.import_module("hh_applicant_tool.api")
+        pkg = sys.modules["hh_applicant_tool.api"]
+        _ = pkg.BadResponse
+
+    package_warnings = [
+        w
+        for w in caught
+        if issubclass(w.category, DeprecationWarning)
+        and "hh_applicant_tool.api" in str(w.message)
+    ]
+    assert package_warnings, "no package-shim DeprecationWarning was captured"
+    message = str(package_warnings[0].message)
+
+    match = CONTRACT_RE.match(message)
+    assert match is not None, (
+        f"package shim's message does not match the canonical contract "
+        f"template: {message!r}\n"
+        f"Expected: '<module.path> is deprecated; use <vsa.path> instead "
+        f"(issue #<N>).'"
+    )
+    assert match.group("module") == "hh_applicant_tool.api"
+    assert match.group("vsa") == "job_bot.shared.api"
+    assert match.group("issue") == "152"
 
 
 def test_legacy_errors_reexports_match_canonical_symbols() -> None:

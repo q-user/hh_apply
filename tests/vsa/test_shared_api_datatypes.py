@@ -261,6 +261,40 @@ def test_legacy_import_path_uses_canonical_deprecation_warning() -> None:
     )
 
 
+def test_legacy_datatypes_warning_message_matches_canonical_contract() -> None:
+    """The datatypes submodule's warning message matches ``CONTRACT_RE``.
+
+    Same contract as the canonical deprecation test
+    (``tests/test_issue_92_deprecation.py``): the message is anchored
+    with ``^...$`` and must name the legacy module, the VSA target,
+    and the issue number.  Guards against a future regression where
+    the message would no longer parse as the canonical template.
+    """
+    from tests.test_issue_92_deprecation import CONTRACT_RE
+
+    sys.modules.pop("hh_applicant_tool.api.datatypes", None)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        importlib.import_module("hh_applicant_tool.api.datatypes")
+
+    matches = [
+        w
+        for w in caught
+        if issubclass(w.category, DeprecationWarning)
+        and "hh_applicant_tool.api.datatypes" in str(w.message)
+    ]
+    assert matches, "no DeprecationWarning for the datatypes shim was captured"
+    message = str(matches[0].message)
+
+    match = CONTRACT_RE.match(message)
+    assert match is not None, (
+        f"datatypes shim's message does not match the canonical contract: {message!r}"
+    )
+    assert match.group("module") == "hh_applicant_tool.api.datatypes"
+    assert match.group("vsa") == "job_bot.shared.api.datatypes"
+    assert match.group("issue") == "152"
+
+
 def test_legacy_datatypes_reexports_match_canonical_symbols() -> None:
     """Re-exports from the legacy path point at the same objects as the new path.
 
