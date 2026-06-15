@@ -385,16 +385,24 @@ class BaseSqliteRepository:
         self,
         obj: Any,
         /,
-        **kwargs: Any,
-    ) -> None:
-        """Insert/update a single entity (upsert by primary key)."""
+    ) -> Any:
+        """Insert/update a single entity (upsert by primary key).
+
+        Returns the saved entity (the input ``obj``) for fluent chaining
+        and to match the VSA convention "repos return what they saved".
+        The return type is ``Any`` so VSA slice repos may narrow it to
+        the concrete model type (e.g. ``CoverLetter``,
+        ``ApplicationDraft``) while still satisfying Liskov
+        substitution (Refs #144).
+        """
         if not self._table_configured():
             raise NotImplementedError(
                 f"{type(self).__name__} has no `__table__` set; "
                 "set the classvar or override save()."
             )
         data = self._entity_to_row(obj)
-        self._insert(data, **kwargs)
+        self._insert(data)
+        return obj
 
     def save_batch(
         self,

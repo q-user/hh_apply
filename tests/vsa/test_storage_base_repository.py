@@ -176,6 +176,78 @@ class TestBaseSqliteRepositoryClassShape:
         assert SampleItemRepository.model is SampleItem
 
 
+class TestBaseSqliteRepositorySaveOverrideContract:
+    """VSA slice repos narrow ``save()`` to a concrete return type.
+
+    Regression for the CI failure on the first push of PR #160: the base
+    ``save()`` used to be ``-> None`` and accepted ``**kwargs: Any``, but
+    ``CoverLetterRepository.save()`` returns ``CoverLetter`` and
+    ``ApplicationDraftRepository.save()`` returns ``ApplicationDraft`` —
+    both with a concrete typed parameter. Mypy strict flagged those as
+    Liskov-substitution violations against the supertype. The fix widens
+    the supertype to ``(obj: Any, /) -> Any`` so the narrow overrides
+    are valid (Refs #144).
+    """
+
+    def test_subclass_can_narrow_return_type(self, database: Database) -> None:
+        """A subclass returning a concrete type passes mypy strict."""
+
+        class NarrowSaveRepo(BaseSqliteRepository):
+            __table__ = "sample_items"
+            model: type = SampleItem
+            pkey: str = "id"
+
+            def __init__(self, db: Database) -> None:
+                super().__init__(db)
+                self._db.execute_script(
+                    "CREATE TABLE IF NOT EXISTS sample_items ("
+                    "  id TEXT PRIMARY KEY, name TEXT NOT NULL"
+                    ")"
+                )
+
+            def save(self, obj: SampleItem) -> SampleItem:  # type: ignore[override]
+                # Narrower return type is allowed because the supertype is
+                # ``-> Any``. We still call the base upsert to keep the
+                # contract simple and rely on mypy to enforce Liskov.
+                result: SampleItem = super().save(obj)  # type: ignore[return-value]
+                return result
+
+        repo = NarrowSaveRepo(database)
+        saved = repo.save(SampleItem(id="n1", name="Narrow"))
+        assert isinstance(saved, SampleItem)
+        assert saved.id == "n1"
+
+    def test_subclass_can_drop_kwargs(self, database: Database) -> None:
+        """A subclass may drop the legacy ``**kwargs`` and remain compatible.
+
+        Older code paths used ``repo.save(obj, key=...)`` to control upsert
+        behaviour. The VSA repos do not need that escape hatch, so the
+        supertype drops ``**kwargs`` to make the override signatures
+        exact-match the spec (no unused variadic capture).
+        """
+
+        class KwargFreeRepo(BaseSqliteRepository):
+            __table__ = "sample_items"
+            model: type = SampleItem
+            pkey: str = "id"
+
+            def __init__(self, db: Database) -> None:
+                super().__init__(db)
+                self._db.execute_script(
+                    "CREATE TABLE IF NOT EXISTS sample_items ("
+                    "  id TEXT PRIMARY KEY, name TEXT NOT NULL"
+                    ")"
+                )
+
+            def save(self, obj: SampleItem) -> None:  # type: ignore[override]
+                super().save(obj)
+
+        repo = KwargFreeRepo(database)
+        # Must not raise; ``**kwargs`` is not part of the supertype signature.
+        repo.save(SampleItem(id="k1", name="KwargFree"))
+        assert repo.get_by_id("k1") is not None
+
+
 class TestBaseSqliteRepositoryBackcompatShim:
     """The old ``BaseRepository`` name keeps working with a deprecation note."""
 
