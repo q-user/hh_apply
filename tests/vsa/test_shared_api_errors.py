@@ -326,6 +326,64 @@ def test_legacy_api_package_emits_canonical_warning_on_attribute_access() -> (
     )
 
 
+def test_legacy_api_package_from_import_emits_one_package_warning() -> None:
+    """``from hh_applicant_tool.api import BadResponse`` emits exactly one package warning.
+
+    CPython's import machinery calls :pep:`562` ``__getattr__`` *twice*
+    for the ``from X import Y`` form: once via :func:`getattr` to fetch
+    the value, and a second time via :func:`hasattr` from
+    :func:`importlib._handle_fromlist` (only when the name is in
+    ``__all__``).  The package shim caches the resolved attribute in
+    its ``__dict__`` so the second lookup short-circuits and the
+    warning is emitted only once per import statement.
+
+    The errors submodule's own module-level warning is captured in
+    the same catch context (it fires when the package shim imports
+    the submodule on first access).  We assert the submodule warning
+    separately so the test is robust against the submodule being
+    pre-cached by other tests.
+    """
+    # Force a fresh state so the submodule's module-level warning
+    # fires inside our catch context (not before it).
+    importlib.invalidate_caches()
+    sys.modules.pop("hh_applicant_tool.api", None)
+    sys.modules.pop("hh_applicant_tool.api.errors", None)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        # The actual production call site pattern: a ``from`` import.
+        from hh_applicant_tool.api import BadResponse  # noqa: F401
+
+    # The package shim's warning fires exactly once, even though
+    # CPython calls __getattr__ twice for the from-import form.
+    package_warnings = [
+        w
+        for w in caught
+        if issubclass(w.category, DeprecationWarning)
+        and "hh_applicant_tool.api is deprecated" in str(w.message)
+    ]
+    assert len(package_warnings) == 1, (
+        "expected exactly one DeprecationWarning from the package shim "
+        "for a from-import; got: "
+        f"{[str(w.message) for w in package_warnings]}"
+    )
+
+    # The errors submodule's own module-level warning fires once
+    # per process (when the submodule is freshly imported, not when
+    # it is already cached in sys.modules).
+    submodule_warnings = [
+        w
+        for w in caught
+        if issubclass(w.category, DeprecationWarning)
+        and "hh_applicant_tool.api.errors is deprecated" in str(w.message)
+    ]
+    assert len(submodule_warnings) == 1, (
+        "expected exactly one DeprecationWarning from the errors submodule "
+        "(fired once per process when the submodule is freshly imported); "
+        f"got: {[str(w.message) for w in submodule_warnings]}"
+    )
+
+
 def test_legacy_api_package_warning_message_matches_canonical_contract() -> (
     None
 ):
