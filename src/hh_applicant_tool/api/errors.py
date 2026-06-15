@@ -1,148 +1,50 @@
+"""Legacy ``hh_applicant_tool.api.errors`` shim — DEPRECATED (issue #152).
+
+The HH API client exception hierarchy has been split between the
+shared kernel (:mod:`job_bot.shared.api.errors`, the generic classes)
+and the :mod:`job_bot.application_submit.errors` slice (the
+``CaptchaRequired`` / ``LimitExceeded`` subclasses).
+
+This module is preserved as a deprecation shim that re-exports the
+public surface so legacy call sites keep working for one release
+window. New code should depend on the VSA locations directly.
+"""
+
 from __future__ import annotations
 
-from functools import cached_property
-from typing import Any, Type
+import warnings
 
-from requests import Request, Response
-from requests.adapters import CaseInsensitiveDict
+from job_bot.application_submit.errors import CaptchaRequired, LimitExceeded
+from job_bot.shared.api.errors import (
+    ApiError,
+    BadGateway,
+    BadRequest,
+    BadResponse,
+    ClientError,
+    Forbidden,
+    InternalServerError,
+    Redirect,
+    ResourceNotFound,
+)
 
-__all__ = (
-    "BadResponse",
-    "ApiError",
-    "BadGateway",
-    "BadRequest",
-    "ClientError",
-    "Forbidden",
-    "InternalServerError",
-    "Redirect",
-    "ResourceNotFound",
+warnings.warn(
+    "hh_applicant_tool.api.errors is deprecated; "
+    "use job_bot.shared.api.errors instead (issue #152).",
+    DeprecationWarning,
+    stacklevel=2,
 )
 
 
-class BadResponse(Exception):
-    pass
-
-
-class ApiError(BadResponse):
-    def __init__(self, response: Response, data: dict[str, Any]) -> None:
-        self._response = response
-        self._data = data
-
-    @property
-    def data(self) -> dict:
-        return self._data
-
-    @property
-    def request(self) -> Request:
-        return self._response.request
-
-    @property
-    def status_code(self) -> int:
-        return self._response.status_code
-
-    @property
-    def response_headers(self) -> CaseInsensitiveDict:
-        return self._response.headers
-
-    @property
-    def message(self) -> str:
-        return (
-            self._data.get("error_description")
-            or self._data.get("description")
-            or (
-                "An errors has occurred: "
-                + "; ".join(
-                    v["type"] + (f": {v['value']}" if "value" in v else "")
-                    for v in self._data["errors"]
-                )
-            )
-            if "errors" in self._data
-            else str(self._data)
-        )
-
-    #     def __getattr__(self, name: str) -> Any:
-    #         try:
-    #             return self._raw[name]
-    #         except KeyError as ex:
-    #             raise AttributeError(name) from ex
-
-    def __str__(self) -> str:
-        return self.message
-
-    @staticmethod
-    def has_error_value(value: str, data: dict) -> bool:
-        return any(v.get("value") == value for v in data.get("errors", []))
-
-    @classmethod
-    def raise_for_status(
-        cls: Type[ApiError], response: Response, data: dict
-    ) -> None:
-        match response.status_code:
-            case status if 300 <= status <= 308:
-                raise Redirect(response, data)
-            case 400:
-                if cls.has_error_value("limit_exceeded", data):
-                    raise LimitExceeded(response, data)
-                raise BadRequest(response, data)
-            case 403:
-                if cls.has_error_value("captcha_required", data):
-                    raise CaptchaRequired(response, data)
-                raise Forbidden(response, data)
-            case 404:
-                raise ResourceNotFound(response, data)
-            case status if 500 > status >= 400:
-                raise ClientError(response, data)
-            case 502:
-                raise BadGateway(response, data)
-            case status if status >= 500:
-                raise InternalServerError(response, data)
-
-
-class Redirect(ApiError):
-    pass
-
-
-class ClientError(ApiError):
-    pass
-
-
-class BadRequest(ClientError):
-    pass
-
-
-class LimitExceeded(ClientError):
-    pass
-
-
-class Forbidden(ClientError):
-    pass
-
-
-class CaptchaRequired(ClientError):
-    @cached_property
-    def captcha_url(self) -> str:
-        return next(
-            filter(
-                lambda v: v["value"] == "captcha_required",
-                self._data["errors"],
-            ),
-            {},
-        ).get("captcha_url")
-
-    @property
-    def message(self) -> str:
-        return f"Captcha required: {self.captcha_url}"
-
-
-class ResourceNotFound(ClientError):
-    pass
-
-
-class InternalServerError(ApiError):
-    pass
-
-
-# По всей видимости, прокси возвращает, когда их бекенд на Java падает
-# {'description': 'Bad Gateway', 'errors': [{'type': 'bad_gateway'}], 'request_id': '<md5 хеш>'}
-class BadGateway(InternalServerError):
-    pass
+__all__ = (
+    "ApiError",
+    "BadGateway",
+    "BadRequest",
+    "BadResponse",
+    "CaptchaRequired",
+    "ClientError",
+    "Forbidden",
+    "InternalServerError",
+    "LimitExceeded",
+    "Redirect",
+    "ResourceNotFound",
+)
