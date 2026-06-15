@@ -131,9 +131,7 @@ class Operation:
 
     # Селекторы
     SEL_LOGIN_INPUT: str = 'input[data-qa="login-input-username"]'
-    SEL_EXPAND_PASSWORD: str = (
-        'button[data-qa="expand-login-by_password"]'
-    )
+    SEL_EXPAND_PASSWORD: str = 'button[data-qa="expand-login-by_password"]'
     SEL_PASSWORD_INPUT: str = 'input[data-qa="login-input-password"]'
     SEL_CODE_CONTAINER: str = 'div[data-qa="account-login-code-input"]'
     SEL_PIN_CODE_INPUT: str = 'input[data-qa="magritte-pincode-input-field"]'
@@ -188,9 +186,7 @@ class Operation:
             help="Вывод капчи в sixel",
         )
 
-    def run(
-        self, tool: "HHApplicantTool", args: "_AuthArgs"
-    ) -> int | None:
+    def run(self, tool: "HHApplicantTool", args: "_AuthArgs") -> int | None:
         self._tool = tool
         self._args = args
         try:
@@ -335,9 +331,7 @@ class Operation:
                 # is exactly what :meth:`_set_session_cookies` has
                 # always consumed. The ``cast`` bridges the typed
                 # return without a public-API change.
-                self._set_session_cookies(
-                    cast("list[dict[str, Any]]", cookies)
-                )
+                self._set_session_cookies(cast("list[dict[str, Any]]", cookies))
 
             finally:
                 logger.debug("Закрытие браузера")

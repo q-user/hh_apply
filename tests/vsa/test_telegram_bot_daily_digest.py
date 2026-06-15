@@ -176,9 +176,9 @@ class TestDailyDigestServiceModule:
                 f"DailyDigestService.{entry} must be callable"
             )
         # ``clock`` is a property; verify it's a descriptor.
-        assert isinstance(
-            DailyDigestService.__dict__["clock"], property
-        ), "clock must be a @property"
+        assert isinstance(DailyDigestService.__dict__["clock"], property), (
+            "clock must be a @property"
+        )
 
     def test_dto_classes_and_constant_exported(self) -> None:
         """``DraftGroup`` and ``DigestResult`` DTOs plus the
@@ -189,7 +189,9 @@ class TestDailyDigestServiceModule:
             assert hasattr(daily_digest_service, name), (
                 f"daily_digest_service must export {name}"
             )
-        assert daily_digest_service.LAST_DIGEST_KEY == "telegram.last_digest_date"
+        assert (
+            daily_digest_service.LAST_DIGEST_KEY == "telegram.last_digest_date"
+        )
 
     def test_dto_models_are_constructable(self) -> None:
         """``DraftGroup`` and ``DigestResult`` are constructable dataclasses
@@ -255,15 +257,24 @@ class TestDailyDigestServiceBehaviour:
         facade = StorageFacade(storage)
         _save_profile(facade, "p1", "Profile 1")
         _save_draft(
-            facade, profile_id="p1", resume_id="r1", vacancy_id=1,
+            facade,
+            profile_id="p1",
+            resume_id="r1",
+            vacancy_id=1,
             status="prepared",
         )
         _save_draft(
-            facade, profile_id="p1", resume_id="r2", vacancy_id=2,
+            facade,
+            profile_id="p1",
+            resume_id="r2",
+            vacancy_id=2,
             status="rejected",
         )
         _save_draft(
-            facade, profile_id="p1", resume_id="r3", vacancy_id=3,
+            facade,
+            profile_id="p1",
+            resume_id="r3",
+            vacancy_id=3,
             status="approved",
         )
         storage.commit()
@@ -287,21 +298,37 @@ class TestDailyDigestServiceBehaviour:
 
         # Django: 3 total (1 with test, 2 without)
         _save_draft(
-            facade, profile_id="django", resume_id="r1", vacancy_id=10,
-            has_test=True, relevance_score=90,
+            facade,
+            profile_id="django",
+            resume_id="r1",
+            vacancy_id=10,
+            has_test=True,
+            relevance_score=90,
         )
         _save_draft(
-            facade, profile_id="django", resume_id="r1", vacancy_id=11,
-            has_test=False, relevance_score=80,
+            facade,
+            profile_id="django",
+            resume_id="r1",
+            vacancy_id=11,
+            has_test=False,
+            relevance_score=80,
         )
         _save_draft(
-            facade, profile_id="django", resume_id="r1", vacancy_id=12,
-            has_test=False, relevance_score=70,
+            facade,
+            profile_id="django",
+            resume_id="r1",
+            vacancy_id=12,
+            has_test=False,
+            relevance_score=70,
         )
         # FastAPI: 1 without test
         _save_draft(
-            facade, profile_id="fastapi", resume_id="r2", vacancy_id=20,
-            has_test=False, relevance_score=60,
+            facade,
+            profile_id="fastapi",
+            resume_id="r2",
+            vacancy_id=20,
+            has_test=False,
+            relevance_score=60,
         )
         storage.commit()
 
@@ -333,11 +360,17 @@ class TestDailyDigestServiceBehaviour:
         facade = StorageFacade(storage)
         _save_profile(facade, "p1", "Profile 1")
         _save_draft(
-            facade, profile_id="p1", resume_id="r1", vacancy_id=1,
+            facade,
+            profile_id="p1",
+            resume_id="r1",
+            vacancy_id=1,
             relevance_score=75,
         )
         _save_draft(
-            facade, profile_id="p1", resume_id="r1", vacancy_id=2,
+            facade,
+            profile_id="p1",
+            resume_id="r1",
+            vacancy_id=2,
             relevance_score=85,
         )
         storage.commit()
@@ -412,7 +445,8 @@ class TestDailyDigestServiceBehaviour:
         """A telegram config without ``digest_chat_id`` / ``chat_id``
         and without ``allowed_user_ids`` is reported as ``no_chat_id``."""
         svc = _make_service(
-            storage, transport=transport,
+            storage,
+            transport=transport,
             config={"telegram": {}},  # no chat_id keys
         )
         result = svc.send()

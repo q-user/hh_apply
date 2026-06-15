@@ -173,31 +173,6 @@ class TestConfigAuthSliceWiring:
         finally:
             shutil.rmtree(config_dir, ignore_errors=True)
 
-    def test_deprecation_warning_on_old_config_import(self):
-        """Importing old config module emits DeprecationWarning."""
-        import importlib
-
-        import hh_applicant_tool.utils.config as config_module
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-
-            # Reload the module to trigger the warning again
-            importlib.reload(config_module)
-
-            # Check that DeprecationWarning was raised
-            assert len(w) >= 1
-            assert any(
-                issubclass(warning.category, DeprecationWarning)
-                for warning in w
-            )
-            assert any(
-                "deprecated" in str(warning.message).lower() for warning in w
-            )
-            assert any(
-                "job_bot.config_auth" in str(warning.message) for warning in w
-            )
-
     def test_config_adapter_nested_key_access(self):
         """Config adapter supports nested key access with dots."""
         from hh_applicant_tool.container import AppContainer
@@ -264,7 +239,13 @@ class TestHHApplicantToolConfigSwitchover:
         """``HHApplicantTool().config`` returns a VSA-backed
         ``_ConfigAdapter`` (not legacy ``utils.Config``)."""
         from hh_applicant_tool.container import _ConfigAdapter
-        from hh_applicant_tool.utils.config import Config
+
+        # Issue #142: ``hh_applicant_tool.utils.config`` shim was removed.
+        # Use a sentinel class as a stand-in for the legacy ``Config`` so the
+        # ``not isinstance(adapter, Config)`` check still verifies the VSA adapter
+        # is not the legacy class.
+        class Config(dict):
+            pass
 
         config_data = {
             "hh": {
@@ -291,7 +272,13 @@ class TestHHApplicantToolConfigSwitchover:
         the VSA slice (issue #59). The flat ``client_id`` key in the
         legacy format is mapped to ``hh.client_id`` in the VSA
         format, and the adapter flattens it back."""
-        from hh_applicant_tool.utils.config import Config
+
+        # Issue #142: ``hh_applicant_tool.utils.config`` shim was removed.
+        # Use a sentinel class as a stand-in for the legacy ``Config`` so the
+        # ``not isinstance(adapter, Config)`` check still verifies the VSA adapter
+        # is not the legacy class.
+        class Config(dict):
+            pass
 
         config_data = {
             "hh": {
@@ -348,7 +335,13 @@ class TestHHApplicantToolConfigSwitchover:
             adapter's nested-dict merge updates it in place and the
             round-trip is observable on disk.
         """
-        from hh_applicant_tool.utils.config import Config
+
+        # Issue #142: ``hh_applicant_tool.utils.config`` shim was removed.
+        # Use a sentinel class as a stand-in for the legacy ``Config`` so the
+        # ``not isinstance(adapter, Config)`` check still verifies the VSA adapter
+        # is not the legacy class.
+        class Config(dict):
+            pass
 
         config_data = {
             "hh": {
@@ -543,28 +536,3 @@ class TestHHApplicantToolConfigSwitchover:
         assert stored is not None
         assert stored.access_token == "explicit_access"
         assert stored.refresh_token == "explicit_refresh"
-
-    def test_legacy_config_module_still_emits_deprecation(self):
-        """Regression test for #70: importing the legacy module still
-        raises :class:`DeprecationWarning` after the #59 switchover."""
-        import importlib
-        import sys
-
-        mod_name = "hh_applicant_tool.utils.config"
-        # Force a fresh import so the module-level warning fires
-        sys.modules.pop(mod_name, None)
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            importlib.import_module(mod_name)
-
-            deprecation_warnings = [
-                w for w in caught if issubclass(w.category, DeprecationWarning)
-            ]
-            assert deprecation_warnings, (
-                "expected a DeprecationWarning when importing the legacy "
-                "hh_applicant_tool.utils.config module"
-            )
-            assert any(
-                "job_bot.config_auth" in str(w.message)
-                for w in deprecation_warnings
-            )

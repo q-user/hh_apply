@@ -1651,7 +1651,6 @@ class TestPorts:
         assert port is not None
 
 
-
 # ─── run_apply_pipeline (issue #89 partial bridge) ─────────────────────
 
 
@@ -1772,7 +1771,9 @@ class TestRunApplyPipelineBridge:
         """``PipelineRunResult`` is exported and has the expected fields."""
         from job_bot.application_submit.slice import PipelineRunResult
 
-        r = PipelineRunResult(applied=5, resumes_processed=2, limit_reached=True)
+        r = PipelineRunResult(
+            applied=5, resumes_processed=2, limit_reached=True
+        )
         assert r.applied == 5
         assert r.resumes_processed == 2
         assert r.limit_reached is True

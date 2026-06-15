@@ -26,7 +26,6 @@ import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -101,30 +100,6 @@ def _reload(module_path: str) -> Any:
     return importlib.import_module(module_path)
 
 
-def _build_applications() -> Any:
-    """Reload the shim and instantiate ``ApplicationsService``."""
-    _reload("hh_applicant_tool.services.applications")
-    from hh_applicant_tool.services.applications import ApplicationsService
-
-    return ApplicationsService(storage=MagicMock())
-
-
-def _build_cover_letters() -> Any:
-    """Reload the shim and instantiate ``CoverLetterService``."""
-    _reload("hh_applicant_tool.services.cover_letters")
-    from hh_applicant_tool.services.cover_letters import CoverLetterService
-
-    return CoverLetterService(api_client=MagicMock())
-
-
-def _build_relevance() -> Any:
-    """Reload the shim and instantiate ``RelevanceService``."""
-    _reload("hh_applicant_tool.services.relevance")
-    from hh_applicant_tool.services.relevance import RelevanceService
-
-    return RelevanceService(api_client=MagicMock())
-
-
 def _build_query() -> Any:
     """Reload the shim and instantiate ``Operation`` for the ``query`` command.
 
@@ -192,41 +167,6 @@ def _build_clear_negotiations() -> Any:
 
 # The canonical contract table.  Tests are parametrised over this list.
 SHIM_CONTRACT: tuple[ShimSpec, ...] = (
-    ShimSpec(
-        module_path="hh_applicant_tool.services.applications",
-        vsa_path="job_bot.application_prep",
-        issue=54,
-        trigger=_build_applications,
-        description="ApplicationsService (issue #54)",
-    ),
-    ShimSpec(
-        module_path="hh_applicant_tool.services.cover_letters",
-        vsa_path="job_bot.application_prep",
-        issue=54,
-        trigger=_build_cover_letters,
-        description="CoverLetterService (issue #54)",
-    ),
-    ShimSpec(
-        module_path="hh_applicant_tool.services.relevance",
-        vsa_path="job_bot.application_prep",
-        issue=54,
-        trigger=_build_relevance,
-        description="RelevanceService (issue #54)",
-    ),
-    ShimSpec(
-        module_path="hh_applicant_tool.services.vacancy_search",
-        vsa_path="job_bot.vacancy_search",
-        issue=53,
-        trigger=lambda: _reload("hh_applicant_tool.services.vacancy_search"),
-        description="services.vacancy_search module (issue #53)",
-    ),
-    ShimSpec(
-        module_path="hh_applicant_tool.utils.config",
-        vsa_path="job_bot.config_auth",
-        issue=59,
-        trigger=lambda: _reload("hh_applicant_tool.utils.config"),
-        description="utils.config module (issue #59)",
-    ),
     ShimSpec(
         module_path="hh_applicant_tool.operations.reply_employers",
         vsa_path="job_bot.employer_engagement",

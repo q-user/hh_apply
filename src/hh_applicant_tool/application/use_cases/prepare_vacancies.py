@@ -22,22 +22,25 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 import requests
 
+from job_bot.application_prep.handlers.application_handler import (
+    ApplicationHandler,
+)
+from job_bot.application_prep.handlers.cover_letter_handler import (
+    CoverLetterHandler,
+)
+from job_bot.application_prep.handlers.relevance_handler import (
+    RelevanceHandler,
+)
+from job_bot.application_prep.models.cover_letter import DEFAULT_LETTER_TEMPLATE
 from job_bot.application_prep.slice import (
     ApplicationPrepSlice,
     PreparePipelineContext,
     PreparePipelineStats,
 )
 from job_bot.application_prep.utils import build_filter_ai_client
+from job_bot.shared.storage.database import Database
 
-from ...api.errors import BadResponse
-from ...api.errors import ApiError
-from ...services import (
-    DEFAULT_LETTER_TEMPLATE,
-    ApplicationsService,
-    CoverLetterService,
-    RelevanceService,
-    VacancySearchService,
-)
+from ...api.errors import ApiError, BadResponse
 from ...storage.models.search_profile import SearchProfileModel
 from ...storage.repositories.errors import RepositoryError
 from ..dto import PrepareVacanciesCommand, PrepareVacanciesResult
@@ -109,6 +112,18 @@ class PrepareVacanciesUseCase:
         # loop. The legacy path (no slice) is preserved for backward
         # compat with tests that don't wire the slice.
         application_prep_slice: ApplicationPrepSlice | None = None,
+        # VSA handler DI (issue #142). If not supplied, default factories
+        # build VSA handlers from the constructor's ``api_client`` /
+        # ``cover_letter_ai``. Tests can pass mocks via these params to
+        # avoid the legacy shim's class-level monkey-patching.
+        relevance_handler: "RelevanceHandler | None" = None,
+        cover_letter_handler: "CoverLetterHandler | None" = None,
+        application_handler: "ApplicationHandler | None" = None,
+        # Database backing for default VSA handler factories (temp file
+        # when not supplied). The use case does not write via the VSA
+        # handlers (it uses ``storage`` for persistence), so a real
+        # database is unnecessary at this level.
+        database: "Database | None" = None,
     ) -> None:
         self.api_client = api_client
         self.session = session
@@ -139,6 +154,12 @@ class PrepareVacanciesUseCase:
         # ``_process_profile`` / ``_process_vacancy`` path is kept as
         # a fallback for tests that don't wire the slice.
         self._application_prep_slice = application_prep_slice
+
+        # VSA handler DI (issue #142).
+        self._relevance_handler = relevance_handler
+        self._cover_letter_handler = cover_letter_handler
+        self._application_handler = application_handler
+        self._database = database
 
         # Состояние, заполняемое в execute().
         self.command: PrepareVacanciesCommand | None = None
@@ -261,15 +282,17 @@ class PrepareVacanciesUseCase:
             ),
             progress_callback=progress_callback,
         )
-        stats: PreparePipelineStats = self._application_prep_slice.run_prepare_pipeline(
-            profiles=profiles,
-            resumes_by_id=resumes_by_id,
-            context=context,
-            dry_run=command.dry_run,
-            per_page=command.per_page,
-            total_pages=command.total_pages,
-            force_message=command.force_message,
-            ai_rate_limit=command.ai_rate_limit,
+        stats: PreparePipelineStats = (
+            self._application_prep_slice.run_prepare_pipeline(
+                profiles=profiles,
+                resumes_by_id=resumes_by_id,
+                context=context,
+                dry_run=command.dry_run,
+                per_page=command.per_page,
+                total_pages=command.total_pages,
+                force_message=command.force_message,
+                ai_rate_limit=command.ai_rate_limit,
+            )
         )
         return PrepareVacanciesResult(
             profiles_processed=stats.profiles_processed,
@@ -385,23 +408,14 @@ class PrepareVacanciesUseCase:
                 applications.set_cover_letter_ai_client(self.cover_letter_ai)
         else:
             relevance = self._build_relevance_service(profile, resume)
-            cover_letter = CoverLetterService(
-                self.api_client,
-                self.cover_letter_ai,
-                template=self.letter_template,
-            )
-            # Use the VSA TestHandler for test-answer generation.
-            # The handler is owned by the ApplicationSubmit slice (issue #77).
-            from job_bot.application_submit.handlers.test_handler import (
-                TestHandler,
-            )
-
-            vacancy_tests = TestHandler(
-                session=self.session,
-                ai_client=self.test_ai or self.cover_letter_ai,
-            )
-            applications = ApplicationsService(
-                self.storage, relevance, cover_letter, vacancy_tests
+            cover_letter = self._build_cover_letter_handler()
+            # The VSA TestHandler lives in the application_submit slice
+            # (issue #77). The legacy ``VacancyTestsService`` shim was
+            # removed in issue #142; test-answer generation was moved
+            # entirely to the application_submit slice, so the prepare
+            # phase no longer constructs a TestHandler here.
+            applications = self._build_application_handler(
+                relevance, cover_letter
             )
 
         # ``search_params`` хранится в профиле; ``per_page``/``total_pages``
@@ -412,22 +426,18 @@ class PrepareVacanciesUseCase:
         per_page = self._profile_per_page(profile, command.per_page)
         total_pages = self._profile_total_pages(profile, command.total_pages)
 
-        # Use injected vacancy search service factory (VSA wiring) or fall back to old service
-        if self._injected_vacancy_search_service_factory is not None:
-            search_service = self._injected_vacancy_search_service_factory(
-                per_page, total_pages
-            )
-        else:
-            search_service = VacancySearchService(
-                self.api_client,
-                per_page=per_page,
-                total_pages=total_pages,
-            )
-
+        # Vacancy search loop (issue #142). The legacy
+        # ``VacancySearchService`` shim was removed; the loop is now
+        # inlined here against the per-profile ``search_params`` /
+        # ``per_page`` / ``total_pages`` knobs.
+        vacancies: list[dict[str, Any]] = []
         try:
             vacancies = list(
-                search_service.search(
-                    search_params, resume_id=profile.resume_id
+                self._vacancy_search_loop(
+                    search_params,
+                    per_page=per_page,
+                    total_pages=total_pages,
+                    resume_id=profile.resume_id,
                 )
             )
         except (requests.RequestException, ApiError, BadResponse) as ex:
@@ -462,7 +472,7 @@ class PrepareVacanciesUseCase:
         vacancy: dict[str, Any],
         profile: SearchProfileModel,
         resume: dict[str, Any],
-        applications: ApplicationsService,
+        applications: ApplicationHandler,
         command: PrepareVacanciesCommand,
         result: PrepareVacanciesResult,
     ) -> None:
@@ -494,12 +504,23 @@ class PrepareVacanciesUseCase:
         self._save_employer_to_storage(merged)
 
         # Запускаем основной pipeline (AI-фильтр, письмо, тесты).
+        # Issue #142: ``applications`` is now the VSA
+        # :class:`ApplicationHandler` (the legacy
+        # ``ApplicationsService`` shim was removed). The VSA handler
+        # has the same orchestration contract; the only signature
+        # difference is ``search_profile_id`` (str | None) instead of
+        # ``search_profile`` (the profile object). The VSA handler
+        # writes to its own database via ``ApplicationDraftRepository``;
+        # the use case persists via ``self.storage`` (legacy facade),
+        # so we mirror the saved draft to the legacy store after the
+        # VSA handler returns (same UX as the legacy
+        # ``ApplicationsService``).
         try:
-            draft = applications.prepare_one(
+            vsa_draft = applications.prepare_draft(
                 resume=resume,
                 vacancy=merged,
-                search_profile=profile,
-                resume_analysis="",  # AI-фильтр analyze_* вызовет RelevanceService сам
+                search_profile_id=profile.id,
+                resume_analysis="",  # AI-фильтр analyze_* вызовет RelevanceHandler сам
                 ai_filter_mode=profile.ai_filter_mode,
                 placeholders=self._build_placeholders(resume),
                 force_message=command.force_message,
@@ -515,6 +536,12 @@ class PrepareVacanciesUseCase:
             self._notify(f"[FAIL] {alt}: {ex}")
             result.failed += 1
             return
+
+        # Issue #142: copy the VSA ``ApplicationDraft`` back into the
+        # legacy ``StorageFacade`` so callers that read via
+        # ``self.storage.application_drafts`` (the rest of the use
+        # case and the test suite) still see the saved draft.
+        draft = self._save_vsa_draft_to_legacy_storage(vsa_draft, resume)
 
         if draft is None:
             result.skipped += 1
@@ -687,22 +714,20 @@ class PrepareVacanciesUseCase:
         self,
         profile: SearchProfileModel,
         resume: dict[str, Any],
-    ) -> RelevanceService:
-        """Создаёт :class:`RelevanceService` для профиля.
+    ) -> RelevanceHandler:
+        """Создаёт :class:`RelevanceHandler` (VSA) для профиля.
 
-        Анализ резюме и system_prompt AI-фильтра считаются здесь (один раз
-        на профиль). Сам AI-клиент устанавливается в
-        :class:`ApplicationsService` через ``relevance.ai_client`` уже после
-        того, как factory вернёт инстанс.
-
-        Делегирует построение AI-клиента общему хелперу
-        :func:`job_bot.application_prep.utils.build_filter_ai_client` —
-        единая логика для legacy- и VSA-пути (issue #54).
+        Issue #142: the legacy :class:`RelevanceService` shim was
+        removed. The use case now uses the VSA
+        :class:`RelevanceHandler` directly. The AI client is
+        configured by the shared :func:`build_filter_ai_client`
+        helper, which is duck-type compatible with both the legacy
+        and the VSA handlers (both expose ``ai_client`` property /
+        setter and ``analyze_resume_heavy`` / ``analyze_resume_light``
+        methods).
         """
-        relevance = RelevanceService(
-            self.api_client,
-            ai_client=None,
-            relevance_rules=profile.relevance_rules,
+        relevance = self._relevance_handler or self._make_vsa_relevance_handler(
+            relevance_rules=profile.relevance_rules
         )
         build_filter_ai_client(
             profile=profile,
@@ -714,6 +739,184 @@ class PrepareVacanciesUseCase:
             ),
         )
         return relevance
+
+    def _make_vsa_database(self) -> Database:
+        """Return a Database for the VSA handlers.
+
+        Issue #142: the VSA handlers require a real
+        :class:`Database` (the repos' ``_init_table`` calls expect a
+        persistent SQLite connection). When the caller does not
+        supply a database, allocate a temp file path on disk so the
+        per-connection table creation actually persists across
+        connections (``:memory:`` does not).
+        """
+        if self._database is not None:
+            return self._database
+        import tempfile
+
+        tmp_db = tempfile.NamedTemporaryFile(
+            prefix="prepare_vacancies_vsa_", suffix=".db", delete=False
+        )
+        tmp_db.close()
+        return Database(tmp_db.name)
+
+    def _make_vsa_relevance_handler(
+        self, *, relevance_rules: Any
+    ) -> RelevanceHandler:
+        """Build a default VSA :class:`RelevanceHandler`.
+
+        Issue #142: the VSA handler requires a real
+        :class:`Database`; the use case never persists via the
+        handler (it uses ``self.storage`` for that), so the
+        database is a throwaway temp file.
+        """
+        return RelevanceHandler(
+            database=self._make_vsa_database(),
+            api_client=self.api_client,
+            ai_client=None,
+            relevance_rules=relevance_rules,
+        )
+
+    def _build_cover_letter_handler(self) -> CoverLetterHandler:
+        """Return the VSA :class:`CoverLetterHandler` (DI or default)."""
+        if self._cover_letter_handler is not None:
+            return self._cover_letter_handler
+        return CoverLetterHandler(
+            database=self._make_vsa_database(),
+            api_client=self.api_client,
+            ai_client=self.cover_letter_ai,
+            template=self.letter_template,
+        )
+
+    def _build_application_handler(
+        self,
+        relevance: RelevanceHandler,
+        cover_letter: CoverLetterHandler,
+    ) -> ApplicationHandler:
+        """Return the VSA :class:`ApplicationHandler` (DI or default)."""
+        if self._application_handler is not None:
+            return self._application_handler
+        return ApplicationHandler(
+            database=self._make_vsa_database(),
+            relevance=relevance,
+            cover_letter=cover_letter,
+        )
+
+    def _vacancy_search_loop(
+        self,
+        search_params: dict[str, Any],
+        *,
+        per_page: int,
+        total_pages: int,
+        resume_id: str | None,
+    ):
+        """Legacy vacancy search loop, inlined here after the
+        :class:`hh_applicant_tool.services.vacancy_search.VacancySearchService`
+        shim was removed (issue #142).
+        """
+        has_text = bool(search_params.get("text"))
+        for page in range(total_pages):
+            params = dict(search_params)
+            params["page"] = page
+            params["per_page"] = per_page
+
+            if has_text:
+                endpoint = "/vacancies"
+            else:
+                if not resume_id:
+                    raise ValueError(
+                        "resume_id is required for similar_vacancies endpoint"
+                    )
+                endpoint = f"/resumes/{resume_id}/similar_vacancies"
+
+            res = self.api_client.get(endpoint, params)
+            items = res.get("items") or []
+            if not items:
+                return
+
+            yield from items
+
+            if page >= res.get("pages", 0) - 1:
+                return
+
+    def _save_vsa_draft_to_legacy_storage(
+        self,
+        vsa_draft: Any,
+        resume: dict[str, Any],
+    ) -> Any:
+        """Mirror a VSA :class:`ApplicationDraft` to the legacy
+        :class:`hh_applicant_tool.storage.facade.StorageFacade`.
+
+        Issue #142: the VSA :class:`ApplicationHandler.prepare_draft`
+        writes the draft to its own ``ApplicationDraftRepository``
+        (backed by a separate database). The use case's callers —
+        and the test suite — read drafts via ``self.storage`` (the
+        legacy facade). This helper converts the VSA dataclass to
+        the legacy ``ApplicationDraftModel`` and persists it via the
+        facade, so the two stores stay in sync for the duration of
+        the use case run.
+
+        Returns the legacy model on success, or ``None`` if the VSA
+        draft is ``None`` (i.e. the vacancy was skipped by the
+        filter and never made it to a draft save).
+        """
+        if vsa_draft is None:
+            return None
+
+        from ...storage.models.application_draft import (
+            ApplicationDraftModel,
+        )
+
+        # Convert VSA ``ApplicationDraft`` → legacy ``ApplicationDraftModel``.
+        # The dataclass and the legacy model share most fields by name;
+        # the VSA ``id`` is a UUID string (where the legacy uses an
+        # auto-increment int). We let the legacy facade assign the int
+        # id by passing ``id=None``.
+        legacy_draft = ApplicationDraftModel(
+            id=None,
+            search_profile_id=vsa_draft.search_profile_id,
+            resume_id=vsa_draft.resume_id or resume.get("id", ""),
+            vacancy_id=int(vsa_draft.vacancy_id or 0),
+            employer_id=(
+                int(vsa_draft.employer_id) if vsa_draft.employer_id else None
+            ),
+            status=vsa_draft.status,
+            relevance_score=vsa_draft.relevance_score,
+            success_probability=None,
+            relevance_reason=vsa_draft.relevance_reason,
+            analysis_json=vsa_draft.analysis_json,
+            full_vacancy_json=vsa_draft.full_vacancy_json,
+            cover_letter=vsa_draft.cover_letter,
+            cover_letter_status=vsa_draft.cover_letter_status,
+            has_test=vsa_draft.has_test,
+            test_status=vsa_draft.test_status,
+        )
+        # ``ApplicationDraftRepository.save`` is an upsert and does not
+        # return the saved row, so we re-read by ``(resume_id, vacancy_id)``
+        # to obtain the int ``id`` assigned by the legacy autoincrement
+        # PK. If the re-read fails (e.g. the row was not written) we
+        # fall back to the in-memory ``legacy_draft`` so callers see a
+        # non-None draft and the ``prepared`` counter is incremented.
+        try:
+            self.storage.application_drafts.save(legacy_draft)
+        except RepositoryError as ex:
+            logger.warning(
+                "Не удалось сохранить черновик в legacy storage: %s",
+                ex,
+            )
+            return legacy_draft
+        try:
+            saved = self.storage.application_drafts.get_by_resume_vacancy(
+                str(legacy_draft.resume_id or ""),
+                int(legacy_draft.vacancy_id or 0),
+            )
+        except RepositoryError as ex:
+            logger.warning(
+                "Не удалось перечитать черновик после save: %s",
+                ex,
+            )
+            return legacy_draft
+        return saved if saved is not None else legacy_draft
 
     # ─── Профильные search-параметры ─────────────────────────────
 
