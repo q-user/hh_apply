@@ -28,8 +28,8 @@ from unittest.mock import MagicMock, Mock
 import pytest
 
 from hh_applicant_tool.operations.telegram_bot import Operation
-from hh_applicant_tool.services.daily_digest import DigestResult
 from hh_applicant_tool.storage.facade import StorageFacade
+from job_bot.telegram_bot.services.daily_digest_service import DigestResult
 from job_bot.telegram_bot.telegram_transport import (
     TelegramTransport,
     TelegramTransportConfig,

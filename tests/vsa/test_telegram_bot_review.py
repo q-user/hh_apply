@@ -19,13 +19,11 @@ of the shim and the slice wiring.
 from __future__ import annotations
 
 import sqlite3
-import warnings
 from unittest.mock import MagicMock
 
 import pytest
 
 from job_bot.telegram_bot.telegram_transport import TelegramTransport
-
 
 # ─── Fixtures shared across the three groups ────────────────────────
 
@@ -135,76 +133,6 @@ class TestReviewServiceModule:
         assert btn.callback_data == "rf:test:ok"
 
 
-# ─── 2. Legacy shim ────────────────────────────────────────────────
-
-
-class TestReviewFlowShim:
-    """``hh_applicant_tool.services.review_flow`` re-exports the
-    public surface and emits a single :class:`DeprecationWarning` on
-    import (issue #87)."""
-
-    def test_legacy_module_is_a_thin_reexport_shim(self) -> None:
-        """The legacy module exposes the same symbols as the VSA one
-        and contains no business logic of its own."""
-        from job_bot.telegram_bot.services import review_service as vsa
-        from hh_applicant_tool.services import review_flow as legacy
-
-        # Same callback + state constants.
-        for name in (
-            "CB_INTRO_CONTINUE",
-            "CB_TEST_OK",
-            "STATE_IDLE",
-            "STATE_REVIEW_INTRO",
-            "STATE_REVIEW_TEST",
-        ):
-            assert getattr(legacy, name) == getattr(vsa, name), (
-                f"legacy shim constant {name} differs from VSA source"
-            )
-
-        # The shim re-exports the *same class object* (not a wrapper).
-        assert legacy.ReviewFlowService is vsa.ReviewFlowService
-
-    def test_legacy_import_emits_deprecation_warning(self) -> None:
-        """Importing the shim in a fresh warnings context produces
-        exactly one :class:`DeprecationWarning` whose message names
-        the new VSA module."""
-        import importlib
-        import sys
-
-        # Force a fresh import so the module-level ``warnings.warn``
-        # fires again inside our catch context.
-        sys.modules.pop("hh_applicant_tool.services.review_flow", None)
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            importlib.import_module("hh_applicant_tool.services.review_flow")
-
-        deprecations = [
-            w
-            for w in caught
-            if issubclass(w.category, DeprecationWarning)
-            and "review_flow" in str(w.message)
-            and "job_bot.telegram_bot.services.review_service" in str(w.message)
-        ]
-        assert deprecations, (
-            "importing the legacy shim must emit a DeprecationWarning "
-            "pointing at the new VSA location"
-        )
-
-    def test_legacy_service_instantiation_still_works(self) -> None:
-        """Existing callers that instantiate the class through the
-        shim keep working (public surface preserved, issue #87)."""
-        from hh_applicant_tool.services.review_flow import ReviewFlowService
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            svc = ReviewFlowService(
-                storage=MagicMock(),
-                transport=MagicMock(spec=TelegramTransport),
-            )
-        assert svc is not None
-        assert callable(svc.process_message)
-
-
 # ─── 3. Slice wiring ──────────────────────────────────────────────
 
 
@@ -285,6 +213,5 @@ class TestReviewServiceWiring:
 
 __all__ = (
     "TestReviewServiceModule",
-    "TestReviewFlowShim",
     "TestReviewServiceWiring",
 )
