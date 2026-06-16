@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from hh_applicant_tool.infrastructure.test_logger import FileTestVacancyLogger
+from job_bot.application_submit.services.test_logger import FileTestVacancyLogger
 
 # ─── Базовый путь: log + read_logs ──────────────────────────────
 

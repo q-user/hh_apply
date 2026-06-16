@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from hh_applicant_tool.infrastructure.http import (
+from job_bot.shared.http.site_parser import (
     RequestsHttpClient,
     RequestsSiteParser,
 )

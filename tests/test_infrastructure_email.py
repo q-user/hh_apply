@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hh_applicant_tool.infrastructure.email import (
+from job_bot.application_submit.services.email_sender import (
     SMTPEmailSender,
     SMTPEmailSenderFromConfig,
 )

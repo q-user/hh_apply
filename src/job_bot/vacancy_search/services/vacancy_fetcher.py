@@ -99,7 +99,8 @@ class CachedVacancyDescriptionFetcher:
             match = re.search(pattern, html, re.DOTALL)
             if match:
                 try:
-                    return decoder.raw_decode(match.group(1))[0]
+                    result: dict[str, Any] = decoder.raw_decode(match.group(1))[0]
+                    return result
                 except ValueError:
                     # json.JSONDecodeError is a subclass of ValueError; any
                     # other ValueError from the decoder means the match

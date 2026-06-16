@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import requests
 
-from hh_applicant_tool.infrastructure.vacancy_fetcher import (
+from job_bot.vacancy_search.services.vacancy_fetcher import (
     CachedVacancyDescriptionFetcher,
 )
 
@@ -78,7 +78,7 @@ def test_cache_expired_refetches(monkeypatch):
     fake_time = [1000.0]
 
     monkeypatch.setattr(
-        "hh_applicant_tool.infrastructure.vacancy_fetcher.time.monotonic",
+        "job_bot.vacancy_search.services.vacancy_fetcher.time.monotonic",
         lambda: fake_time[0],
     )
 
@@ -174,7 +174,7 @@ def test_get_cache_stats_counts_expired(monkeypatch):
     fake_time = [1000.0]
 
     monkeypatch.setattr(
-        "hh_applicant_tool.infrastructure.vacancy_fetcher.time.monotonic",
+        "job_bot.vacancy_search.services.vacancy_fetcher.time.monotonic",
         lambda: fake_time[0],
     )
     fetcher.fetch("1")

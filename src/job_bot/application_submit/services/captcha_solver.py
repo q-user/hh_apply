@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
 from typing import Any
 
 logger = logging.getLogger(__package__)
@@ -80,7 +81,7 @@ class PlaywrightCaptchaSolver:
                 raise
 
     @asynccontextmanager
-    async def _get_browser(self):
+    async def _get_browser(self) -> AsyncIterator[Any]:
         """Get a browser from the pool."""
         await self._ensure_initialized()
 
@@ -112,11 +113,12 @@ class PlaywrightCaptchaSolver:
         Returns:
             Recognized text from CAPTCHA.
         """
-        return await self._ai_client.complete(
+        result = await self._ai_client.complete(
             f"Распознай текст на изображении капчи. "
             f"Изображение: {len(image_bytes)} bytes. "
             f"Верни только результат распознавания."
         )
+        return str(result)
 
     async def solve_captcha_url(self, url: str) -> str:
         """Solve CAPTCHA by navigating to URL.
@@ -166,7 +168,7 @@ class PlaywrightCaptchaSolver:
                             "networkidle", timeout=15000
                         )
 
-                        return captcha_text
+                        return str(captcha_text)
 
                     finally:
                         await context.close()
@@ -203,5 +205,10 @@ class PlaywrightCaptchaSolver:
         await self._ensure_initialized()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: Any,
+    ) -> None:
         await self.close()

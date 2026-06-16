@@ -143,7 +143,7 @@ class DailyDigestService:
     def _default_clock() -> Clock:
         # Ленивый импорт, чтобы не ловить цикл ``services`` → ``infrastructure``
         # → ``application.use_cases`` → ``services`` при загрузке модуля.
-        from hh_applicant_tool.infrastructure.time import SystemClock
+        from job_bot.shared.utils.clock import SystemClock
 
         return SystemClock()
 

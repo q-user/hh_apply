@@ -1,7 +1,8 @@
 """Port abstractions (Protocols) for infrastructure dependencies.
 
 This module defines all port interfaces that use cases depend on.
-Implementations live in ``src/hh_applicant_tool/infrastructure/``.
+Implementations live in VSA slices (see ``job_bot.shared`` and per-slice
+``services/`` modules, issue #153).
 
 Using Protocol classes enables structural subtyping - implementations
 don't need to explicitly inherit from these classes.
