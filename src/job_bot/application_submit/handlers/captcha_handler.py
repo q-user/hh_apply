@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from hh_applicant_tool.application.ports import CaptchaSolverPort
@@ -138,8 +138,8 @@ class CaptchaHandler:
                         session.cookies.set(
                             c["name"],
                             c["value"],
-                            domain=cast("str", c.get("domain", "")),
-                            path=cast("str", c.get("path", "/")),
+                            domain=c.get("domain", ""),
+                            path=c.get("path", "/"),
                         )
 
                 return True
