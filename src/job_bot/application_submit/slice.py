@@ -547,7 +547,6 @@ class ApplicationSubmitSlice:
         """Parse a site URL (legacy inline regex fallback; no port in slice)."""
         import html
         import re
-        from typing import Callable
 
         if self._session is None:
             raise RuntimeError("session is required for site parsing")

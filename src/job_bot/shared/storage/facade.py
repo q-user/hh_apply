@@ -80,6 +80,27 @@ class StorageFacade:
         default=None, init=False, repr=False, compare=False
     )
 
+    def __post_init__(self) -> None:
+        """Test convenience: accept a raw ``sqlite3.Connection`` as ``database``.
+
+        Some test fixtures yield a ``sqlite3.Connection`` (with the
+        legacy schema already initialised) and want to wrap it in a
+        :class:`StorageFacade` without going through ``from_db_path``
+        (which would create a *separate* in-memory database). When a
+        connection is passed, we adopt it as the long-lived legacy
+        connection and substitute a fresh in-memory ``Database`` for
+        the VSA repos (which will then build on a different schema;
+        tests that mix VSA + legacy repos should use ``from_db_path``
+        against a temp file instead).
+
+        Issue #145: the per-phase handler tests in
+        ``tests/vsa/test_application_submit_handlers_skip.py`` use
+        this to share the connection initialised by ``init_db``.
+        """
+        if isinstance(self.database, sqlite3.Connection):
+            self._legacy_conn = self.database
+            self.database = Database(":memory:")
+
     @classmethod
     def from_db_path(cls, db_path: str | Path) -> "StorageFacade":
         """Factory: create a facade from a database path.

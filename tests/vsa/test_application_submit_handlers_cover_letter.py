@@ -9,9 +9,6 @@ pre-baked letter text.
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock
-
-import pytest
 
 from job_bot.application_submit.handlers.cover_letter_handler import (
     CoverLetterHandler,

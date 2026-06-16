@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import smtplib
+from collections import defaultdict
 from email.message import EmailMessage
 from typing import TYPE_CHECKING, Any
 
@@ -59,7 +60,7 @@ class EmailHandler:
             try:
                 self._email_sender.send_email(to, subject, body)
                 return
-            except smtplib.SMTPException as ex:
+            except Exception as ex:  # noqa: BLE001  # port is user-provided; any crash must not silently swallow the request
                 logger.warning("EmailSenderPort failed: %s", ex)
 
         if self._smtp is None or self._config is None:
@@ -104,13 +105,34 @@ class EmailHandler:
             (self._config.get("apply_mail_subject") if self._config else None)
             or "{Отклик|Резюме} на вакансию %(vacancy_name)s"
         )
+        # Build the full placeholder dict (vacancy_name + employer_name +
+        # caller-supplied placeholders) so the body template's
+        # ``%(vacancy_name)s`` / ``%(resume_url)s`` placeholders always resolve.
+        full_placeholders = self.build_message_placeholders(
+            vacancy, placeholders
+        )
+        # ``defaultdict(str)`` swallows missing ``%(...)s`` keys (e.g. a
+        # caller that didn't supply ``resume_url``) so the body
+        # template still formats to a sensible string.
+        safe_placeholders: dict[str, Any] = defaultdict(str, full_placeholders)
+        mail_subject = (
+            self._rand_text(
+                (
+                    self._config.get("apply_mail_subject")
+                    if self._config
+                    else None
+                )
+                or "{Отклик|Резюме} на вакансию %(vacancy_name)s"
+            )
+            % safe_placeholders
+        )
         mail_body = self._unescape_string(
             self._rand_text(
                 (self._config.get("apply_mail_body") if self._config else None)
                 or "{Здравствуйте|Добрый день}, "
                 "{прошу рассмотреть|пожалуйста рассмотрите} "
                 "мое резюме %(resume_url)s на вакансию %(vacancy_name)s."
-                % placeholders
+                % safe_placeholders
             )
         )
         try:

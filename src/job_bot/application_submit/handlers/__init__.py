@@ -61,9 +61,17 @@ def __getattr__(name: str):  # type: ignore[no-untyped-def]
     ):
         from importlib import import_module
 
-        module_name = name.replace("Handler", "_handler").lower()
+        _module_map = {
+            "SearchHandler": "search_handler",
+            "ScoreHandler": "score_handler",
+            "CoverLetterHandler": "cover_letter_handler",
+            "SkipHandler": "skip_handler",
+            "EmailHandler": "email_handler",
+            "CaptchaHandler": "captcha_handler",
+        }
         module = import_module(
-            f".handlers.{module_name}", package="job_bot.application_submit"
+            f".{_module_map[name]}",
+            package="job_bot.application_submit.handlers",
         )
         return getattr(module, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

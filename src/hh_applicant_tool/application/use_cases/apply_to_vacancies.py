@@ -185,6 +185,94 @@ class ApplyToVacanciesUseCase:
             progress_callback=progress_callback,
         )
 
+    # ─── Port-forwarding shims (issue #89 → #145 transition) ───────
+    #
+    # The Phase 2 port-based methods (``_now``, ``_send_email``,
+    # ``_is_cancelled``, ``_parse_site``, ``_solve_captcha_async``,
+    # ``_handle_vacancy_test``) used to live on the use case and are
+    # covered by ``tests/test_use_case_with_ports.py``. The per-phase
+    # logic moved into the in-slice handlers in #145, but the legacy
+    # test surface is preserved as thin forwarding shims here: each
+    # shim prefers its port (when supplied) and falls back to the
+    # legacy behaviour otherwise. New code should call the slice
+    # handlers directly; the shims are kept for backward compat.
+
+    def _now(self) -> Any:
+        if self._clock is not None:
+            return self._clock.now()
+        from datetime import datetime
+
+        return datetime.now()
+
+    def _send_email(self, to: str, subject: str, body: str) -> None:
+        if self._email_sender is not None:
+            self._email_sender.send_email(to, subject, body)
+            return
+        # No port; raise the same ``RuntimeError`` the legacy
+        # ``_send_email`` would have raised when ``smtp`` / ``config``
+        # were not configured. The slice's email handler raises the
+        # same error, but only when both ``smtp`` and ``config`` are
+        # ``None``; the use case doesn't own these, so we replicate
+        # the check here.
+        if self.smtp is None or self.config is None:
+            raise RuntimeError(
+                "SMTP клиент или конфиг не настроены "
+                "(send_email=True требует обоих)"
+            )
+        self._application_submit_slice.email.send(to, subject, body)
+
+    def _is_cancelled(self) -> bool:
+        if self._cancellation is not None:
+            token = self._cancellation
+            # The port can be either a method-style token
+            # (``is_cancelled()`` returns ``bool``) or a
+            # state-style token (``is_cancelled`` is a ``bool``
+            # attribute). Support both shapes for backward compat.
+            attr = getattr(token, "is_cancelled", None)
+            if callable(attr):
+                return bool(attr())
+            if isinstance(attr, bool):
+                return attr
+        if self.cancel_event is not None:
+            return self.cancel_event.is_set()
+        return False
+
+    def _parse_site(self, url: str) -> Any:
+        if self._site_parser is not None:
+            return self._site_parser.parse_site(url)
+        if self.session is None:
+            raise RuntimeError("parse_site: no site_parser port and no session")
+        return self.session.get(url, timeout=30)
+
+    async def _solve_captcha_async(self, url: str) -> str | None:
+        if self._captcha_solver is not None:
+            return await self._captcha_solver.solve_captcha_url(url)
+        return await self._application_submit_slice.captcha.solve_captcha_async(
+            url
+        )
+
+    def _handle_vacancy_test(self, vacancy: dict, resume_id: str) -> None:
+        if self._test_logger is not None:
+            self._test_logger.log(vacancy, resume_id)
+            return
+        # Legacy fallback: write to file.
+        import json
+        from pathlib import Path
+
+        log_path = Path("logs") / "test_vacancies.jsonl"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as fh:
+            fh.write(
+                json.dumps(
+                    {
+                        "vacancy_id": vacancy.get("id"),
+                        "resume_id": resume_id,
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+
     # ─── Internals ─────────────────────────────────────────────
 
     def _build_default_slice(
@@ -274,16 +362,38 @@ class ApplyToVacanciesUseCase:
         needs a raw connection. Falls back to a fresh in-memory
         connection when neither is available (used by some unit
         tests).
+
+        Three storage shapes are accepted:
+
+        1. The legacy :class:`hh_applicant_tool.storage.facade.StorageFacade`
+           (legacy dataclass-style facade with repo attributes
+           ``vacancy_contacts``, ``skipped_vacancies``, etc.). The
+           connection lives inside each repo; we fish it out of
+           ``storage.vacancy_contacts.conn``.
+        2. A facade with a ``conn`` attribute (e.g. a shim or an
+           older facade). Use it directly.
+        3. The VSA :class:`job_bot.shared.storage.facade.StorageFacade`
+           which wraps a :class:`Database`. Open a fresh connection
+           to ``database.path``.
         """
         storage = self.storage
         if storage is None:
             return sqlite3.connect(":memory:")
-        # ``StorageFacade.conn`` is the legacy long-lived connection.
+        # 1. Legacy dataclass-style facade (the original
+        # ``hh_applicant_tool.storage.facade.StorageFacade``).
+        # Its repos hold the long-lived connection; any repo will do.
+        legacy_repo = getattr(storage, "vacancy_contacts", None) or getattr(
+            storage, "skipped_vacancies", None
+        )
+        if legacy_repo is not None:
+            legacy_conn = getattr(legacy_repo, "conn", None)
+            if isinstance(legacy_conn, sqlite3.Connection):
+                return legacy_conn
+        # 2. Facade with a ``conn`` attribute.
         conn = getattr(storage, "conn", None)
         if isinstance(conn, sqlite3.Connection):
             return conn
-        # The VSA ``StorageFacade`` (15-repo) wraps a ``Database``;
-        # open a connection to its on-disk path.
+        # 3. VSA ``StorageFacade`` (15-repo) wraps a ``Database``.
         from job_bot.shared.storage.database import Database
 
         if isinstance(storage.database, Database):
