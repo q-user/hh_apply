@@ -116,18 +116,35 @@ class TestCaptchaHandlerSolveSync:
 # ─── Legacy fallback (Playwright) ───────────────────────────
 
 
-try:
-    import playwright  # noqa: F401
-except ImportError:
-    playwright = None  # type: ignore[assignment]
+def _playwright_browser_available() -> bool:
+    """Return True iff the Playwright browser binary is installed.
+
+    CI runners don't always install the headless-shell browser even
+    when the playwright Python package is available, so we probe the
+    binary path Playwright would launch rather than just importing
+    the module.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return False
+    try:
+        with sync_playwright() as pw:
+            # ``chromium.launch`` raises if the browser binary is
+            # missing. We don't actually launch — we just check
+            # ``executable_path`` resolves.
+            browser = pw.chromium.executable_path
+            return bool(browser) and Path(browser).exists()
+    except Exception:  # noqa: BLE001
+        return False
 
 
-_HAS_PLAYWRIGHT = playwright is not None
+from pathlib import Path  # noqa: E402  (used by helper above)
 
 
 @pytest.mark.skipif(
-    not _HAS_PLAYWRIGHT,
-    reason="Playwright not installed (CI env without browser)",
+    not _playwright_browser_available(),
+    reason="Playwright browser binary not installed (CI env without browser)",
 )
 class TestCaptchaHandlerLegacyFallback:
     """When no port is supplied, the handler falls back to the legacy
