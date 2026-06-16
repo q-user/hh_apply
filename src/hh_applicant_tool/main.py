@@ -10,11 +10,9 @@ import warnings
 from collections.abc import Sequence
 from functools import cached_property
 from http.cookiejar import MozillaCookieJar
-from importlib import import_module
 from itertools import count
 from os import getenv
 from pathlib import Path
-from pkgutil import iter_modules
 from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 import requests
@@ -44,8 +42,6 @@ from .utils.cookiejar import HHOnlyCookieJar
 from .utils.mixins import MegaTool
 
 logger = logging.getLogger(__package__)
-
-OPERATIONS = "operations"
 
 
 class BaseOperation:
@@ -132,12 +128,22 @@ class HHApplicantTool(MegaTool):
             help="Отдельный прокси, используемый только для OpenAI чата",
         )
         subparsers = parser.add_subparsers(help="commands")
-        package_dir = Path(__file__).resolve().parent / OPERATIONS
-        for _, module_name, _ in iter_modules([str(package_dir)]):
-            if module_name.startswith("_"):
-                continue
-            mod = import_module(f"{__package__}.{OPERATIONS}.{module_name}")
-            op: BaseOperation = mod.Operation()
+        # Issue #149: drive the parser from the static ``BUILTIN_OPERATIONS``
+        # registry exported by ``job_bot.cli`` instead of walking
+        # ``hh_applicant_tool/operations/`` with ``pkgutil.iter_modules``.
+        # Adding a new sub-command is a 3-line change: drop a module under
+        # ``job_bot/cli/``, import its ``Operation`` class in
+        # ``job_bot/cli/__init__.py``, and append it to ``BUILTIN_OPERATIONS``.
+        # The legacy ``BaseOperation``/``BaseNamespace`` classes above stay
+        # for the duration of the deprecation window (the ops in
+        # ``hh_applicant_tool/operations/`` still import them); issue #155
+        # deletes them and switches the entry point to a VSA-native
+        # ``__main__``.
+        from job_bot.cli import BUILTIN_OPERATIONS
+
+        for op_cls in BUILTIN_OPERATIONS:
+            op: BaseOperation = op_cls()
+            module_name = op_cls.__module__.rsplit(".", 1)[-1]
             kebab_name = module_name.replace("_", "-")
             op_parser = subparsers.add_parser(
                 kebab_name,
