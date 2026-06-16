@@ -398,7 +398,7 @@ class Operation:
         # partial-import cycle this avoids. The helpers live in the
         # legacy ``utils.terminal`` module (no VSA dependency yet),
         # so we re-import them here on first use.
-        from hh_applicant_tool.utils.terminal import (
+        from job_bot.shared.utils.terminal import (
             print_kitty_image,
             print_sixel_mage,
         )

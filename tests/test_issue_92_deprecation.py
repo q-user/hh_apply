@@ -202,6 +202,19 @@ def _build_api_package_attribute_access() -> Any:
     return pkg
 
 
+def _build_utils_module() -> Any:
+    """Reload the ``hh_applicant_tool.utils`` package shim (issue #151).
+
+    The shim is a module-level deprecation shim: the warning fires
+    once on import (covered by the ``_reload``-based tests above).
+    The package no longer re-exports any of its submodules (they have
+    all moved to ``job_bot.shared.utils`` or
+    ``job_bot.resume_management.services``); the only side effect of
+    importing it is the deprecation warning itself.
+    """
+    return _reload("hh_applicant_tool.utils")
+
+
 # The canonical contract table.  Tests are parametrised over this list.
 SHIM_CONTRACT: tuple[ShimSpec, ...] = (
     ShimSpec(
@@ -259,6 +272,13 @@ SHIM_CONTRACT: tuple[ShimSpec, ...] = (
         issue=152,
         trigger=_build_api_package_attribute_access,
         description="api package shim (issue #152)",
+    ),
+    ShimSpec(
+        module_path="hh_applicant_tool.utils",
+        vsa_path="job_bot.shared.utils",
+        issue=151,
+        trigger=_build_utils_module,
+        description="utils package shim (issue #151)",
     ),
 )
 

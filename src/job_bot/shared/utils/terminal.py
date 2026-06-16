@@ -1,3 +1,14 @@
+"""Terminal / console-mode helpers used across VSA slices (issue #151).
+
+Mirrors the legacy :mod:`hh_applicant_tool.utils.terminal` module.
+:func:`setup_terminal` enables ``ENABLE_VIRTUAL_TERMINAL_PROCESSING``
+on Windows so ANSI colour codes and Kitty/Sixel image protocols work
+in the standard console host. On other platforms it is a no-op. The
+``print_kitty_image`` and ``print_sixel_mage`` helpers are stdlib-
+only and render PNG payloads to the appropriate terminal graphics
+protocol.
+"""
+
 from __future__ import annotations
 
 import base64
@@ -11,14 +22,30 @@ try:
     from PIL import Image
 except ImportError:
 
-    class Image:
+    class Image:  # type: ignore[no-redef]
+        """Stub :class:`PIL.Image.Image` used when Pillow is unavailable."""
+
         pass
 
 
 ESC = "\x1b"
 
+__all__ = [
+    "print_kitty_image",
+    "print_sixel_mage",
+    "setup_terminal",
+]
+
 
 def setup_terminal() -> None:
+    """Enable ANSI escape sequences in the Windows console.
+
+    On non-Windows platforms this is a no-op. On Windows the function
+    flips the ``ENABLE_VIRTUAL_TERMINAL_PROCESSING`` console flag so
+    the rest of the application can emit ANSI colour codes (and
+    Kitty / Sixel graphics escapes) without needing the new Windows
+    Terminal.
+    """
     if platform.system() != "Windows":
         return
     try:
@@ -36,6 +63,11 @@ def setup_terminal() -> None:
 
 
 def print_kitty_image(data: bytes) -> None:
+    """Render *data* (PNG bytes) to stdout via the Kitty graphics protocol.
+
+    ``f=100`` tells the terminal "this is a PNG, figure out the size
+    yourself" so the caller does not need to pre-decode the image.
+    """
     # Кодируем весь файл целиком (он уже сжат в PNG)
     b64data = base64.b64encode(data).decode("ascii")
 
@@ -47,6 +79,7 @@ def print_kitty_image(data: bytes) -> None:
 
 
 def print_sixel_mage(image_bytes: bytes) -> None:
+    """Render *image_bytes* (PNG) to stdout via the Sixel graphics protocol."""
     img = Image.open(io.BytesIO(image_bytes))
 
     # Рекомендуется оставить ограничение размера,
