@@ -77,7 +77,7 @@ class AppContainer:
 
     def _get_site_parser(self):
         if self._site_parser is None:
-            from .infrastructure.http import RequestsSiteParser
+            from job_bot.shared.http.site_parser import RequestsSiteParser
 
             self._site_parser = RequestsSiteParser(
                 session=self._tool.session,
@@ -86,7 +86,9 @@ class AppContainer:
 
     def _get_email_sender(self):
         if self._email_sender is None:
-            from .infrastructure.email import SMTPEmailSenderFromConfig
+            from job_bot.application_submit.services.email_sender import (
+                SMTPEmailSenderFromConfig,
+            )
 
             cfg = (self._tool.config or {}).get("smtp", {})
             if cfg:
@@ -97,7 +99,9 @@ class AppContainer:
 
     def _get_test_logger(self):
         if self._test_logger is None:
-            from .infrastructure.test_logger import FileTestVacancyLogger
+            from job_bot.application_submit.services.test_logger import (
+                FileTestVacancyLogger,
+            )
 
             self._test_logger = FileTestVacancyLogger()
         return self._test_logger

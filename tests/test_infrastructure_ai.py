@@ -7,12 +7,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hh_applicant_tool.infrastructure.ai import (
+from job_bot.shared.ai.builder import (
     ChatOpenAIClient,
     RateLimitedAIClient,
     TokenBucketRateLimiterForAI,
 )
-from hh_applicant_tool.infrastructure.delay import (
+from job_bot.shared.utils.delay import (
     TimeDelay,
     TokenBucketRateLimiter,
 )
@@ -152,7 +152,7 @@ def test_rate_limited_async_uses_async_limiter(monkeypatch):
     monkeypatch.setattr(time_module, "monotonic", fake_monotonic)
     # В limiter'е используется time.monotonic через прямой импорт
     monkeypatch.setattr(
-        "hh_applicant_tool.infrastructure.delay.time.monotonic",
+        "job_bot.shared.utils.delay.time.monotonic",
         fake_monotonic,
     )
 
@@ -160,7 +160,7 @@ def test_rate_limited_async_uses_async_limiter(monkeypatch):
         return None
 
     monkeypatch.setattr(
-        "hh_applicant_tool.infrastructure.delay.asyncio.sleep",
+        "job_bot.shared.utils.delay.asyncio.sleep",
         fake_sleep,
     )
 

@@ -72,7 +72,9 @@ class RequestsSiteParser:
 
     def _parse_response(self, response: requests.Response) -> dict[str, Any]:
         """Parse HTTP response and extract metadata."""
-        val = lambda m: unescape(m.group(1)) if m else ""
+
+        def val(m: re.Match[str] | None) -> str:
+            return unescape(m.group(1)) if m else ""
 
         title = val(
             re.search(r"<title>(.*?)</title>", response.text, re.I | re.S)

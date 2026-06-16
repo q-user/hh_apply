@@ -338,13 +338,13 @@ class WorkerService:
 
 
 def _default_clock() -> _ClockPort:
-    from hh_applicant_tool.infrastructure.time import SystemClock
+    from job_bot.shared.utils.clock import SystemClock
 
     return SystemClock()
 
 
 def _default_delay() -> _DelayPort:
-    from hh_applicant_tool.infrastructure.delay import TimeDelay
+    from job_bot.shared.utils.delay import TimeDelay
 
     return TimeDelay()
 

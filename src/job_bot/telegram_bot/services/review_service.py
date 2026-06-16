@@ -115,9 +115,9 @@ class ReviewFlowService:
     @staticmethod
     def _default_clock() -> Clock:
         # Ленивый импорт — избегаем цикла services → infrastructure.
-        # ``SystemClock`` ещё живёт в legacy ``hh_applicant_tool.infrastructure``;
-        # TODO(issue #93 follow-up): перенести в ``job_bot.shared.infrastructure``.
-        from hh_applicant_tool.infrastructure.time import SystemClock
+        # ``SystemClock`` живёт в ``job_bot.shared.utils.clock``
+        # ``SystemClock`` живёт в ``job_bot.shared.utils.clock`` (issue #153).
+        from job_bot.shared.utils.clock import SystemClock
 
         return SystemClock()
 

@@ -7,7 +7,7 @@ import datetime
 import threading
 import time
 
-from hh_applicant_tool.infrastructure.time import (
+from job_bot.shared.utils.clock import (
     AsyncioCancellationToken,
     SystemClock,
     ThreadingCancellationToken,

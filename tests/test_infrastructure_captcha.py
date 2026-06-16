@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from hh_applicant_tool.infrastructure.captcha import PlaywrightCaptchaSolver
+from job_bot.application_submit.services.captcha_solver import PlaywrightCaptchaSolver
 
 # ─── Инициализация ──────────────────────────────────────────────
 

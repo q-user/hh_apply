@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..ai.openai import ChatOpenAI
-from ..application.ports import AIClientPort, RateLimiterPort
+if TYPE_CHECKING:
+    from hh_applicant_tool.ai.openai import ChatOpenAI
+    from hh_applicant_tool.application.ports import (
+        AIClientPort,
+        RateLimiterPort,
+    )
 
-# Re-export the existing ChatOpenAI for convenience
+from job_bot.shared.utils.delay import TimeDelay, TokenBucketRateLimiter
+
 __all__ = ["ChatOpenAIClient", "RateLimitedAIClient", "ChatOpenAI"]
 
 
@@ -17,7 +22,7 @@ class ChatOpenAIClient:
     This provides a clean port interface over the existing implementation.
     """
 
-    def __init__(self, chat_openai: ChatOpenAI) -> None:
+    def __init__(self, chat_openai: "ChatOpenAI") -> None:
         """Initialize with existing ChatOpenAI instance.
 
         Args:
@@ -65,8 +70,8 @@ class RateLimitedAIClient:
 
     def __init__(
         self,
-        client: AIClientPort,
-        rate_limiter: RateLimiterPort,
+        client: "AIClientPort",
+        rate_limiter: "RateLimiterPort",
     ) -> None:
         """Initialize rate-limited AI client.
 
@@ -124,8 +129,6 @@ class TokenBucketRateLimiterForAI:
         else:
             # Convert to requests per second
             rate_per_second = requests_per_minute / 60.0
-            from .delay import TimeDelay, TokenBucketRateLimiter
-
             self._rate_limiter = TokenBucketRateLimiter(
                 rate=rate_per_second,
                 burst=min(requests_per_minute, 10),
@@ -151,8 +154,6 @@ class TokenBucketRateLimiterForAI:
         if requests_per_minute <= 0:
             self._rate_limiter = None
         else:
-            from .delay import TimeDelay, TokenBucketRateLimiter
-
             rate_per_second = requests_per_minute / 60.0
             self._rate_limiter = TokenBucketRateLimiter(
                 rate=rate_per_second,

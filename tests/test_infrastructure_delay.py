@@ -6,7 +6,7 @@ import asyncio
 import time
 from unittest.mock import MagicMock
 
-from hh_applicant_tool.infrastructure.delay import (
+from job_bot.shared.utils.delay import (
     AsyncDelay,
     RandomDelay,
     TimeDelay,
