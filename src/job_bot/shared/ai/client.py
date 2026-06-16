@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    import openai  # type: ignore[import-not-found]
-    from openai.types.chat import (  # type: ignore[import-not-found]
+    import openai  # type: ignore[import-not-found,unused-ignore]
+    from openai.types.chat import (  # type: ignore[import-not-found,unused-ignore]
         ChatCompletionMessageParam,
     )
 

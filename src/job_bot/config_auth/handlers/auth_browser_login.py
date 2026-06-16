@@ -55,7 +55,7 @@ if TYPE_CHECKING:
     # CLI parser that scans every ``operations/`` module) can be
     # loaded on machines where the ``[playwright]`` extra is not
     # installed.
-    from playwright.async_api import (  # type: ignore[import-not-found]
+    from playwright.async_api import (  # type: ignore[import-not-found,unused-ignore]
         Browser,
         BrowserContext,
         Page,

@@ -86,7 +86,7 @@ class CaptchaHandler:
         """Open the captcha page in a headless Chromium, OCR it via ``captcha_ai``,
         submit, and propagate the resulting cookies to ``session``."""
         try:
-            from playwright.async_api import (  # type: ignore[import-not-found]
+            from playwright.async_api import (  # type: ignore[import-not-found,unused-ignore]
                 async_playwright,
             )
         except ImportError:
@@ -138,8 +138,8 @@ class CaptchaHandler:
                         session.cookies.set(
                             c["name"],
                             c["value"],
-                            domain=cast(str, c.get("domain", "")),
-                            path=cast(str, c.get("path", "/")),
+                            domain=cast("str", c.get("domain", "")),
+                            path=cast("str", c.get("path", "/")),
                         )
 
                 return True
