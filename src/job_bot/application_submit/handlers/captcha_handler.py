@@ -86,7 +86,9 @@ class CaptchaHandler:
         """Open the captcha page in a headless Chromium, OCR it via ``captcha_ai``,
         submit, and propagate the resulting cookies to ``session``."""
         try:
-            from playwright.async_api import async_playwright
+            from playwright.async_api import (  # type: ignore[import-not-found]
+                async_playwright,
+            )
         except ImportError:
             logger.error(
                 "playwright is not installed; cannot solve captcha via fallback"

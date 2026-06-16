@@ -13,7 +13,7 @@ Issue #145: extracted from
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 logger = logging.getLogger(__package__)
 
@@ -47,13 +47,16 @@ class CoverLetterHandler:
         persist the letter (it goes straight into the
         ``/negotiations`` POST body).
         """
-        return self._handler.generate_cover_letter(
-            vacancy,
-            placeholders,
-            resume_analysis=resume_analysis,
-            resume=resume,
-            force=force,
-            required_by_vacancy=required_by_vacancy,
+        return cast(
+            str,
+            self._handler.generate_cover_letter(
+                vacancy,
+                placeholders,
+                resume_analysis=resume_analysis,
+                resume=resume,
+                force=force,
+                required_by_vacancy=required_by_vacancy,
+            ),
         )
 
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Callable, cast
 
-from job_bot.application_prep.utils import (
+from job_bot.application_prep.utils import (  # type: ignore[attr-defined]
     build_filter_system_prompt_heavy,
     build_filter_system_prompt_light,
 )

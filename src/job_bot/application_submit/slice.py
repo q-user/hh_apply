@@ -26,7 +26,7 @@ import sqlite3
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from job_bot.application_submit.handlers.apply_one_handler import (
     ApplyOneHandler,
@@ -163,7 +163,7 @@ class ApplicationSubmitSlice:
         # 5 in-slice per-phase handlers (issue #145).
         self._search = search_handler or SearchHandler(api_client)
         self._score = score_handler or ScoreHandler(
-            relevance_handler or _NullRelevanceHandler(),
+            cast(Any, relevance_handler or _NullRelevanceHandler()),
             vacancy_filter_ai=vacancy_filter_ai,
             vacancy_filter_ai_factory=vacancy_filter_ai_factory,
         )
@@ -344,7 +344,8 @@ class ApplicationSubmitSlice:
         return resumes
 
     def _fetch_me(self) -> dict[str, Any]:
-        return self._api_client.get("/me")
+        result = self._api_client.get("/me")
+        return cast(dict[str, Any], result)
 
     def _apply_to_resume(
         self,
@@ -673,7 +674,7 @@ class ApplicationSubmitSlice:
         """
         from job_bot.shared.storage.facade import StorageFacade
 
-        return StorageFacade(self._storage_conn)
+        return StorageFacade(self._storage_conn)  # type: ignore[arg-type]
 
     def _notify(self, *args: Any) -> None:
         message = " ".join(str(a) for a in args)
