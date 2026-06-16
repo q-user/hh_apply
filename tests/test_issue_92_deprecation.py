@@ -165,6 +165,43 @@ def _build_clear_negotiations() -> Any:
     return Operation()
 
 
+def _build_api_datatypes_module() -> Any:
+    """Reload the ``hh_applicant_tool.api.datatypes`` shim module (issue #152).
+
+    The shim is a module-level deprecation shim: the warning fires
+    once on import (covered by the ``_reload``-based tests above).
+    """
+    return _reload("hh_applicant_tool.api.datatypes")
+
+
+def _build_api_errors_module() -> Any:
+    """Reload the ``hh_applicant_tool.api.errors`` shim module (issue #152).
+
+    The shim is a module-level deprecation shim: the warning fires
+    once on import (covered by the ``_reload``-based tests above).
+    """
+    return _reload("hh_applicant_tool.api.errors")
+
+
+def _build_api_package_attribute_access() -> Any:
+    """Reload the package shim and touch an attribute to fire its warning.
+
+    The ``hh_applicant_tool.api`` package is a :pep:`562` lazy
+    re-export (issue #152): the canonical warning fires on attribute
+    access, not on import.  Accessing an attribute also imports the
+    underlying submodule (e.g. ``hh_applicant_tool.api.errors``), which
+    fires its own module-level warning — but the package shim's own
+    warning is the one the contract asserts on.  Caching the
+    resolved attribute in the module's ``__dict__`` keeps the warning
+    count at exactly one even for the ``from X import Y`` form (where
+    CPython's ``_handle_fromlist`` calls ``__getattr__`` twice).
+    """
+    _reload("hh_applicant_tool.api")
+    pkg = sys.modules["hh_applicant_tool.api"]
+    _ = pkg.BadResponse
+    return pkg
+
+
 # The canonical contract table.  Tests are parametrised over this list.
 SHIM_CONTRACT: tuple[ShimSpec, ...] = (
     ShimSpec(
@@ -201,6 +238,27 @@ SHIM_CONTRACT: tuple[ShimSpec, ...] = (
         issue=137,
         trigger=_build_clone_resume,
         description="operations.clone_resume module (issue #137)",
+    ),
+    ShimSpec(
+        module_path="hh_applicant_tool.api.datatypes",
+        vsa_path="job_bot.shared.api.datatypes",
+        issue=152,
+        trigger=_build_api_datatypes_module,
+        description="api.datatypes shim module (issue #152)",
+    ),
+    ShimSpec(
+        module_path="hh_applicant_tool.api.errors",
+        vsa_path="job_bot.shared.api.errors",
+        issue=152,
+        trigger=_build_api_errors_module,
+        description="api.errors shim module (issue #152)",
+    ),
+    ShimSpec(
+        module_path="hh_applicant_tool.api",
+        vsa_path="job_bot.shared.api",
+        issue=152,
+        trigger=_build_api_package_attribute_access,
+        description="api package shim (issue #152)",
     ),
 )
 
