@@ -176,7 +176,6 @@ _END_MARKERS = frozenset(
 # ── Helpers ─────────────────────────────────────────────────────
 
 
-
 def _tr(value: str, mapping: dict[str, str], field: str) -> str | None:
     result = mapping.get(value.strip().lower())
     if result is None:
@@ -307,7 +306,6 @@ def _edu_entry(name: str, kv: dict[str, str]) -> dict[str, Any]:
     return entry
 
 
-
 # ── Service ─────────────────────────────────────────────────────
 
 
@@ -344,7 +342,9 @@ class ResumeRenderer:
             if v := kv.get("дата рождения"):
                 m = re.match(r"(\d{2})\.(\d{2})\.(\d{4})", v)
                 if m:
-                    result["birth_date"] = f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
+                    result["birth_date"] = (
+                        f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
+                    )
             if v := kv.get("пол"):
                 if api_id := _tr(v, GENDER_RU, "пол"):
                     result["gender"] = {"id": api_id}
@@ -476,7 +476,9 @@ class ResumeRenderer:
         # ── Водительское удостоверение ────────────────────────────────────────────
         if sec := secs.get("водительское удостоверение"):
             kv = _parse_kv(sec)
-            types = [{"id": v.upper()} for v in _parse_values(sec) if len(v) <= 3]
+            types = [
+                {"id": v.upper()} for v in _parse_values(sec) if len(v) <= 3
+            ]
             if types:
                 result["driver_license_types"] = types
             if "автомобиль" in kv:
@@ -517,13 +519,16 @@ class ResumeRenderer:
             experience = []
             for company_name, job_body in _split_sections(sec, level=3):
                 kv = _parse_kv(job_body)
-                entry: dict[str, Any] = {
+                entry: dict[str, Any] = {  # type: ignore[no-redef]
                     "company": company_name,
                     "position": kv.get("должность", ""),
                     "description": _parse_description(job_body),
                 }
-                if city := kv.get("город"):
-                    entry["area"] = _suggest("/suggests/area_leaves", city)
+                if city_val := kv.get("город"):
+                    if isinstance(city_val, str):
+                        entry["area"] = _suggest(
+                            "/suggests/area_leaves", city_val
+                        )
                 # Даты: либо "Начало/Конец", либо "Период"
                 if start_str := kv.get("начало"):
                     entry["start"] = _parse_date(start_str)
@@ -554,18 +559,21 @@ class ResumeRenderer:
         if sec := secs.get("образование"):
             edu: dict[str, Any] = {}
             kv = _parse_kv(sec)
-            if level_str := kv.get("уровень"):
-                if api_id := _tr(level_str, EDU_LEVEL_RU, "уровень образования"):
+            if level_str_val := kv.get("уровень"):
+                if api_id := _tr(
+                    level_str_val, EDU_LEVEL_RU, "уровень образования"
+                ):
                     edu["level"] = {"id": api_id}
 
-            primary: list[dict] = []
-            additional: list[dict] = []
-            attestation: list[dict] = []
+            primary: list[dict[str, Any]] = []
+            additional: list[dict[str, Any]] = []
+            attestation: list[dict[str, Any]] = []
 
             for h3, h3_body in _split_sections(sec, level=3):
                 h3_l = h3.lower()
                 if any(
-                    k in h3_l for k in ("курс", "тренинг", "повышение квалификации")
+                    k in h3_l
+                    for k in ("курс", "тренинг", "повышение квалификации")
                 ):
                     for name, h4_body in _split_sections(h3_body, level=4):
                         sub = _parse_kv(h4_body)
@@ -578,7 +586,7 @@ class ResumeRenderer:
                         attestation.append(_edu_entry(name, sub))
                 else:
                     sub = _parse_kv(h3_body)
-                    entry: dict[str, Any] = {"name": h3}
+                    entry: dict[str, Any] = {"name": h3}  # type: ignore[no-redef]
                     if fac := sub.get("факультет"):
                         entry["organization"] = fac
                     if spec := sub.get("специальность"):
@@ -632,8 +640,6 @@ class ResumeRenderer:
                 result["site"] = sites
 
         return result
-
-
 
 
 # ── Module-level alias for backwards compatibility ──────────────

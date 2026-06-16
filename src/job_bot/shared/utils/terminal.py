@@ -49,7 +49,7 @@ def setup_terminal() -> None:
     if platform.system() != "Windows":
         return
     try:
-        kernel32 = ctypes.windll.kernel32
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
         # -11 = STD_OUTPUT_HANDLE
         handle = kernel32.GetStdHandle(-11)
         mode = ctypes.c_uint()
@@ -86,16 +86,25 @@ def print_sixel_mage(image_bytes: bytes) -> None:
     # иначе Zellij может "лагать" на огромных картинках
     # max_size = (800, 600)
     # img.thumbnail(max_size, Image.Resampling.LANCZOS)
-    img = img.convert("RGB")
+    img = img.convert("RGB")  # type: ignore[assignment]
 
     try:
-        img = img.quantize(colors=256, method=Image.Quantize.MAXCOVERAGE)
+        img = img.quantize(  # type: ignore[assignment]
+            colors=256,
+            method=Image.Quantize.MAXCOVERAGE,
+        )
     except (AttributeError, TypeError, ValueError):
-        img = img.quantize(colors=256)
+        img = img.quantize(colors=256)  # type: ignore[assignment]
 
-    palette = img.getpalette()[: 256 * 3]
+    palette_data = img.getpalette()
+    if palette_data is None:
+        # Image is not in palettised mode -- degenerate; nothing to render.
+        return
+    palette = palette_data[: 256 * 3]
     width, height = img.size
     pixels = img.load()
+    if pixels is None:
+        return
 
     is_multiplexer = "ZELLIJ" in os.environ or "TMUX" in os.environ
 
