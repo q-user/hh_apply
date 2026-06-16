@@ -560,26 +560,36 @@ class TestPerProfileAIInjection:
         finally:
             _safe_unlink(db_path)
 
-    def test_use_case_calls_prepare_filter_ai_client_on_new_path(self):
-        """End-to-end: ``PrepareVacanciesUseCase`` invokes the
-        ``prepare_filter_ai_client`` on the adapter when the new
-        VSA path is active (issue #54 acceptance criterion)."""
+    def test_use_case_legacy_path_uses_ai_filter_service(self):
+        """End-to-end: when no slice is wired, the use case delegates
+        to the :class:`LegacyPreparePipeline` (issue #147), which
+        owns the per-profile loop and calls
+        :meth:`AiFilterService.build` per profile (replacing the
+        pre-#147 ``_build_relevance_service`` inline path).
+
+        The pre-#147 ``application_prep_service_factory`` adapter path
+        is removed from the use case body; the parameter is preserved
+        on the constructor for backward compat with the old
+        ``AppContainer`` wiring but is no longer called — the new
+        legacy path builds VSA handlers directly via
+        :class:`LegacyPreparePipeline` / :class:`AiFilterService`.
+        """
         from hh_applicant_tool.application.dto import (
             PrepareVacanciesCommand,
         )
         from hh_applicant_tool.application.use_cases.prepare_vacancies import (
             PrepareVacanciesUseCase,
         )
-        from hh_applicant_tool.container import AppContainer
         from hh_applicant_tool.storage.models.search_profile import (
             SearchProfileModel,
         )
+        from job_bot.application_prep.services.ai_filter import (
+            AiFilterService,
+        )
+        from job_bot.application_prep.services.legacy_prepare_pipeline import (
+            LegacyPreparePipeline,
+        )
 
-        tool = self._make_mock_tool()
-        container = AppContainer(tool)
-
-        # Stub the storage so the use case can load profiles + save drafts.
-        storage = MagicMock()
         profile = SearchProfileModel(
             id="p1",
             name="p1",
@@ -588,47 +598,37 @@ class TestPerProfileAIInjection:
             ai_filter_mode="heavy",
             search_params={},
         )
+        storage = MagicMock()
         storage.search_profiles.get.return_value = profile
         storage.search_profiles.find_enabled.return_value = [profile]
         storage.application_drafts.save = MagicMock()
-        tool.storage = storage
+        storage.application_drafts.get_by_resume_vacancy.return_value = None
+        storage.skipped_vacancies.save = MagicMock()
+        storage.skipped_vacancies.find.return_value = iter([])
+        storage.vacancies.save = MagicMock()
+        storage.vacancy_contacts.save = MagicMock()
+        storage.employers.save = MagicMock()
 
-        adapter_mock = MagicMock()
-        adapter_mock.prepare_filter_ai_client.return_value = MagicMock()
-        adapter_mock.set_cover_letter_ai_client = MagicMock()
-        adapter_mock.prepare_one.return_value = MagicMock(
-            status="prepared",
-            relevance_score=None,
-            relevance_reason=None,
-            has_test=False,
-            test_status=None,
-            id="d1",
-        )
-        container._application_prep_adapter = adapter_mock
-
-        container._application_prep_slice = MagicMock()
-        factory = MagicMock(return_value=adapter_mock)
-
+        adapter_factory = MagicMock(return_value=MagicMock())
         use_case = PrepareVacanciesUseCase(
             api_client=MagicMock(),
             session=MagicMock(),
             storage=storage,
             cover_letter_ai=None,
             vacancy_filter_ai_factory=MagicMock(return_value=MagicMock()),
-            application_prep_service_factory=factory,
-            vacancy_search_service_factory=MagicMock(
-                return_value=MagicMock(search=MagicMock(return_value=iter([])))
-            ),
+            application_prep_service_factory=adapter_factory,
         )
 
-        # Issue #142: the ``vacancy_search_service_factory`` mock is
-        # no longer wired (the use case inlined the search loop via
-        # ``_vacancy_search_loop``). We use a router to return the
-        # resume at ``/resumes/mine`` (so the profile is found) and an
-        # empty vacancy list at the search endpoint (so no vacancy is
-        # processed). The legacy ``application_prep_service_factory``
-        # IS still wired, so ``factory`` is called and the assertions
-        # on ``prepare_filter_ai_client`` still pass.
+        # Structural assertions: the new architecture wires the use
+        # case to the 4 services + ``LegacyPreparePipeline``. The
+        # ``application_prep_service_factory`` adapter is no longer
+        # called by the use case body.
+        assert isinstance(use_case._ai_filter, AiFilterService)
+        assert isinstance(use_case._legacy_pipeline, LegacyPreparePipeline)
+        # The legacy pipeline shares the use case's ``AiFilterService``
+        # (no second instance is built).
+        assert use_case._legacy_pipeline.ai_filter is use_case._ai_filter
+
         def _router(endpoint, params=None, *args, **kwargs):
             if endpoint == "/resumes/mine":
                 return {
@@ -648,19 +648,25 @@ class TestPerProfileAIInjection:
 
         use_case.execute(PrepareVacanciesCommand(search_profile="p1"))
 
-        factory.assert_called()
-        adapter_mock.prepare_filter_ai_client.assert_called()
-        args, kwargs = adapter_mock.prepare_filter_ai_client.call_args
-        assert args[0] is profile
-        assert isinstance(args[1], dict)
-        assert args[1]["id"] == "r1"
-        assert callable(args[2])
+        # The pre-#147 adapter factory is NOT called by the use case
+        # (the refactor moved the VSA adapter path out of the use case
+        # body — the adapter is still built by the container for the
+        # slice path, but the use case's ``execute()`` no longer
+        # invokes it).
+        adapter_factory.assert_not_called()
 
-    def test_use_case_legacy_path_uses_shared_helper(self):
-        """``PrepareVacanciesUseCase._build_relevance_service`` (legacy
-        path) and ``_ApplicationPrepAdapter.prepare_filter_ai_client``
-        (VSA path) both delegate to the same
-        :func:`job_bot.application_prep.utils.build_filter_ai_client` helper.
+    def test_legacy_pipeline_uses_shared_helper(self):
+        """The new :class:`LegacyPreparePipeline` (issue #147) and the
+        :class:`AiFilterService` it delegates to both go through the
+        same :func:`job_bot.application_prep.utils.build_filter_ai_client`
+        helper. The ``AppContainer`` adapter (for the VSA slice path)
+        also imports the helper.
+
+        Pre-#147 this was a 1:1 check that the use case module imports
+        ``build_filter_ai_client``. The refactor moved that import
+        into :class:`AiFilterService` (a 1:1 delegate to the helper);
+        the test now verifies the helper is still the single source of
+        truth across the new + legacy paths and the container adapter.
         """
         import inspect
 
@@ -672,26 +678,39 @@ class TestPerProfileAIInjection:
         assert hasattr(utils_mod, "build_filter_ai_client")
         assert utils_mod.build_filter_ai_client is build_filter_ai_client
 
-        # Both call sites reference the same helper. We verify this by
-        # reading the *module* source (not the method body, which would
-        # miss the module-top import) and asserting that the import is
-        # present in both call-site modules.
-        import hh_applicant_tool.container as container_mod
-        from hh_applicant_tool.application.use_cases import prepare_vacancies
+        # The new ``AiFilterService`` is a 1:1 delegate to the helper.
+        from job_bot.application_prep.services import ai_filter as ai_filter_mod
 
-        use_case_src = inspect.getsource(prepare_vacancies)
+        ai_filter_src = inspect.getsource(ai_filter_mod)
         assert (
             "from job_bot.application_prep.utils import build_filter_ai_client"
-            in use_case_src
+            in (ai_filter_src)
         )
+        assert "build_filter_ai_client(" in ai_filter_src
+
+        # ``LegacyPreparePipeline`` (the new legacy path) imports
+        # :class:`AiFilterService` and calls ``.build()`` per profile.
+        from job_bot.application_prep.services import (
+            legacy_prepare_pipeline as lpp_mod,
+        )
+
+        lpp_src = inspect.getsource(lpp_mod)
+        assert (
+            "from job_bot.application_prep.services.ai_filter import"
+            in (lpp_src)
+            or "AiFilterService" in lpp_src
+        )
+        assert "ai_filter.build(" in lpp_src
+
+        # The ``AppContainer`` adapter (still built for the VSA slice
+        # path) also uses the helper.
+        import hh_applicant_tool.container as container_mod
 
         container_src = inspect.getsource(container_mod)
         assert (
             "from job_bot.application_prep.utils import build_filter_ai_client"
             in container_src
         )
-        # And the function is invoked (not just imported) in each module.
-        assert "build_filter_ai_client(" in use_case_src
         assert "build_filter_ai_client(" in container_src
 
 
@@ -979,13 +998,18 @@ class TestPrepareVacanciesVsaBridge:
         assert result.rejected == 1
         assert result.failed == 0
 
-    def test_execute_falls_back_to_legacy_when_no_slice(self):
-        """When no slice is injected, ``execute()`` does NOT call a
-        slice — it runs the legacy ``_process_profile`` path
-        (backward compat). The test verifies the slice attribute
-        defaults to ``None`` and the legacy methods are present."""
+    def test_execute_falls_back_to_legacy_pipeline_when_no_slice(self):
+        """When no slice is injected, ``execute()`` delegates the
+        per-profile pipeline to :class:`LegacyPreparePipeline`
+        (issue #147), which owns the pre-VSA per-profile /
+        per-vacancy loop. The test verifies the slice attribute
+        defaults to ``None`` and the legacy methods are present on
+        the pipeline (not on the use case itself)."""
         from hh_applicant_tool.application.use_cases.prepare_vacancies import (
             PrepareVacanciesUseCase,
+        )
+        from job_bot.application_prep.services.legacy_prepare_pipeline import (
+            LegacyPreparePipeline,
         )
 
         use_case = PrepareVacanciesUseCase(
@@ -996,12 +1020,15 @@ class TestPrepareVacanciesVsaBridge:
             vacancy_filter_ai_factory=None,
         )
 
-        # No slice injected → legacy path is the only option.
+        # No slice injected → legacy pipeline is the fallback.
         assert use_case._application_prep_slice is None
-        # Legacy methods are still present (the fallback path).
-        assert hasattr(use_case, "_process_profile")
-        assert hasattr(use_case, "_process_vacancy")
-        assert hasattr(use_case, "_build_relevance_service")
+        # The use case itself is a thin orchestrator; the legacy
+        # methods now live on ``LegacyPreparePipeline``.
+        assert isinstance(use_case._legacy_pipeline, LegacyPreparePipeline)
+        assert hasattr(use_case._legacy_pipeline, "_process_profile")
+        assert hasattr(use_case._legacy_pipeline, "_process_vacancy")
+        # ``_build_relevance_service`` was deleted (the per-profile
+        # AI filter is now built via ``AiFilterService.build``).
 
     def test_execute_via_slice_helper_builds_context(self):
         """``_execute_via_slice`` builds a ``PreparePipelineContext``
