@@ -1,119 +1,87 @@
-"""Use case: отклик на вакансии (apply).
+"""Use case: отклик на вакансии (apply) -- thin VSA adapter.
 
-Извлечено из ``operations/apply_vacancies.py`` (issue #15). Use case
-владеет полным циклом рассылки откликов, который раньше жил в
-``Operation._apply_vacancies`` / ``Operation._apply_resume``. Зависимости
-(API client, session, storage, AI-клиенты, SMTP, конфиг) принимаются
-через конструктор — use case не зависит от ``HHApplicantTool`` service
-locator и может быть вызван из CLI, UI, prepare-vacancies (#5),
-apply-worker (#10) или Telegram-бота (#7-9).
+Issue #145: this use case is a **thin adapter** over the VSA
+:class:`job_bot.application_submit.slice.ApplicationSubmitSlice`. All
+per-phase logic (search, score, cover letter, skip, email, captcha,
+storage) lives in the in-slice handlers; the use case only:
 
-Phase 2 (Clean Architecture): порты для инфраструктурных зависимостей
-(captcha, site parsing, email, cancellation, clock, vacancy fetcher, test
-logger, delay) принимаются опционально через конструктор. Если порт не
-передан — используется legacy-код напрямую (с обратной совместимостью).
+* preserves the legacy public API (``__init__``, ``execute``,
+  ``run_apply_pipeline``) for backward compatibility with
+  ``tests/test_prepare_vacancies.py``,
+  ``tests/test_use_case_with_ports.py``,
+  ``tests/integration/test_telegram_channel_to_apply_flow.py``,
+  and the ``AppContainer`` / ``operations/apply_vacancies.py`` /
+  ``ui/api.py`` callers;
+* constructs the slice from the constructor's ``api_client``,
+  ``session``, ``storage``, AI clients, port objects, etc.;
+* delegates :meth:`execute` and :meth:`run_apply_pipeline` to the
+  slice.
+
+The use case is no longer the orchestrator: the slice is. The 5
+in-slice handlers are constructed lazily by the slice (``SearchHandler``,
+``ScoreHandler``, ``CoverLetterHandler``, ``SkipHandler``,
+``EmailHandler``, ``CaptchaHandler``) and exposed as ``slice.search``,
+``slice.score``, ``slice.cover_letter``, ``slice.skip``,
+``slice.email``, ``slice.captcha``.
 """
 
 from __future__ import annotations
 
-import asyncio
-import html
 import logging
-import random
-import re
-import smtplib
 import sqlite3
 import threading
-from datetime import datetime
-from email.message import EmailMessage
-from typing import TYPE_CHECKING, Any, Callable, cast
-
-import requests
-
-from job_bot.application_prep.handlers.cover_letter_handler import (
-    CoverLetterHandler,
-)
-from job_bot.application_prep.handlers.relevance_handler import (
-    RelevanceHandler,
-)
-from job_bot.application_prep.models.cover_letter import DEFAULT_LETTER_TEMPLATE
-from job_bot.application_prep.utils import (
-    build_filter_system_prompt_heavy,
-    build_filter_system_prompt_light,
-)
-from job_bot.shared.storage.database import Database
-from job_bot.shared.utils.json_utils import JSONDecoder
-from job_bot.shared.utils.text import rand_text, strip_tags, unescape_string
-from job_bot.vacancy_search import build_search_params
-
-from ...ai.base import AIError
-from ...api.datatypes import SearchVacancy
-from ...api.errors import (
-    ApiError,
-    BadResponse,
-    CaptchaRequired,
-    LimitExceeded,
-    Redirect,
-)
-from ...storage.repositories.errors import RepositoryError
-from ..dto import ApplyToVacanciesCommand, ApplyToVacanciesResult
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
-    from ..ports import (
-        CancellationToken,
-        CaptchaSolverPort,
-        Clock,
-        EmailSenderPort,
-        SiteParserPort,
-        TestVacancyLoggerPort,
+    from hh_applicant_tool.application.dto import (
+        ApplyToVacanciesCommand,
+        ApplyToVacanciesResult,
     )
 
 logger = logging.getLogger(__package__)
-
 
 ProgressCallback = Callable[[str], None]
 
 
 class ApplyToVacanciesUseCase:
-    """Оркестратор отклика на вакансии (apply).
+    """Thin adapter over the VSA :class:`ApplicationSubmitSlice` (issue #145).
 
-    Use case не знает про argparse, ``HHApplicantTool`` или UI. Он
-    получает «сырые» зависимости через конструктор, конструирует
-    внутренние VSA-хендлеры (``CoverLetterHandler``,
-    ``RelevanceHandler``) и оркестрирует рассылку. На выходе —
-    ``ApplyToVacanciesResult`` со статистикой.
+    Public surface (preserved for backward compatibility):
+
+    * ``__init__`` accepts the same arguments as before (issue #50
+      Phase 2 ports + issue #89 slice wiring + issue #142 VSA handler
+      DI + issue #147 service split). New ``application_submit_slice``
+      parameter lets callers pre-inject a slice; otherwise a default
+      one is built from the supplied deps.
+    * :meth:`execute` runs the full pipeline and returns an
+      :class:`ApplyToVacanciesResult`. Implementation: delegates to
+      :meth:`ApplicationSubmitSlice.run_apply_pipeline`.
+    * :meth:`run_apply_pipeline` is the VSA port entry point kept for
+      backward compatibility with the ``LegacyUseCasePort`` tests
+      and the ``test_use_case_with_ports.py`` regression suite. It
+      also delegates to the slice.
 
     Attributes:
-        api_client: ``api.client.ApiClient`` — HTTP-клиент HH API.
-        session: ``requests.Session`` — низкоуровневая сессия
-            (используется для капчи, парсинга сайтов работодателей,
-            ``hh.ru/vacancy/...`` raw HTML).
-        storage: ``storage.StorageFacade`` — фасад локальной БД.
-        cover_letter_ai: ``ai.ChatOpenAI`` с system_prompt для
-            генерации писем или ``None`` (тогда письмо по шаблону).
-        captcha_ai: ``ai.ChatOpenAI`` для распознавания капчи.
-        xsrf_token: XSRF-токен текущей сессии (используется
-            ``VacancyTestsService`` при отправке тестовых откликов).
-        smtp: ``smtplib.SMTP`` клиент или ``None``.
-        config: legacy dict-like config (для шаблонов ``apply_mail_*``
-            и секции ``smtp``).
-
-        (Phase 2 ports — опционально, заменяют прямые вызовы)
-        captcha_solver: ``CaptchaSolverPort`` — решает капчу (issue #38).
-        site_parser: ``SiteParserPort`` — парсит сайты работодателей (issue #34).
-        email_sender: ``EmailSenderPort`` — отправляет email (issue #36).
-        cancellation: ``CancellationToken`` — токен отмены (issue #24).
-        clock: ``Clock`` — операции со временем (issue #25).
-        test_logger: ``TestVacancyLoggerPort`` — логирует вакансии с тестами (issue #30).
+        api_client: ``api.client.ApiClient`` -- HTTP-клиент HH API.
+        session: ``requests.Session`` -- низкоуровневая сессия
+            (captcha, site parsing, ``hh.ru/vacancy/...`` raw HTML).
+        storage: ``storage.StorageFacade`` -- legacy facade for
+            ``skipped_vacancies`` / ``vacancies`` / ``contacts`` /
+            ``employers`` / ``employer_sites`` (used by the slice's
+            private helpers).
+        cover_letter_ai, captcha_ai, xsrf_token, smtp, config: legacy
+            deps passed through to the slice.
+        vacancy_filter_ai, vacancy_filter_ai_factory: AI deps used by
+            the slice's :class:`ScoreHandler` when ``command.ai_filter``
+            is set.
+        application_submit_slice: pre-injected VSA slice (issue #89);
+            when ``None`` a default one is built.
     """
-
-    SEL_CAPTCHA_IMAGE = 'img[data-qa="account-captcha-picture"]'
-    SEL_CAPTCHA_INPUT = 'input[data-qa="account-captcha-input"]'
 
     def __init__(
         self,
         api_client: Any,
-        session: requests.Session,
+        session: Any,
         storage: Any,
         cover_letter_ai: Any,
         captcha_ai: Any,
@@ -123,36 +91,21 @@ class ApplyToVacanciesUseCase:
         vacancy_filter_ai_factory: Callable[[str], Any] | None = None,
         smtp: Any = None,
         config: Any = None,
-        # Phase 2 ports (optional, backward compatible)
-        captcha_solver: "CaptchaSolverPort | None" = None,
-        site_parser: "SiteParserPort | None" = None,
-        email_sender: "EmailSenderPort | None" = None,
-        cancellation: "CancellationToken | None" = None,
-        clock: "Clock | None" = None,
-        test_logger: "TestVacancyLoggerPort | None" = None,
-        # Vacancy search service (optional, for VSA wiring)
+        # Phase 2 ports (optional, backward compatible).
+        captcha_solver: Any = None,
+        site_parser: Any = None,
+        email_sender: Any = None,
+        cancellation: Any | None = None,
+        clock: Any | None = None,
+        test_logger: Any | None = None,
+        # VSA wiring (issues #89, #142, #145).
         vacancy_search_service_factory: Any = None,
-        # Application submit adapter (optional, for VSA wiring — issue #55)
         application_submit_adapter: Any = None,
-        # Application submit slice (optional, for top-level VSA wiring
-        # — issue #89 partial bridge). When supplied, ``execute()``
-        # delegates to ``slice.run_apply_pipeline(legacy_use_case=self,
-        # ...)`` instead of running the legacy pipeline inline. The
-        # adapter (above) is still used for per-vacancy submission
-        # inside ``_send_apply_request``; both wirings can coexist.
         application_submit_slice: Any = None,
-        # VSA handler DI (issue #142). If not supplied, default factories
-        # build VSA handlers from the constructor's ``api_client`` /
-        # ``cover_letter_ai``. Tests can pass mocks via these params to
-        # avoid the legacy shim's class-level monkey-patching.
-        relevance_handler: "RelevanceHandler | None" = None,
-        cover_letter_handler: "CoverLetterHandler | None" = None,
+        relevance_handler: Any = None,
+        cover_letter_handler: Any = None,
         vacancy_search_handler: Any = None,
-        # Database backing for default VSA handler factories (in-memory
-        # when not supplied). The use case does not write via the VSA
-        # handlers (it uses ``storage`` for persistence), so a real
-        # database is unnecessary at this level.
-        database: "Database | None" = None,
+        database: Any = None,
     ) -> None:
         self.api_client = api_client
         self.session = session
@@ -164,118 +117,49 @@ class ApplyToVacanciesUseCase:
         self.vacancy_filter_ai_factory = vacancy_filter_ai_factory
         self.smtp = smtp
         self.config = config
-
-        # Phase 2 ports
         self._captcha_solver = captcha_solver
         self._site_parser = site_parser
         self._email_sender = email_sender
         self._cancellation = cancellation
         self._clock = clock
         self._test_logger = test_logger
-
-        # Состояние, заполняемое в execute().
-        # ``command``, ``cover_letter_handler``, ``vacancy_search_handler``
-        # и ``relevance_handler`` обязательно проставляются в :meth:`execute`
-        # / :meth:`run_apply_pipeline` -- это единственные публичные входы
-        # use case'а, поэтому mypy видит атрибуты без ``| None`` и все
-        # обращения ``self.command.X``, ``self.vacancy_search_handler.Y``
-        # и ``self.relevance_handler.Z`` ниже не нуждаются в
-        # ``# type: ignore[union-attr]``.
-        self.command: ApplyToVacanciesCommand
-        self.cancel_event: threading.Event | None = None
-        self.progress_callback: ProgressCallback | None = None
-        self.cover_letter_handler_instance: CoverLetterHandler
-        self.vacancy_search_handler_instance: Any
-        self.relevance_handler_instance: RelevanceHandler
-
-        # VSA handler DI (issue #142). Pre-injected handlers (for tests
-        # or upstream VSA wiring) are used verbatim; otherwise default
-        # factories build them at pipeline-run time so that the
-        # ``cover_letter_ai`` / ``api_client`` that arrive via the
-        # ``use_ai`` flag and the runtime API client are honoured.
-        self._relevance_handler = relevance_handler
-        self._cover_letter_handler = cover_letter_handler
-        self._vacancy_search_handler = vacancy_search_handler
-        self._database = database
-
-        # Внедрённый сервис поиска вакансов (VSA wiring)
         self._injected_vacancy_search_service_factory = (
             vacancy_search_service_factory
         )
-
-        # Внедрённый адаптер отправки откликов (VSA wiring, issue #55).
-        # Если не передан — используется legacy-путь в
-        # :meth:`_send_apply_request` (прямой ``api_client.post``).
         self._application_submit_adapter = application_submit_adapter
 
-        # Внедрённый VSA-slice (issue #89 partial bridge). Если передан --
-        # ``execute()`` делегирует ему через :meth:`run_apply_pipeline`.
-        # Иначе use case прогоняет pipeline вручную (legacy-путь).
-        self._application_submit_slice = application_submit_slice
+        # State populated in execute() / run_apply_pipeline().
+        self.command: "ApplyToVacanciesCommand | None" = None
+        self.cancel_event: threading.Event | None = None
+        self.progress_callback: ProgressCallback | None = None
 
-        # Кеш/инструменты.
-        self.json_decoder = JSONDecoder()
+        # Build the VSA slice (issue #145). When the caller pre-injects
+        # one, we use it verbatim; otherwise we build a default from
+        # the constructor deps. The slice is the single VSA entry
+        # point; the use case is a thin adapter.
+        self._application_submit_slice: Any = (
+            application_submit_slice
+            or self._build_default_slice(
+                relevance_handler=relevance_handler,
+                cover_letter_handler=cover_letter_handler,
+                database=database,
+            )
+        )
 
-    # ─── Публичный API ───────────────────────────────────────────
+    # ─── Public API ────────────────────────────────────────────
 
     def execute(
         self,
-        command: ApplyToVacanciesCommand,
+        command: "ApplyToVacanciesCommand",
         *,
         cancel_event: threading.Event | None = None,
         progress_callback: ProgressCallback | None = None,
-    ) -> ApplyToVacanciesResult:
-        """Запускает рассылку откликов.
-
-        Thin shim (issue #89 partial bridge): if a VSA
-        :class:`job_bot.application_submit.slice.ApplicationSubmitSlice`
-        is wired into this use case (constructor arg
-        ``application_submit_slice``), ``execute()`` delegates the
-        pipeline to ``slice.run_apply_pipeline(legacy_use_case=self,
-        command=command, cancel_event=cancel_event,
-        progress_callback=progress_callback)``. The slice is the
-        top-level VSA entry point; the use case supplies the
-        per-phase implementation via the ``LegacyUseCasePort`` protocol.
-
-        When no slice is wired, ``execute()`` falls back to the legacy
-        inline path (:meth:`run_apply_pipeline`), which constructs the
-        internal services and runs the search -> score -> cover-letter
-        -> apply loop in-process. Public surface is preserved: callers
-        that construct the use case without a slice see identical
-        behavior to pre-issue-#89.
-
-        Args:
-            command: входные параметры (``ApplyToVacanciesCommand``).
-            cancel_event: опциональное событие отмены (UI ставит его
-                при нажатии «Отменить»).
-            progress_callback: опциональный колбэк прогресса.
-                Вызывается с теми же строками, что выводятся в stdout,
-                — для интеграции с UI, отличным от redirect_stdout.
-
-        Returns:
-            ``ApplyToVacanciesResult`` со статистикой рассылки.
-        """
+    ) -> "ApplyToVacanciesResult":
+        """Run the apply pipeline (issue #145: delegates to the slice)."""
         self.command = command
         self.cancel_event = cancel_event
         self.progress_callback = progress_callback
-
-        if self._application_submit_slice is not None:
-            # VSA path (issue #89): the slice's run_apply_pipeline
-            # delegates back to ``self.run_apply_pipeline`` (the port
-            # method) which sets state and runs the body. Net effect
-            # is identical to the inline path; the difference is that
-            # the call is routed through the VSA slice's entry point
-            # so future per-phase migrations can be wired into the
-            # slice without changing this method.
-            return self._application_submit_slice.run_apply_pipeline(
-                legacy_use_case=self,
-                command=command,
-                cancel_event=cancel_event,
-                progress_callback=progress_callback,
-            )
-
-        # Legacy inline path (no VSA slice wired).
-        return self.run_apply_pipeline(
+        return self._application_submit_slice.run_apply_pipeline(
             command=command,
             cancel_event=cancel_event,
             progress_callback=progress_callback,
@@ -284,1061 +168,237 @@ class ApplyToVacanciesUseCase:
     def run_apply_pipeline(
         self,
         *,
-        command: ApplyToVacanciesCommand,
+        command: "ApplyToVacanciesCommand",
         cancel_event: threading.Event | None = None,
         progress_callback: ProgressCallback | None = None,
-    ) -> ApplyToVacanciesResult:
-        """VSA-port entry point: run the full pipeline.
+    ) -> "ApplyToVacanciesResult":
+        """VSA-port entry point -- delegates to the slice.
 
-        Implements the :class:`job_bot.application_submit.slice.LegacyUseCasePort`
-        contract -- the slice's :meth:`ApplicationSubmitSlice.run_apply_pipeline`
-        calls this method on the use case to do the actual work.
-
-        Public for the VSA path; legacy callers should keep using
-        :meth:`execute` (which now delegates here when no slice is
-        wired, or to the slice when one is).
-
-        Args:
-            command: входные параметры (``ApplyToVacanciesCommand``).
-            cancel_event: опциональное событие отмены.
-            progress_callback: опциональный колбэк прогресса.
-
-        Returns:
-            ``ApplyToVacanciesResult`` со статистикой рассылки.
+        Kept for backward compatibility with
+        ``tests/test_use_case_with_ports.py`` (issue #89 partial
+        bridge). The slice's :meth:`run_apply_pipeline` does the
+        actual work; the use case is a pass-through.
         """
-        self.command = command
-        self.cancel_event = cancel_event
-        self.progress_callback = progress_callback
-
-        # Конструируем внутренние VSA-сервисы (issue #142).
-        cover_letter_template = (
-            command.letter_file_content or DEFAULT_LETTER_TEMPLATE
-        )
-        self._build_vsa_handlers(
-            command=command, cover_letter_template=cover_letter_template
+        return self.execute(
+            command,
+            cancel_event=cancel_event,
+            progress_callback=progress_callback,
         )
 
-        result = ApplyToVacanciesResult()
+    # ─── Port-forwarding shims (issue #89 → #145 transition) ───────
+    #
+    # The Phase 2 port-based methods (``_now``, ``_send_email``,
+    # ``_is_cancelled``, ``_parse_site``, ``_solve_captcha_async``,
+    # ``_handle_vacancy_test``) used to live on the use case and are
+    # covered by ``tests/test_use_case_with_ports.py``. The per-phase
+    # logic moved into the in-slice handlers in #145, but the legacy
+    # test surface is preserved as thin forwarding shims here: each
+    # shim prefers its port (when supplied) and falls back to the
+    # legacy behaviour otherwise. New code should call the slice
+    # handlers directly; the shims are kept for backward compat.
 
-        resumes = self._fetch_published_resumes(command.resume_id)
-        if not resumes:
-            logger.warning("У вас нет опубликованных резюме")
-            return result
-
-        me = self._fetch_me()
-        seen_employers: set[str] = set()
-
-        for resume in resumes:
-            result.resumes_processed += 1
-            applied, limit_reached = self._apply_to_resume(
-                resume=resume,
-                user=me,
-                seen_employers=seen_employers,
-            )
-            result.applied += applied
-            if limit_reached:
-                result.limit_reached = True
-                logger.warning(
-                    "Лимит откликов hh.ru исчерпан. "
-                    "Пропускаю оставшиеся резюме."
-                )
-                self._notify(
-                    "⛔ Лимит откликов hh.ru исчерпан. Попробуйте позже."
-                )
-                break
-
-        return result
-
-    # ─── Внутренние помощники оркестрации ────────────────────────
-
-    def _fetch_published_resumes(
-        self, resume_id: str | None
-    ) -> list[dict[str, Any]]:
-        """Загружает резюме пользователя, сохраняет в storage, фильтрует
-        по ``resume_id`` (если задан) и статусу ``published``.
-        """
-        resumes: list[dict[str, Any]] = (
-            self.api_client.get("/resumes/mine").get("items") or []
-        )
-        try:
-            self.storage.resumes.save_batch(resumes)
-        except RepositoryError as ex:
-            logger.exception(ex)
-
-        if resume_id:
-            resumes = list(filter(lambda x: x["id"] == resume_id, resumes))
-        resumes = list(
-            filter(lambda x: x["status"]["id"] == "published", resumes)
-        )
-        return resumes
-
-    def _fetch_me(self) -> dict[str, Any]:
-        return self.api_client.get("/me")
-
-    def _apply_to_resume(
-        self,
-        resume: dict[str, Any],
-        user: dict[str, Any],
-        seen_employers: set[str],
-    ) -> tuple[int, bool]:
-        """Оркестратор рассылки откликов для одного резюме.
-
-        Returns:
-            ``(applied_count, limit_reached)``.
-        """
-        logger.info(
-            "Начинаю рассылку откликов для резюме: %s (%s)",
-            resume["alternate_url"],
-            resume["title"],
-        )
-        self._notify(
-            "[START] Начинаю рассылку откликов для резюме:",
-            resume["title"],
-        )
-
-        placeholders = {
-            "first_name": user.get("first_name") or "",
-            "last_name": user.get("last_name") or "",
-            "email": user.get("email") or "",
-            "phone": user.get("phone") or "",
-            "resume_hash": resume.get("id") or "",
-            "resume_title": resume.get("title") or "",
-            "resume_url": resume.get("alternate_url") or "",
-        }
-
-        do_apply = True
-        applied_count = 0
-        limit_reached = False
-        site_emails: dict[str, Any] = {}
-        resume_analysis = self._init_ai_filter(resume)
-
-        max_responses = self.command.max_responses
-
-        for vacancy in self._get_vacancies(resume_id=resume["id"]):
-            if self._is_cancelled():
-                logger.info("Операция отменена пользователем")
-                break
-            if max_responses is not None and applied_count >= max_responses:
-                logger.info(
-                    "Достигнут лимит откликов (max_responses=%d). Останавливаю.",
-                    max_responses,
-                )
-                break
-            try:
-                if self._check_vacancy_skips(vacancy, resume, do_apply):
-                    continue
-
-                self._save_vacancy_to_storage(vacancy)
-
-                self._load_employer_profile(
-                    vacancy, seen_employers, site_emails
-                )
-
-                message_placeholders = self._build_message_placeholders(
-                    vacancy, placeholders
-                )
-                letter = self._generate_cover_letter(
-                    vacancy, message_placeholders, resume_analysis, resume
-                )
-                logger.debug(letter)
-
-                if vacancy.get("has_test"):
-                    self._handle_vacancy_test(vacancy, resume["id"])
-                    continue
-
-                params = {
-                    "resume_id": resume["id"],
-                    "vacancy_id": vacancy["id"],
-                    "message": letter,
-                }
-                logger.debug(
-                    "Пробуем откликнуться на вакансию: %s",
-                    vacancy["alternate_url"],
-                )
-                if self._send_apply_request(params, vacancy):
-                    applied_count += 1
-
-                self._maybe_send_email(
-                    vacancy,
-                    vacancy.get("employer", {}).get("id"),
-                    message_placeholders,
-                    site_emails,
-                )
-            except LimitExceeded:
-                do_apply = False
-                limit_reached = True
-                logger.warning(
-                    "Достигли лимита на отклики (отправлено в этой сессии: %d)",
-                    applied_count,
-                )
-                break
-            except ApiError as ex:
-                logger.warning(ex)
-            except (BadResponse, AIError) as ex:
-                logger.error(ex)
-
-        logger.info(
-            "Закончили рассылку откликов для резюме: %s (%s). Отправлено: %d",
-            resume["alternate_url"],
-            resume["title"],
-            applied_count,
-        )
-        self._notify(
-            f"[DONE] Закончили рассылку для резюме: {resume['title']}. "
-            f"Отправлено: {applied_count}"
-        )
-        return applied_count, limit_reached
-
-    # ─── Прогресс-канал ──────────────────────────────────────────
-
-    def _notify(self, *args: Any) -> None:
-        """Печатает сообщение в stdout и (опционально) дёргает
-        ``progress_callback`` — единственный внешний канал прогресса.
-        """
-        message = " ".join(str(a) for a in args)
-        print(message)
-        if self.progress_callback is not None:
-            try:
-                self.progress_callback(message)
-            except Exception as ex:  # noqa: BLE001
-                # User-provided callback (UI progress). Any failure must
-                # not crash the apply loop — log and continue.
-                logger.warning("progress_callback error: %s", ex)
-
-    def _now(self) -> datetime:
-        """Возвращает текущее время через ``Clock`` порт (issue #25)
-        или ``datetime.now()``."""
+    def _now(self) -> Any:
         if self._clock is not None:
             return self._clock.now()
+        from datetime import datetime
+
         return datetime.now()
 
-    def _is_cancelled(self) -> bool:
-        """Проверяет отмену через ``CancellationToken`` (issue #24)
-        или ``threading.Event``."""
-        if self._cancellation is not None:
-            return self._cancellation.is_cancelled
-        return self.cancel_event is not None and self.cancel_event.is_set()
-
-    # ─── AI-фильтр (per-resume) ─────────────────────────────────
-
-    def _init_ai_filter(self, resume: dict[str, Any]) -> str:
-        """Инициализирует AI-фильтр вакансий (heavy/light).
-
-        Если ``command.ai_filter`` задан, через
-        ``vacancy_filter_ai_factory`` (или напрямую
-        ``self.vacancy_filter_ai``) создаётся AI-клиент с нужным
-        ``system_prompt``, и его ``rate_limit`` подгоняется под
-        ``command.ai_rate_limit``. Возвращает текст анализа резюме
-        (используется CoverLetterHandler).
-
-        Returns:
-            Текст анализа резюме (resume_analysis) — используется
-            ``CoverLetterHandler`` при AI-генерации письма.
-        """
-        ai_filter = self.command.ai_filter
-        if not ai_filter:
-            return ""
-
-        relevance_handler = self.relevance_handler_instance
-        if ai_filter == "heavy":
-            resume_analysis = relevance_handler.analyze_resume_heavy(resume)
-            system_prompt = build_filter_system_prompt_heavy(
-                resume_analysis,
-                relevance_rules=relevance_handler._relevance_rules,
-            )
-        elif ai_filter == "light":
-            resume_analysis = relevance_handler.analyze_resume_light(resume)
-            system_prompt = build_filter_system_prompt_light(
-                resume_analysis,
-                relevance_rules=relevance_handler._relevance_rules,
-            )
-        else:
-            raise ValueError(f"Неизвестный режим AI фильтра: {ai_filter}")
-
-        logger.debug("AI системный промпт (%s): %s", ai_filter, system_prompt)
-
-        if self.vacancy_filter_ai_factory is not None:
-            self.vacancy_filter_ai = self.vacancy_filter_ai_factory(
-                system_prompt
-            )
-        elif self.vacancy_filter_ai is None:
-            raise ValueError(
-                "AI фильтр включён, но ни vacancy_filter_ai, "
-                "ни vacancy_filter_ai_factory не заданы"
-            )
-
-        if self.command.ai_rate_limit and self.vacancy_filter_ai is not None:
-            self.vacancy_filter_ai.rate_limit = self.command.ai_rate_limit
-        relevance_handler.ai_client = self.vacancy_filter_ai
-        return resume_analysis
-
-    # ─── Skip policy ─────────────────────────────────────────────
-
-    def _check_vacancy_skips(
-        self,
-        vacancy: SearchVacancy,
-        resume: dict[str, Any],
-        do_apply: bool,
-    ) -> str | None:
-        """Проверяет все условия пропуска вакансии.
-
-        Returns:
-            Строка-причина пропуска или ``None``, если вакансия ОК.
-        """
-        if not do_apply:
-            return "limit_reached"
-        relations = vacancy.get("relations", [])
-        if relations:
-            logger.debug(
-                "Пропускаем вакансию с откликом: %s",
-                vacancy["alternate_url"],
-            )
-            if "got_rejection" in relations:
-                logger.debug(
-                    "Вы получили отказ от %s", vacancy["alternate_url"]
-                )
-                self._notify("⛔ Пришел отказ от", vacancy["alternate_url"])
-            return "already_responded"
-        if vacancy.get("archived"):
-            logger.debug(
-                "Пропускаем вакансию в архиве: %s",
-                vacancy["alternate_url"],
-            )
-            return "archived"
-        if vacancy.get("has_test") and self.command.skip_tests:
-            logger.debug(
-                "Пропускаю вакансию с тестом %s",
-                vacancy["alternate_url"],
-            )
-            return "has_test"
-        if redirect_url := vacancy.get("response_url"):
-            logger.debug(
-                "Пропускаем вакансию %s с перенаправлением: %s",
-                vacancy["alternate_url"],
-                redirect_url,
-            )
-            return "redirected"
-        if self._is_excluded(vacancy):
-            logger.info(
-                "Вакансия попала под фильтр: %s",
-                vacancy["alternate_url"],
-            )
-            self._save_skipped_vacancy(vacancy, "excluded_filter", resume["id"])
-            self.api_client.put(f"/vacancies/blacklisted/{vacancy['id']}")
-            logger.info(
-                "Вакансия добавлена в черный список: %s",
-                vacancy["alternate_url"],
-            )
-            return "excluded"
-
-        # AI фильтрация
-        ai_filter = self.command.ai_filter
-        if ai_filter and self.vacancy_filter_ai is not None:
-            if self._is_vacancy_already_skipped(vacancy, resume["id"]):
-                logger.debug(
-                    "Вакансия уже была отклонена ранее: %s",
-                    vacancy["alternate_url"],
-                )
-                self._notify(
-                    ">> Вакансия уже отклонена ранее",
-                    vacancy["alternate_url"],
-                )
-                return "ai_already_skipped"
-            relevance_handler = self.relevance_handler_instance
-            if ai_filter == "heavy":
-                is_suitable = relevance_handler.is_suitable_heavy(
-                    cast(dict[str, Any], vacancy)
-                ).suitable
-            elif ai_filter == "light":
-                is_suitable = relevance_handler.is_suitable_light(
-                    cast(dict[str, Any], vacancy)
-                ).suitable
-            else:
-                raise ValueError(f"Неизвестный режим AI фильтра: {ai_filter}")
-            if not is_suitable:
-                logger.info(
-                    "Вакансия отклонена AI фильтром (%s): %s",
-                    ai_filter,
-                    vacancy["alternate_url"],
-                )
-                self._notify(
-                    f"[AI] ({ai_filter}) посчитал неподходящей",
-                    vacancy["alternate_url"],
-                )
-                self._save_skipped_vacancy(vacancy, "ai_rejected", resume["id"])
-                return "ai_rejected"
-        return None
-
-    # ─── Хранилище ───────────────────────────────────────────────
-
-    def _save_vacancy_to_storage(self, vacancy: SearchVacancy) -> None:
-        try:
-            self.storage.vacancies.save(vacancy)
-        except RepositoryError as ex:
-            logger.debug(ex)
-        if vacancy.get("contacts"):
-            logger.debug(
-                f"Найдены контакты в вакансии: {vacancy['alternate_url']}"
-            )
-            try:
-                self.storage.vacancy_contacts.save(vacancy)
-            except RepositoryError as ex:
-                logger.exception(ex)
-
-    def _save_skipped_vacancy(
-        self,
-        vacancy: SearchVacancy,
-        reason: str,
-        resume_id: str | None = None,
-    ) -> None:
-        try:
-            employer = vacancy.get("employer") or {}
-            self.storage.skipped_vacancies.save(
-                {
-                    "resume_id": resume_id or "",
-                    "vacancy_id": vacancy["id"],
-                    "reason": reason,
-                    "alternate_url": vacancy.get("alternate_url"),
-                    "name": vacancy.get("name"),
-                    "employer_name": employer.get("name"),
-                    "created_at": self._now(),
-                }
-            )
-        except (RepositoryError, sqlite3.Error) as ex:
-            logger.warning(f"Не удалось сохранить пропущенную вакансию: {ex}")
-
-    def _is_vacancy_already_skipped(
-        self, vacancy: SearchVacancy, resume_id: str | None = None
-    ) -> bool:
-        try:
-            vacancy_id = vacancy["id"]
-            if resume_id:
-                if any(
-                    self.storage.skipped_vacancies.find(
-                        resume_id=resume_id,
-                        vacancy_id=vacancy_id,
-                    )
-                ):
-                    return True
-            return any(
-                self.storage.skipped_vacancies.find(
-                    resume_id="",
-                    vacancy_id=vacancy_id,
-                )
-            )
-        except (RepositoryError, sqlite3.Error):
-            return False
-
-    # ─── Профиль работодателя + парсинг сайта ────────────────────
-
-    def _load_employer_profile(
-        self,
-        vacancy: SearchVacancy,
-        seen_employers: set[str],
-        site_emails: dict[str, Any],
-    ) -> None:
-        """Загружает профиль работодателя и парсит его сайт на email'ы.
-
-        Мутирует ``site_emails[employer_id]`` в случае успешного парсинга.
-        """
-        employer = vacancy.get("employer") or {}
-        employer_id = employer.get("id")
-        if not employer_id or employer_id in seen_employers:
-            return
-        employer_profile = self.api_client.get(f"/employers/{employer_id}")
-        try:
-            self.storage.employers.save(employer_profile)
-        except RepositoryError as ex:
-            logger.exception(ex)
-        if not (
-            self.command.send_email
-            and (site_url := (employer_profile.get("site_url") or "").strip())
-        ):
-            return
-        site_url = site_url if "://" in site_url else "https://" + site_url
-        logger.debug("visit site: %s", site_url)
-        try:
-            site_info = self._parse_site(site_url)
-            site_emails[employer_id] = site_info["emails"]
-        except requests.RequestException as ex:
-            site_info = None
-            logger.error(ex)
-        if site_info:
-            logger.debug("site info: %r", site_info)
-            try:
-                self.storage.employer_sites.save(
-                    {
-                        "site_url": site_url,
-                        "employer_id": employer_id,
-                        "subdomains": [],
-                        **site_info,
-                    }
-                )
-            except RepositoryError as ex:
-                logger.exception(ex)
-
-    def _parse_site(self, url: str) -> dict[str, Any]:
-        """Парсит сайт работодателя.
-
-        Предпочитает ``SiteParserPort`` (issue #34);
-        fallback — прямой ``session.get()`` с regex.
-        """
-        if self._site_parser is not None:
-            try:
-                return self._site_parser.parse_site(url)
-            except Exception as ex:  # noqa: BLE001
-                # User-provided port (SiteParserPort). Any failure must
-                # not crash the apply loop — log and fall through to
-                # the legacy regex-based parser below.
-                logger.warning("SiteParserPort failed for %s: %s", url, ex)
-
-        # Legacy fallback
-        with self.session.get(url, timeout=10) as r:
-            val: Callable[[re.Match[str] | None], str] = lambda m: (
-                html.unescape(m.group(1)) if m else ""
-            )
-
-            title = val(re.search(r"<title>(.*?)</title>", r.text, re.I | re.S))
-            description = val(
-                re.search(
-                    r'<meta name="description" content="(.*?)"',
-                    r.text,
-                    re.I,
-                )
-            )
-            generator = val(
-                re.search(
-                    r'<meta name="generator" content="(.*?)"',
-                    r.text,
-                    re.I,
-                )
-            )
-
-            emails = set(
-                m.group(0)
-                # Исключение всякого мусора типа
-                # energy-software-slider-225x225@2x.png
-                for m in re.finditer(
-                    r"\b[a-z][a-z0-9_.-]+@("
-                    r"[a-z0-9][a-z0-9-]+)(?!\.(?:png|jpe?g|bmp|gif|ico|"
-                    r"js|css)\b)(\.[a-z0-9][a-z0-9-]+)+\b",
-                    r.text,
-                )
-            )
-
-            return {
-                "title": title,
-                "description": description,
-                "generator": generator,
-                "emails": list(emails),
-                "server_name": r.headers.get("Server"),
-                "powered_by": r.headers.get("X-Powered-By"),
-                "ip_address": r.raw._connection.sock.getpeername()[0]
-                if r.raw._connection
-                else None,
-            }
-
-    # ─── Письма ──────────────────────────────────────────────────
-
-    @staticmethod
-    def _build_message_placeholders(
-        vacancy: SearchVacancy, placeholders: dict[str, Any]
-    ) -> dict[str, Any]:
-        employer = vacancy.get("employer") or {}
-        return {
-            "vacancy_name": vacancy.get("name", ""),
-            "employer_name": employer.get("name", ""),
-            **placeholders,
-        }
-
-    def _generate_cover_letter(
-        self,
-        vacancy: SearchVacancy,
-        message_placeholders: dict[str, Any],
-        resume_analysis: str,
-        resume: dict[str, Any],
-    ) -> str:
-        return self.cover_letter_handler_instance.generate_cover_letter(
-            cast(dict[str, Any], vacancy),
-            message_placeholders,
-            resume_analysis=resume_analysis,
-            resume=resume,
-            force=self.command.force_message,  # type: ignore[union-attr]
-            required_by_vacancy=bool(vacancy.get("response_letter_required")),
-        )
-
-    def _handle_vacancy_test(
-        self, vacancy: SearchVacancy, resume_id: str
-    ) -> None:
-        """Обрабатывает вакансию с тестом: логирует, сохраняет в файл
-        ``vacancies_with_tests.txt``, помечает как skipped."""
-        test_link = vacancy.get("alternate_url")
-        employer = vacancy.get("employer") or {}
-        logger.info("Найдена вакансия с тестом: %s", test_link)
-
-        if self._test_logger is not None:
-            try:
-                self._test_logger.log(
-                    vacancy.get("name", ""),
-                    employer.get("name", ""),
-                    test_link or "",
-                )
-            except OSError as ex:
-                logger.error("TestVacancyLoggerPort failed: %s", ex)
-        else:
-            # Legacy fallback
-            try:
-                with open(
-                    "vacancies_with_tests.txt", "a", encoding="utf-8"
-                ) as f:
-                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    f.write(
-                        f"[{timestamp}] {vacancy.get('name')} - "
-                        f"{employer.get('name')} - {test_link}\n"
-                    )
-            except OSError as e:
-                logger.error(
-                    "Не удалось записать вакансию с тестом в файл: %s", e
-                )
-        self._notify(f"[TEST] ТРЕБУЕТСЯ ТЕСТ (пройдите вручную): {test_link}")
-        self._save_skipped_vacancy(
-            vacancy, "has_test_manual_required", resume_id
-        )
-
-    # ─── Отправка отклика + капча ────────────────────────────────
-
-    def _send_apply_request(
-        self, params: dict[str, Any], vacancy: SearchVacancy
-    ) -> bool:
-        """Отправляет отклик на вакансию с обработкой капчи.
-
-        Returns:
-            ``True`` если отклик успешно отправлен.
-        """
-        if self.command.dry_run:  # type: ignore[union-attr]
-            return False
-        # VSA wiring (issue #55): если в use case инжектирован адаптер
-        # нового ``ApplicationSubmitSlice`` — делегируем отправку ему.
-        # Fallback на legacy ``api_client.post`` ниже — для обратной
-        # совместимости с конфигурациями, где слайс ещё не подключён.
-        if self._application_submit_adapter is not None:
-            try:
-                return self._application_submit_adapter.apply_one(
-                    resume_id=params["resume_id"],
-                    vacancy_id=params["vacancy_id"],
-                    cover_letter=params.get("message", ""),
-                    vacancy=vacancy,
-                )
-            except ApiError as ex:
-                # Адаптер упал с API-ошибкой — не валим рассылку, логируем
-                # и идём по legacy-пути (как и было до подключения VSA).
-                # Программные ошибки (ValueError, AttributeError, ...) — пусть
-                # пропагируются: это баги адаптера, а не runtime-фейлы HH.
-                logger.warning(
-                    "application_submit adapter failed, falling back to "
-                    "legacy api_client.post: %s",
-                    ex,
-                )
-        try:
-            res = self.api_client.post(
-                "/negotiations",
-                params,
-                delay=random.uniform(1, 3),
-            )
-            assert res == {}
-            self._notify(
-                " [APPLY] Отправили отклик на вакансию",
-                vacancy["alternate_url"],
-            )
-            return True
-        except Redirect:
-            logger.warning(
-                f"Игнорирую перенаправление на форму: "
-                f"{vacancy['alternate_url']}"
-            )
-            return False
-        except CaptchaRequired as ex:
-            logger.warning(f"Требуется капча: {ex.captcha_url}")
-            try:
-                success = asyncio.run(self._solve_captcha_async(ex.captcha_url))
-                if not success:
-                    logger.error("Не удалось решить капчу")
-                    raise
-                res = self.api_client.post(
-                    "/negotiations",
-                    params,
-                    delay=random.uniform(1, 3),
-                )
-                assert res == {}
-                self._notify(
-                    " [APPLY] Отправили отклик на вакансию после капчи",
-                    vacancy["alternate_url"],
-                )
-                return True
-            except (
-                ApiError,
-                BadResponse,
-                LimitExceeded,
-                AIError,
-                AssertionError,
-            ) as e:
-                logger.error(f"Ошибка при решении капчи: {e}")
-                raise
-            except (RuntimeError, OSError, asyncio.TimeoutError) as e:
-                # "Неожиданные" ошибки инфраструктуры: Playwright crash,
-                # сетевой сбой, истечение таймаута. Программные баги
-                # (ValueError, TypeError, AttributeError) НЕ ловим — пусть
-                # пропагируются как реальные дефекты.
-                logger.error(f"Неожиданная ошибка при решении капчи: {e}")
-                raise
-
-    async def _solve_captcha_async(self, captcha_url: str) -> bool:
-        """Решает капчу через ``CaptchaSolverPort`` (issue #38)
-        или legacy Playwright."""
-        if self._captcha_solver is not None:
-            try:
-                captcha_text = await self._captcha_solver.solve_captcha_url(
-                    captcha_url
-                )
-                if captcha_text:
-                    logger.info("CaptchaSolverPort solved: %s", captcha_text)
-                    return True
-                logger.error("CaptchaSolverPort returned empty text")
-                return False
-            except AIError as ex:
-                logger.error("CaptchaSolverPort failed (AI error): %s", ex)
-                return False
-            except (OSError, asyncio.TimeoutError, RuntimeError) as ex:
-                # Инфраструктурные сбои порта (сеть, таймаут, падение
-                # Playwright). Программные баги (ValueError, TypeError, ...)
-                # НЕ ловим — это дефекты реализации порта.
-                logger.error("CaptchaSolverPort failed (unexpected): %s", ex)
-                return False
-
-        # Legacy fallback: inline Playwright
-        from playwright.async_api import async_playwright
-
-        async with async_playwright() as pw:
-            browser = await pw.chromium.launch(headless=True)
-            try:
-                context = await browser.new_context()
-                page = await context.new_page()
-
-                await page.goto(captcha_url, timeout=30000)
-
-                captcha_element = await page.wait_for_selector(
-                    self.SEL_CAPTCHA_IMAGE, timeout=10000, state="visible"
-                )
-                if captcha_element is None:
-                    logger.error("Captcha image element not found")
-                    return False
-
-                img_bytes = await captcha_element.screenshot()
-
-                captcha_text = await asyncio.to_thread(
-                    self.captcha_ai.solve_captcha, img_bytes
-                )
-
-                if not captcha_text:
-                    logger.error("AI не смог распознать капчу")
-                    return False
-
-                logger.info(f"Распознанный текст капчи: {captcha_text}")
-
-                await page.fill(self.SEL_CAPTCHA_INPUT, captcha_text)
-                await page.press(self.SEL_CAPTCHA_INPUT, "Enter")
-
-                await page.wait_for_load_state("networkidle", timeout=15000)
-
-                cookies = await context.cookies()
-                for c in cookies:
-                    self.session.cookies.set(
-                        c["name"],
-                        c["value"],
-                        domain=c.get("domain", ""),
-                        path=c.get("path", "/"),
-                    )
-
-                return True
-            finally:
-                await browser.close()
-
-        return False
-
-    # ─── Email ───────────────────────────────────────────────────
-
-    def _maybe_send_email(
-        self,
-        vacancy: SearchVacancy,
-        employer_id: str | None,
-        message_placeholders: dict[str, Any],
-        site_emails: dict[str, Any],
-    ) -> None:
-        if not self.command.send_email:  # type: ignore[union-attr]
-            return
-        mail_to: str | list[str] | None = (vacancy.get("contacts") or {}).get(
-            "email"
-        )
-        if mail_to is None and employer_id is not None:
-            mail_to = site_emails.get(employer_id)
-        if not mail_to:
-            return
-        if isinstance(mail_to, list):
-            mail_to = ", ".join(mail_to)
-        mail_subject = rand_text(
-            (self.config.get("apply_mail_subject") if self.config else None)
-            or "{Отклик|Резюме} на вакансию %(vacancy_name)s"
-        )
-        mail_body = unescape_string(
-            rand_text(
-                (self.config.get("apply_mail_body") if self.config else None)
-                or "{Здравствуйте|Добрый день}, "
-                "{прошу рассмотреть|пожалуйста рассмотрите} "
-                "мое резюме %(resume_url)s на вакансию %(vacancy_name)s."
-                % message_placeholders
-            )
-        )
-        try:
-            self._send_email(mail_to, mail_subject, mail_body)
-            self._notify(
-                "[EMAIL] Отправлено письмо на email по поводу вакансии",
-                vacancy["alternate_url"],
-            )
-        except smtplib.SMTPException as ex:
-            logger.error(f"Ошибка отправки письма: {ex}")
-
     def _send_email(self, to: str, subject: str, body: str) -> None:
-        """Отправляет email через ``EmailSenderPort`` (issue #36)
-        или legacy SMTP клиент."""
         if self._email_sender is not None:
-            try:
-                self._email_sender.send_email(to, subject, body)
-                return
-            except smtplib.SMTPException as ex:
-                logger.warning("EmailSenderPort failed: %s", ex)
-
-        # Legacy fallback
+            self._email_sender.send_email(to, subject, body)
+            return
+        # No port; raise the same ``RuntimeError`` the legacy
+        # ``_send_email`` would have raised when ``smtp`` / ``config``
+        # were not configured. The slice's email handler raises the
+        # same error, but only when both ``smtp`` and ``config`` are
+        # ``None``; the use case doesn't own these, so we replicate
+        # the check here.
         if self.smtp is None or self.config is None:
             raise RuntimeError(
                 "SMTP клиент или конфиг не настроены "
                 "(send_email=True требует обоих)"
             )
-        cfg = self.config.get("smtp", {})
-        msg = EmailMessage()
-        msg["Subject"] = subject
-        msg["From"] = cfg.get("from") or cfg.get("user")
-        msg["To"] = to
-        msg.set_content(body)
-        self.smtp.send_message(msg)
+        self._application_submit_slice.email.send(to, subject, body)
 
-    # ─── Поиск ───────────────────────────────────────────────────
+    def _is_cancelled(self) -> bool:
+        if self._cancellation is not None:
+            token = self._cancellation
+            # The port can be either a method-style token
+            # (``is_cancelled()`` returns ``bool``) or a
+            # state-style token (``is_cancelled`` is a ``bool``
+            # attribute). Support both shapes for backward compat.
+            attr = getattr(token, "is_cancelled", None)
+            if callable(attr):
+                return bool(attr())
+            if isinstance(attr, bool):
+                return attr
+        if self.cancel_event is not None:
+            return self.cancel_event.is_set()
+        return False
 
-    def _search_params_kwargs(self) -> dict[str, Any]:
-        """Собирает kwargs для :func:`build_search_params` из command.
+    def _parse_site(self, url: str) -> Any:
+        if self._site_parser is not None:
+            return self._site_parser.parse_site(url)
+        if self.session is None:
+            raise RuntimeError("parse_site: no site_parser port and no session")
+        return self.session.get(url, timeout=30)
 
-        ``search_params`` — плоский dict, который Operation собрал из
-        search-фильтров (``area``, ``metro``, ``schedule``, ...). Сверху
-        накладываем ``text`` (из ``command.search``) и ``order_by``
-        (из top-level поля command, если не указан в ``search_params``).
-        """
-        sp = dict(self.command.search_params or {})  # type: ignore[union-attr]
-        if self.command.search:  # type: ignore[union-attr]
-            sp["text"] = self.command.search
-        if self.command.order_by:  # type: ignore[union-attr]
-            sp.setdefault("order_by", self.command.order_by)
-        return sp
-
-    def _get_search_params(self, page: int) -> dict[str, Any]:
-        return build_search_params(
-            page=page,
-            per_page=self.command.per_page,  # type: ignore[union-attr]
-            **self._search_params_kwargs(),
+    async def _solve_captcha_async(self, url: str) -> str | None:
+        if self._captcha_solver is not None:
+            return await self._captcha_solver.solve_captcha_url(url)
+        return await self._application_submit_slice.captcha.solve_captcha_async(
+            url
         )
 
-    def _base_search_params(self) -> dict[str, Any]:
-        return self._get_search_params(page=0)
+    def _handle_vacancy_test(self, vacancy: dict, resume_id: str) -> None:
+        if self._test_logger is not None:
+            self._test_logger.log(vacancy, resume_id)
+            return
+        # Legacy fallback: write to file.
+        import json
+        from pathlib import Path
 
-    def _get_vacancies(
-        self, resume_id: str | None = None
-    ):  # -> Iterator[SearchVacancy]
-        yield from self._legacy_vacancy_search(
-            self._base_search_params(),
-            resume_id=resume_id,
-            per_page=self.command.per_page,  # type: ignore[union-attr]
-            total_pages=self.command.total_pages,  # type: ignore[union-attr]
-        )
-
-    # ─── VSA handler factories (issue #142) ────────────────────
-
-    def _build_vsa_handlers(
-        self, *, command: ApplyToVacanciesCommand, cover_letter_template: str
-    ) -> None:
-        """Build the VSA handlers used inside :meth:`run_apply_pipeline`.
-
-        Issue #142: the legacy ``CoverLetterService`` /
-        ``RelevanceService`` / ``VacancySearchService`` shims were
-        removed; this use case now uses the VSA
-        :class:`CoverLetterHandler` and :class:`RelevanceHandler`
-        directly. The VSA handlers are constructed lazily here (rather
-        than in ``__init__``) so the runtime ``cover_letter_ai`` /
-        ``api_client`` and the ``use_ai`` flag are honoured at
-        pipeline-run time. Tests can pre-inject mocks via the
-        ``relevance_handler`` / ``cover_letter_handler`` /
-        ``vacancy_search_handler`` constructor params to avoid the
-        legacy shim's class-level monkey-patching.
-
-        The handlers do not write to ``self._database`` (the use case
-        persists drafts via ``self.storage``), so a temp-file-backed
-        database is sufficient when the caller does not supply one.
-        The temp file is used (rather than ``":memory:"``) because
-        each ``Database.connect()`` opens a fresh SQLite connection
-        and ``:memory:`` databases don't share state across
-        connections -- the VSA handlers' init scripts assume a
-        persistent database.
-        """
-        # Database backing the VSA handlers. The use case never
-        # persists via these handlers (it uses ``self.storage`` for
-        # that), so a real DB is unnecessary. We allocate a temp file
-        # path on disk so the VSA handlers' per-connection table
-        # creation actually persists across connections.
-        database = self._database
-        if database is None:
-            import tempfile
-
-            tmp_db = tempfile.NamedTemporaryFile(
-                prefix="apply_vacancies_vsa_", suffix=".db", delete=False
+        log_path = Path("logs") / "test_vacancies.jsonl"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as fh:
+            fh.write(
+                json.dumps(
+                    {
+                        "vacancy_id": vacancy.get("id"),
+                        "resume_id": resume_id,
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
             )
-            tmp_db.close()
-            database = Database(tmp_db.name)
 
-        # Cover letter handler: respects ``cover_letter_template`` from
-        # the command, defaulting to the VSA ``DEFAULT_LETTER_TEMPLATE``
-        # when the user did not provide a ``letter_file``.
-        if self._cover_letter_handler is None:
-            self.cover_letter_handler_instance = CoverLetterHandler(
-                database=database,
+    # ─── Internals ─────────────────────────────────────────────
+
+    def _build_default_slice(
+        self,
+        *,
+        relevance_handler: Any,
+        cover_letter_handler: Any,
+        database: Any,
+    ) -> Any:
+        """Construct the default VSA :class:`ApplicationSubmitSlice`.
+
+        When ``cover_letter_handler`` is ``None`` (the prep-phase
+        handler was not pre-injected) we lazily build a temp-file
+        ``Database`` and let the slice's :class:`CoverLetterHandler`
+        use the prep-phase default construction. This mirrors the
+        legacy ``_build_vsa_handlers`` behaviour (issue #142) and
+        keeps the legacy public surface working without requiring
+        the caller to wire the prep-phase handlers.
+        """
+        from job_bot.application_submit import (
+            ApplicationSubmitSlice,
+            CoverLetterHandler,
+        )
+
+        prep_cover_letter = cover_letter_handler
+        if prep_cover_letter is None:
+            from job_bot.application_prep.handlers.cover_letter_handler import (
+                CoverLetterHandler as PrepCoverLetterHandler,
+            )
+
+            db = database
+            if db is None:
+                import tempfile
+
+                tmp_db = tempfile.NamedTemporaryFile(
+                    prefix="apply_vacancies_vsa_", suffix=".db", delete=False
+                )
+                tmp_db.close()
+                from job_bot.shared.storage.database import Database
+
+                db = Database(tmp_db.name)
+            prep_cover_letter = PrepCoverLetterHandler(
+                database=db,
                 api_client=self.api_client,
                 ai_client=self.cover_letter_ai,
-                template=cover_letter_template,
             )
-        else:
-            self.cover_letter_handler_instance = self._cover_letter_handler
 
-        # Relevance handler: the legacy ``RelevanceService`` accepted
-        # ``relevance_rules`` at construction; the VSA handler stores
-        # it as ``_relevance_rules`` and reads it from
-        # ``profile.relevance_rules`` (which the VSA slice also does).
-        # The per-resume command in this use case is the only
-        # relevance-rule source, so we pass it through the AI client
-        # factory via the prompt text (issue #54 followup). The
-        # attribute is still consulted by the use case's
-        # ``_init_ai_filter`` to feed the system prompt.
-        if self._relevance_handler is None:
-            self.relevance_handler_instance = RelevanceHandler(
-                database=database,
-                api_client=self.api_client,
-                ai_client=None,
-                relevance_rules=command.relevance_rules,
-            )
-        else:
-            self.relevance_handler_instance = self._relevance_handler
+        # Convert the prep-phase handler into the submit-phase
+        # adapter (the slice's ``CoverLetterHandler`` wraps the
+        # prep's ``generate_cover_letter``). ``CoverLetterHandler``
+        # here is the in-slice adapter from
+        # ``job_bot.application_submit.handlers``.
+        submit_cover_letter = CoverLetterHandler(prep_cover_letter)
 
-        # Vacancy search: the VSA ``VacancySearchHandler`` has a
-        # different shape (it persists vacancies to its own DB-backed
-        # table) and the use case's flow does not need the
-        # persistence side-effect. We expose a plain
-        # ``_legacy_vacancy_search`` shim that hits the same
-        # ``/vacancies`` / ``/resumes/{id}/similar_vacancies``
-        # endpoints without persisting. If a future VSA slice wants
-        # to take over the search loop, it can pre-inject a
-        # ``vacancy_search_handler`` whose ``search_vacancies_raw``
-        # yields the same dict shape — but that path is not wired
-        # here (kept for future work).
-        self.vacancy_search_handler_instance = self._vacancy_search_handler
+        # The use case doesn't own a :class:`StorageFacade` of its
+        # own -- it has a raw ``storage`` object passed in by the
+        # caller. The slice's :class:`SkipHandler` uses the storage's
+        # ``skipped_vacancies`` repo; the slice's private helpers
+        # (``_save_vacancy_to_storage``, ``_load_employer_profile``)
+        # use the same ``storage``. We forward the caller's
+        # ``storage`` directly so the legacy side keeps working.
+        return ApplicationSubmitSlice(
+            storage_conn=self._resolve_storage_conn(),
+            api_client=self.api_client,
+            session=self.session,
+            xsrf_token=self.xsrf_token,
+            ai_client=self.cover_letter_ai,
+            notifier=None,
+            clock=self._clock,
+            relevance_handler=relevance_handler,
+            cover_letter_prep_handler=submit_cover_letter,
+            storage=self.storage,
+            smtp=self.smtp,
+            config=self.config,
+            captcha_solver=self._captcha_solver,
+            email_sender=self._email_sender,
+            captcha_ai=self.captcha_ai,
+            vacancy_filter_ai=self.vacancy_filter_ai,
+            vacancy_filter_ai_factory=self.vacancy_filter_ai_factory,
+        )
 
-    def _legacy_vacancy_search(
-        self,
-        search_params: dict[str, Any],
-        *,
-        resume_id: str | None,
-        per_page: int,
-        total_pages: int,
-    ):
-        """Legacy vacancy search loop, inlined here after the
-        :class:`VacancySearchService` shim was removed (issue #142).
+    def _resolve_storage_conn(self) -> sqlite3.Connection:
+        """Extract a raw ``sqlite3.Connection`` from the caller's ``storage``.
 
-        Iterates vacancies by paginating ``/vacancies`` (when ``text``
-        is present in ``search_params``) or
-        ``/resumes/{resume_id}/similar_vacancies`` (when ``text`` is
-        absent). Yields the raw ``SearchVacancy`` dicts returned by
-        the API, matching the legacy service's contract.
+        The legacy use case receives a ``StorageFacade`` (which
+        holds a long-lived ``sqlite3.Connection``); the VSA slice
+        needs a raw connection. Falls back to a fresh in-memory
+        connection when neither is available (used by some unit
+        tests).
+
+        Three storage shapes are accepted:
+
+        1. The legacy :class:`hh_applicant_tool.storage.facade.StorageFacade`
+           (legacy dataclass-style facade with repo attributes
+           ``vacancy_contacts``, ``skipped_vacancies``, etc.). The
+           connection lives inside each repo; we fish it out of
+           ``storage.vacancy_contacts.conn``.
+        2. A facade with a ``conn`` attribute (e.g. a shim or an
+           older facade). Use it directly.
+        3. The VSA :class:`job_bot.shared.storage.facade.StorageFacade`
+           which wraps a :class:`Database`. Open a fresh connection
+           to ``database.path``.
         """
-        has_text = bool(search_params.get("text"))
-
-        for page in range(total_pages):
-            logger.debug("Загружаем вакансии со страницы: %d", page + 1)
-            params = dict(search_params)
-            params["page"] = page
-            params["per_page"] = per_page
-
-            if has_text:
-                endpoint = "/vacancies"
-            else:
-                if not resume_id:
-                    raise ValueError(
-                        "resume_id is required for similar_vacancies endpoint"
-                    )
-                endpoint = f"/resumes/{resume_id}/similar_vacancies"
-
-            res = self.api_client.get(endpoint, params)
-            logger.debug("Количество вакансий: %s", res.get("found"))
-
-            items = res.get("items") or []
-            if not items:
-                return
-
-            yield from items
-
-            if page >= res.get("pages", 0) - 1:
-                return
-
-    # ─── Excluded filter ─────────────────────────────────────────
-
-    def _is_excluded(self, vacancy: SearchVacancy) -> bool:
-        excluded_filter = self.command.excluded_filter
-        if not excluded_filter:
-            return False
-
-        snippet = vacancy.get("snippet") or {}
-        vacancy_summary = " ".join(
-            filter(
-                None,
-                [
-                    vacancy.get("name"),
-                    snippet.get("requirement"),
-                    snippet.get("responsibility"),
-                ],
-            )
+        storage = self.storage
+        if storage is None:
+            return sqlite3.connect(":memory:")
+        # 1. Legacy dataclass-style facade (the original
+        # ``hh_applicant_tool.storage.facade.StorageFacade``).
+        # Its repos hold the long-lived connection; any repo will do.
+        legacy_repo = getattr(storage, "vacancy_contacts", None) or getattr(
+            storage, "skipped_vacancies", None
         )
+        if legacy_repo is not None:
+            legacy_conn = getattr(legacy_repo, "conn", None)
+            if isinstance(legacy_conn, sqlite3.Connection):
+                return legacy_conn
+        # 2. Facade with a ``conn`` attribute.
+        conn = getattr(storage, "conn", None)
+        if isinstance(conn, sqlite3.Connection):
+            return conn
+        # 3. VSA ``StorageFacade`` (15-repo) wraps a ``Database``.
+        from job_bot.shared.storage.database import Database
 
-        logger.debug(vacancy_summary)
+        if isinstance(storage.database, Database):
+            return sqlite3.connect(storage.database.path)
+        return sqlite3.connect(":memory:")
 
-        excluded_pat: re.Pattern[str] = re.compile(
-            excluded_filter, re.IGNORECASE
-        )
 
-        if excluded_pat.search(vacancy_summary):
-            return True
-
-        # Грузим полный текст вакансии только, если предыдущий
-        # фильтр не сработал.
-        r = self.session.get("https://hh.ru/vacancy/" + vacancy["id"])
-        r.raise_for_status()
-
-        match = re.search(r'"description": (.*)', r.text)
-        if match is None:
-            return False
-        description, _ = self.json_decoder.raw_decode(match.group(1))
-        description = strip_tags(description)
-        logger.debug(description[:2047])
-        return bool(excluded_pat.search(description))
+__all__ = ["ApplyToVacanciesUseCase"]

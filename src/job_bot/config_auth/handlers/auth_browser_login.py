@@ -37,6 +37,7 @@ from job_bot.config_auth.handlers.auth_handler import (
     DEFAULT_PROFILE_ID,
     AuthHandler,
 )
+
 # The kitty/sixel image helpers are still in the legacy utils
 # (issue #93 moved cross-cutting utilities to ``job_bot.shared.utils``
 # but the image renderers stayed behind because no VSA slice depends
@@ -54,7 +55,7 @@ if TYPE_CHECKING:
     # CLI parser that scans every ``operations/`` module) can be
     # loaded on machines where the ``[playwright]`` extra is not
     # installed.
-    from playwright.async_api import (
+    from playwright.async_api import (  # type: ignore[import-not-found,unused-ignore]
         Browser,
         BrowserContext,
         Page,

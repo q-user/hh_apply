@@ -6,10 +6,9 @@ import logging
 from typing import Any
 
 import requests
-from hh_applicant_tool.api import BadResponse
-from hh_applicant_tool.api.errors import ApiError
 
 from job_bot.shared.api.client import HHApiClient, HHApiConfig
+from job_bot.shared.api.errors import ApiError, BadResponse
 from job_bot.shared.storage.database import Database
 from job_bot.vacancy_search.handlers.vacancy_handler import VacancyHandler
 from job_bot.vacancy_search.models.search_profile import SearchProfile
