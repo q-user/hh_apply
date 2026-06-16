@@ -113,9 +113,22 @@ class TestCaptchaHandlerSolveSync:
         assert result is False
 
 
-# ─── Legacy fallback (Playwright) ─────────────────────────────────────
+# ─── Legacy fallback (Playwright) ───────────────────────────
 
 
+try:
+    import playwright  # noqa: F401
+except ImportError:
+    playwright = None  # type: ignore[assignment]
+
+
+_HAS_PLAYWRIGHT = playwright is not None
+
+
+@pytest.mark.skipif(
+    not _HAS_PLAYWRIGHT,
+    reason="Playwright not installed (CI env without browser)",
+)
 class TestCaptchaHandlerLegacyFallback:
     """When no port is supplied, the handler falls back to the legacy
     Playwright path. The actual Playwright call is not exercised here
