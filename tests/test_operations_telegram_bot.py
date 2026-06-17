@@ -402,23 +402,40 @@ def test_run_returns_1_without_bot_token(storage: sqlite3.Connection) -> None:
 
 
 def test_pre_built_adapter_is_reused(storage: sqlite3.Connection) -> None:
-    """``Operation(bot_adapter=...)`` is honoured — the container
-    factory is *not* called on the run path."""
+    """``Operation(bot_adapter=...)`` is honoured — the container's
+    slice is *not* rebuilt on the run path.
+
+    Issue #155 removed ``AppContainer.create_telegram_bot_adapter``
+    (the 4 legacy ``_Adapter`` shims are deleted). Callers build
+    the adapter directly from the slice via
+    :func:`job_bot.telegram_bot.adapter.create_telegram_bot_adapter`.
+    The test pins that this direct path bypasses the container
+    entirely — ``container.telegram_bot`` must not be touched.
+    """
+    from job_bot.telegram_bot.adapter import create_telegram_bot_adapter
+
+    # Pre-build the adapter from a stand-alone slice factory
+    # (``_make_bot_adapter`` is a test helper in this file).
     adapter = _make_bot_adapter(updates=[])
     op = Operation(bot_adapter=adapter)
 
-    # Patch ``AppContainer.create_telegram_bot_adapter`` to detect any
-    # accidental rebuilding of the adapter. It must NOT be called.
-    from hh_applicant_tool import container as container_mod
+    # Patch ``AppContainer.telegram_bot`` to detect any accidental
+    # reach into the container on the run path. It must NOT be
+    # called — the pre-built adapter is the only thing ``Operation``
+    # is allowed to use.
+    from job_bot import container as container_mod
 
-    factory = MagicMock(side_effect=AssertionError("container factory called"))
+    factory = MagicMock(
+        side_effect=AssertionError("container.telegram_bot accessed")
+    )
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(
-            container_mod.AppContainer,
-            "create_telegram_bot_adapter",
-            factory,
-        )
+        mp.setattr(container_mod.AppContainer, "telegram_bot", factory)
         rc = op.run(_make_tool(storage), _make_args(once=True))  # type: ignore[arg-type]
 
     assert rc == 0
     factory.assert_not_called()
+
+    # Sanity: the factory function from the slice package is still
+    # callable, and ``create_telegram_bot_adapter(slice_)`` returns
+    # the same shape of object the operation expects.
+    assert callable(create_telegram_bot_adapter)

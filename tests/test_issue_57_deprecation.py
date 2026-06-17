@@ -36,7 +36,6 @@ from job_bot.channel_monitoring.slice import (
     create_channel_monitor_slice,
 )
 
-
 # ─── VSA slice surface ──────────────────────────────────────────
 
 
@@ -86,26 +85,27 @@ def test_operation_delegates_to_injected_slice() -> None:
 # ─── DI container wiring ────────────────────────────────────────
 
 
-def test_container_exposes_channel_monitor_adapter() -> None:
-    """``AppContainer.create_channel_monitor_slice()`` returns the slice."""
-    from hh_applicant_tool.container import AppContainer
+def test_container_exposes_channel_monitor_slice() -> None:
+    """``AppContainer.channel_monitoring`` returns the slice."""
+    from job_bot.container import AppContainer
 
     tool = _SimpleTool()
     container = AppContainer(tool)
-    adapter = container.create_channel_monitor_slice()
+    slice_ = container.channel_monitoring
 
-    assert isinstance(adapter, ChannelMonitorSlice)
-    assert isinstance(adapter.handler, ChannelHandler)
+    assert isinstance(slice_, ChannelMonitorSlice)
+    assert isinstance(slice_.handler, ChannelHandler)
 
 
-def test_container_channel_monitor_adapter_is_memoised() -> None:
-    """Repeated calls return the same slice instance."""
-    from hh_applicant_tool.container import AppContainer
+def test_container_channel_monitor_slice_is_memoised() -> None:
+    """Repeated accesses of the ``channel_monitoring`` property return
+    the same slice instance (``@cached_property``)."""
+    from job_bot.container import AppContainer
 
     tool = _SimpleTool()
     container = AppContainer(tool)
-    a = container.create_channel_monitor_slice()
-    b = container.create_channel_monitor_slice()
+    a = container.channel_monitoring
+    b = container.channel_monitoring
     assert a is b
 
 

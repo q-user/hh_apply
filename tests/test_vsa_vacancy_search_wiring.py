@@ -1,8 +1,33 @@
-"""Tests for VacancySearchSlice wiring through AppContainer (VSA migration #53)."""
+"""Tests for VacancySearchSlice wiring through AppContainer (VSA migration #53, slim #155).
+
+Issue #155 moved :class:`AppContainer` to :mod:`job_bot.container` as a
+slim, pure-VSA composition root. The 4 ``_Adapter`` shim classes
+(``_VacancySearchAdapter`` etc.) are gone. The container now exposes
+a ``vacancy_search`` :func:`@cached_property` slice accessor; the
+``_VacancySearchAdapter`` legacy search surface is no longer needed
+because the use case wires against the VSA slice directly via
+``vacancy_search_service_factory`` (a thin closure that returns the
+slice's :class:`VacancySearchPort`).
+"""
 
 from __future__ import annotations
 
+import os
+import tempfile
 from unittest.mock import MagicMock, patch
+
+
+def _make_temp_db_path() -> str:
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    return path
+
+
+def _safe_unlink(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
 
 
 class TestVacancySearchSliceWiring:
@@ -20,7 +45,7 @@ class TestVacancySearchSliceWiring:
                 "token": {"access_token": "test_token"},
                 "hh_api": {"base_url": "https://api.hh.ru", "timeout": 30},
             }
-            tool.db_path = "/tmp/test.db"
+            tool.db_path = _make_temp_db_path()
             tool.session = MagicMock()
             tool.api_client = MagicMock()
             tool.api_client.access_token = "test_token"
@@ -33,79 +58,91 @@ class TestVacancySearchSliceWiring:
             tool.storage = MagicMock()
             return tool
 
+    def _safe_close(self, tool: object) -> None:
+        db_path = getattr(tool, "db_path", None)
+        if db_path:
+            _safe_unlink(db_path)
+
     def test_app_container_creates_vacancy_search_slice(self):
-        """AppContainer can create a VacancySearchSlice instance."""
-        from hh_applicant_tool.container import AppContainer
+        """AppContainer's ``vacancy_search`` property returns a VSA slice."""
+        from job_bot.container import AppContainer
+        from job_bot.vacancy_search.slice import VacancySearchSlice
 
         tool = self._make_mock_tool()
+        try:
+            container = AppContainer(tool)
+            slice_ = container.vacancy_search
 
-        container = AppContainer(tool)
-        slice = container._get_vacancy_search_slice()
-
-        assert slice is not None
-        assert hasattr(slice, "search")
-
-    def test_app_container_creates_vacancy_search_adapter(self):
-        """AppContainer can create a vacancy search adapter."""
-        from hh_applicant_tool.container import AppContainer
-
-        tool = self._make_mock_tool()
-
-        container = AppContainer(tool)
-        adapter = container.create_vacancy_search_adapter(
-            per_page=10, total_pages=2
-        )
-
-        assert adapter is not None
-        assert hasattr(adapter, "search")
+            assert isinstance(slice_, VacancySearchSlice)
+            assert hasattr(slice_, "search")
+        finally:
+            self._safe_close(tool)
 
     def test_apply_to_vacancies_use_case_receives_factory(self):
-        """ApplyToVacanciesUseCase receives the vacancy search service factory."""
+        """``apply_to_vacancies_use_case`` wires a VSA-backed
+        ``vacancy_search_service_factory`` (the slice's search port)."""
         from hh_applicant_tool.application.use_cases import (
             ApplyToVacanciesUseCase,
         )
-        from hh_applicant_tool.container import AppContainer
+        from job_bot.container import AppContainer
 
         tool = self._make_mock_tool()
+        try:
+            container = AppContainer(tool)
+            use_case = container.apply_to_vacancies_use_case()
 
-        container = AppContainer(tool)
-        use_case = container.apply_to_vacancies_use_case()
-
-        assert isinstance(use_case, ApplyToVacanciesUseCase)
-        assert hasattr(use_case, "_injected_vacancy_search_service_factory")
-        assert use_case._injected_vacancy_search_service_factory is not None
+            assert isinstance(use_case, ApplyToVacanciesUseCase)
+            assert hasattr(use_case, "_injected_vacancy_search_service_factory")
+            assert use_case._injected_vacancy_search_service_factory is not None
+            # Calling the factory must return the VSA search port.
+            port = use_case._injected_vacancy_search_service_factory(10, 2)
+            assert port is container.vacancy_search.search
+        finally:
+            self._safe_close(tool)
 
     def test_prepare_vacancies_use_case_receives_factory(self):
-        """PrepareVacanciesUseCase receives the vacancy search service factory."""
+        """``prepare_vacancies_use_case`` wires a VSA-backed
+        ``vacancy_search_service_factory``."""
         from hh_applicant_tool.application.use_cases import (
             PrepareVacanciesUseCase,
         )
-        from hh_applicant_tool.container import AppContainer
+        from job_bot.container import AppContainer
 
         tool = self._make_mock_tool()
+        try:
+            container = AppContainer(tool)
+            use_case = container.prepare_vacancies_use_case()
 
-        container = AppContainer(tool)
-        use_case = container.prepare_vacancies_use_case()
+            assert isinstance(use_case, PrepareVacanciesUseCase)
+            assert hasattr(use_case, "_injected_vacancy_search_service_factory")
+            assert use_case._injected_vacancy_search_service_factory is not None
+        finally:
+            self._safe_close(tool)
 
-        assert isinstance(use_case, PrepareVacanciesUseCase)
-        assert hasattr(use_case, "_injected_vacancy_search_service_factory")
-        assert use_case._injected_vacancy_search_service_factory is not None
+    def test_factory_returns_vacancy_search_port(self):
+        """The VSA-backed ``vacancy_search_service_factory`` returns
+        the slice's :class:`VacancySearchPort` (issue #155).
 
-    def test_factory_creates_adapter_with_correct_params(self):
-        """Factory creates adapter with correct per_page and total_pages."""
-        from hh_applicant_tool.container import AppContainer
+        The legacy ``_VacancySearchAdapter`` accepted ``per_page`` and
+        ``total_pages`` kwargs; the new VSA port reads the search
+        params from the call args directly. The factory must still
+        accept the legacy signature (callers depend on it).
+        """
+        from job_bot.container import AppContainer
 
         tool = self._make_mock_tool()
+        try:
+            container = AppContainer(tool)
+            factory = container.apply_to_vacancies_use_case(
+                use_ai=False, send_email=False
+            )._injected_vacancy_search_service_factory
 
-        container = AppContainer(tool)
-        factory = lambda per_page, total_pages: (
-            container.create_vacancy_search_adapter(per_page, total_pages)
-        )
+            port_a = factory(10, 2)
+            port_b = factory(50, 5)
 
-        adapter1 = factory(10, 2)
-        adapter2 = factory(50, 5)
-
-        assert adapter1._per_page == 10
-        assert adapter1._total_pages == 2
-        assert adapter2._per_page == 50
-        assert adapter2._total_pages == 5
+            # Same port, different per_page/total_pages — the VSA
+            # port doesn't need them (it reads ``search_params``).
+            assert port_a is port_b
+            assert port_a is container.vacancy_search.search
+        finally:
+            self._safe_close(tool)

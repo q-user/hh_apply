@@ -61,6 +61,11 @@ def mock_tool():
     # Реальный db_path: иначе DB.validate_db_path (#78) отклонит Mock
     # в тех тестах, что запускают use case через AppContainer.
     tool.db_path = ":memory:"
+    # Issue #155: the new AppContainer wires the application_submit slice
+    # eagerly (via ``application_submit_slice=self.application_submit``),
+    # which builds a real ``JobHandler(storage_conn=tool.db)``. Provide a
+    # real ``sqlite3.Connection`` so the slice's ``init_db`` works.
+    tool.db = sqlite3.connect(":memory:")
     return tool
 
 
@@ -279,6 +284,7 @@ class TestErrorMessages:
         # Форсим исключение в use case — Api должен проглотить ``str(e)``
         # и отдать наружу общий текст.
         from unittest.mock import patch
+
         from hh_applicant_tool.container import AppContainer
 
         with patch.object(

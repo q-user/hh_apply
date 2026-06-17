@@ -1,23 +1,27 @@
-"""Tests for TelegramBotSlice wiring through AppContainer (VSA migration #56).
+"""Tests for TelegramBotSlice wiring through the slim AppContainer (issue #155).
+
+The new :class:`job_bot.container.AppContainer` is a pure-VSA composition
+root. It exposes a ``telegram_bot`` :func:`@cached_property` slice accessor
+(plus a ``create_telegram_bot_adapter`` factory in
+:mod:`job_bot.telegram_bot.adapter` that the CLI operation uses). The 4
+legacy ``_Adapter`` shim classes (``_TelegramBotAdapter`` was a thin
+facade around the slice) are deleted from the container itself; the
+adapter is now built by the slice package.
 
 Verifies that:
-  1. AppContainer can create the new TelegramBotSlice (issue #56).
-  2. AppContainer can create an adapter that wraps the new slice and
-     exposes the operation-facing surface (``transport``,
-     ``dispatch_update``, ``send_digest``).
-  3. The adapter re-uses the slice's underlying ``TelegramTransport``
-     so the SOCKS5 proxy / retry logic from issue #47 keeps working.
-  4. The slice is built against ``tool.db`` — no extra connection is
-     opened against the same SQLite file.
-  5. ``_get_telegram_bot_slice`` is a lazy singleton: repeated calls
-     return the same instance.
-  6. ``create_telegram_bot_adapter`` is a lazy singleton too: repeated
-     calls return the same instance and re-use the underlying slice.
-  7. The adapter's ``send_digest`` delegates to the slice's
-     ``DailyDigestService.send`` (not a fresh, re-implemented version).
-  8. The adapter's ``dispatch_update`` delegates to the slice's
-     ``BotService.dispatch_update`` (replaces the legacy
-     ``Operation._handle_update`` switch).
+
+1. ``AppContainer.telegram_bot`` returns a VSA slice (issue #56).
+2. ``container.telegram_bot`` is a lazy singleton: repeated accesses
+   return the same instance.
+3. The slice is built against ``tool.db`` — no extra connection is
+   opened against the same SQLite file.
+4. The ``create_telegram_bot_adapter(slice_)`` factory from
+   :mod:`job_bot.telegram_bot.adapter` produces the operation-facing
+   ``TelegramBotAdapter`` (preserves the dispatch_update / send_digest
+   surface the ``telegram-bot`` CLI operation depends on).
+5. ``container.telegram_bot`` raises ``RuntimeError`` when ``bot_token``
+   is missing from the config (the polling loop would be useless
+   without it).
 """
 
 from __future__ import annotations
@@ -52,7 +56,9 @@ def temp_db_path() -> str:
 
 
 class TestTelegramBotSliceWiring:
-    """Tests that TelegramBotSlice is properly wired into the runtime."""
+    """Tests that the slim :class:`AppContainer` wires the
+    :class:`TelegramBotSlice` via the ``telegram_bot`` cached_property
+    (issue #155)."""
 
     def _make_mock_tool(
         self,
@@ -86,14 +92,15 @@ class TestTelegramBotSliceWiring:
     def test_app_container_creates_telegram_bot_slice(
         self, temp_db_path: str
     ) -> None:
-        """AppContainer can create a ``TelegramBotSlice`` instance."""
-        from hh_applicant_tool.container import AppContainer
+        """``AppContainer.telegram_bot`` returns a :class:`TelegramBotSlice`."""
+        from job_bot.container import AppContainer
+        from job_bot.telegram_bot.slice import TelegramBotSlice
 
         tool = self._make_mock_tool(temp_db_path)
         container = AppContainer(tool)
-        slice_ = container._get_telegram_bot_slice()
+        slice_ = container.telegram_bot
 
-        assert slice_ is not None
+        assert isinstance(slice_, TelegramBotSlice)
         # Public surface of the slice (issue #56).
         assert hasattr(slice_, "service")
         assert hasattr(slice_, "digest")
@@ -101,73 +108,59 @@ class TestTelegramBotSliceWiring:
         assert hasattr(slice_, "transport")
         assert hasattr(slice_, "commands")
 
-    def test_app_container_creates_telegram_bot_adapter(
-        self, temp_db_path: str
-    ) -> None:
-        """AppContainer can create an adapter wrapping the new slice."""
-        from hh_applicant_tool.container import AppContainer
+    def test_adapter_factory_wraps_the_slice(self, temp_db_path: str) -> None:
+        """``create_telegram_bot_adapter(slice_)`` (from
+        :mod:`job_bot.telegram_bot.adapter`) returns a
+        :class:`TelegramBotAdapter` that exposes the operation-facing
+        surface.
+
+        Issue #155 removed ``AppContainer.create_telegram_bot_adapter``
+        — the adapter is now built by the slice package. The CLI
+        ``telegram-bot`` operation still uses the adapter shape.
+        """
+        from job_bot.container import AppContainer
+        from job_bot.telegram_bot.adapter import (
+            TelegramBotAdapter,
+            create_telegram_bot_adapter,
+        )
 
         tool = self._make_mock_tool(temp_db_path)
         container = AppContainer(tool)
-        adapter = container.create_telegram_bot_adapter()
+        slice_ = container.telegram_bot
 
-        assert adapter is not None
+        adapter = create_telegram_bot_adapter(slice_)
+        assert isinstance(adapter, TelegramBotAdapter)
         # The operation-facing surface (issue #56).
         assert hasattr(adapter, "transport")
         assert hasattr(adapter, "dispatch_update")
         assert hasattr(adapter, "send_digest")
         assert hasattr(adapter, "close")
-
-    def test_adapter_reuses_slice_transport(self, temp_db_path: str) -> None:
-        """``adapter.transport`` is the slice's underlying transport.
-
-        The SOCKS5 proxy + retry logic from issue #47 is owned by
-        ``TelegramTransport``; the adapter must expose the same
-        instance so the polling loop can drive it directly.
-        """
-        from hh_applicant_tool.container import AppContainer
-
-        tool = self._make_mock_tool(temp_db_path)
-        container = AppContainer(tool)
-        adapter = container.create_telegram_bot_adapter()
-
-        assert (
-            adapter.transport is container._get_telegram_bot_slice().transport
-        )
+        # And the adapter reuses the slice's transport.
+        assert adapter.transport is slice_.transport
 
     def test_slice_is_lazy_singleton(self, temp_db_path: str) -> None:
-        """``_get_telegram_bot_slice`` returns the same instance on repeat calls."""
-        from hh_applicant_tool.container import AppContainer
+        """``container.telegram_bot`` returns the same instance on repeat
+        accesses (``@cached_property``)."""
+        from job_bot.container import AppContainer
 
         tool = self._make_mock_tool(temp_db_path)
         container = AppContainer(tool)
-        slice_a = container._get_telegram_bot_slice()
-        slice_b = container._get_telegram_bot_slice()
+        slice_a = container.telegram_bot
+        slice_b = container.telegram_bot
         assert slice_a is slice_b
-
-    def test_adapter_is_lazy_singleton(self, temp_db_path: str) -> None:
-        """``create_telegram_bot_adapter`` returns the same instance on repeat calls."""
-        from hh_applicant_tool.container import AppContainer
-
-        tool = self._make_mock_tool(temp_db_path)
-        container = AppContainer(tool)
-        adapter_a = container.create_telegram_bot_adapter()
-        adapter_b = container.create_telegram_bot_adapter()
-        assert adapter_a is adapter_b
 
     def test_adapter_dispatch_update_delegates_to_slice(
         self, temp_db_path: str
     ) -> None:
-        """``adapter.dispatch_update`` calls ``slice.service.dispatch_update``.
-
-        This is the single call that replaces the legacy
-        ``Operation._handle_update`` switch in the CLI.
-        """
-        from hh_applicant_tool.container import AppContainer
+        """``TelegramBotAdapter.dispatch_update`` calls
+        ``slice.service.dispatch_update`` (the call that replaces the
+        legacy ``Operation._handle_update`` switch in the CLI)."""
+        from job_bot.container import AppContainer
+        from job_bot.telegram_bot.adapter import create_telegram_bot_adapter
 
         tool = self._make_mock_tool(temp_db_path)
         container = AppContainer(tool)
-        adapter = container.create_telegram_bot_adapter()
+        adapter = create_telegram_bot_adapter(container.telegram_bot)
 
         # Spy on the underlying BotService.
         bot_service = adapter.bot_service
@@ -182,16 +175,16 @@ class TestTelegramBotSliceWiring:
     def test_adapter_send_digest_delegates_to_slice(
         self, temp_db_path: str
     ) -> None:
-        """``adapter.send_digest`` calls ``slice.digest.send``.
-
-        The slice's ``DailyDigestService`` is the single source of
-        truth for the daily-digest send + idempotency contract.
-        """
-        from hh_applicant_tool.container import AppContainer
+        """``TelegramBotAdapter.send_digest`` calls
+        ``slice.digest.send``. The slice's ``DailyDigestService`` is the
+        single source of truth for the daily-digest send + idempotency
+        contract."""
+        from job_bot.container import AppContainer
+        from job_bot.telegram_bot.adapter import create_telegram_bot_adapter
 
         tool = self._make_mock_tool(temp_db_path)
         container = AppContainer(tool)
-        adapter = container.create_telegram_bot_adapter()
+        adapter = create_telegram_bot_adapter(container.telegram_bot)
 
         digest = adapter.slice.digest
         digest.send = MagicMock(return_value="digest-result")  # type: ignore[method-assign]
@@ -210,13 +203,13 @@ class TestTelegramBotSliceWiring:
         second ``sqlite3.Connection`` against the same DB file (would
         lead to surprising lock contention in WAL mode).
         """
-        from hh_applicant_tool.container import AppContainer
+        from job_bot.container import AppContainer
 
         tool = self._make_mock_tool(temp_db_path)
         # Sanity check: ``tool.db`` is open and the file exists.
         original_db = tool.db
         container = AppContainer(tool)
-        slice_ = container._get_telegram_bot_slice()
+        slice_ = container.telegram_bot
 
         # The slice stores the same connection object via
         # ``_resolve_storage`` (which returns a raw
@@ -226,15 +219,12 @@ class TestTelegramBotSliceWiring:
         assert slice_.database is original_db
 
     def test_no_bot_token_raises_clear_error(self, temp_db_path: str) -> None:
-        """``_get_telegram_bot_slice`` raises ``RuntimeError`` when ``bot_token`` is missing."""
-        from hh_applicant_tool.container import AppContainer
+        """``container.telegram_bot`` raises ``RuntimeError`` when
+        ``bot_token`` is missing from the config."""
+        from job_bot.container import AppContainer
 
         tool = self._make_mock_tool(temp_db_path, bot_token="")
-        # Bypass the early-exit path: build the container directly
-        # and call the slice factory (the operation does the early
-        # ``bot_token`` check itself; the container is the post-check
-        # factory).
         container = AppContainer(tool)
 
         with pytest.raises(RuntimeError, match="bot_token"):
-            container._get_telegram_bot_slice()
+            _ = container.telegram_bot
