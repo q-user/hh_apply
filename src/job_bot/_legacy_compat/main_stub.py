@@ -19,8 +19,10 @@ about the underlying container construction. We therefore:
   minimal container view that proxies attribute reads back to the
   tool (preserves the ``tool.api_client`` / ``tool.storage`` /
   ``tool.config`` shape);
-* expose a ``__getattr__`` that always returns ``None`` for unknown
-  attributes, so partial mocks don't break.
+* expose a ``__getattr__`` that forwards reads to the wrapped
+  ``tool`` / ``AppContainer`` and raises :class:`AttributeError`
+  for truly unknown names so typos and missing mocks are caught
+  loudly instead of silently turning into ``None`` (issue #177).
 """
 
 from __future__ import annotations
@@ -92,7 +94,10 @@ class HHApplicantTool:
 
     def __getattr__(self, name: str) -> Any:
         # Prefer the legacy ``tool`` (tests inject ``Mock(spec=...)``);
-        # fall back to the AppContainer's properties; then ``None``.
+        # fall back to the AppContainer's properties. Unknown names
+        # raise AttributeError so typos and missing mocks are caught
+        # loudly (issue #177) — silently returning ``None`` masked
+        # real configuration mistakes.
         tool = self.__dict__.get("_tool")
         if tool is not None and hasattr(tool, name):
             return getattr(tool, name)
@@ -101,24 +106,27 @@ class HHApplicantTool:
             return getattr(container, name)
         # Compute ``db`` from ``db_path`` when neither tool nor
         # container supplies it (so the VSA slices' ``tool.db``
-        # reads still work end-to-end).
+        # reads still work end-to-end). ``getattr`` is used (not
+        # ``vars(...).get``) so class-level attributes and
+        # ``cached_property`` accessors are picked up too.
         if name == "db":
             import sqlite3
 
             for source in (tool, self):
                 if source is None:
                     continue
-                db_path = (
-                    vars(source).get("db_path")
-                    if hasattr(source, "__dict__")
-                    else None
-                )
+                db_path = getattr(source, "db_path", None)
                 if db_path is not None:
                     return sqlite3.connect(
                         str(db_path), check_same_thread=False
                     )
-            return None
-        return None
+            raise AttributeError(
+                "HHApplicantTool: cannot resolve 'db' — neither the "
+                "wrapped tool nor the AppContainer exposes a "
+                "'db_path' attribute. Set tool.db_path (or tool.db) "
+                "explicitly."
+            )
+        raise AttributeError(f"HHApplicantTool has no attribute {name!r}")
 
     def run(self, argv: Any = None) -> int | None:
         """Legacy ``HHApplicantTool.run()`` entry point.
