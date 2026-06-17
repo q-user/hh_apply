@@ -1,6 +1,21 @@
 """Canonical deprecation contract for VSA shim modules (issue #92).
 
-Standard contract (enforced here):
+After issue #158 the ``hh_applicant_tool`` distribution package is
+retired and only the 5-LOC stub remains.  The 5 deprecation shims that
+used to be tested here (the 4 operations class shims and the
+``api.errors``/``api.datatypes`` module shims) are gone, so the
+contract table is now empty.
+
+This module is kept as **living documentation** of the canonical
+deprecation contract for any future shim that may appear.  The
+:class:`ShimSpec` dataclass, the :data:`CONTRACT_RE` regex and the
+:data:`SHIM_CONTRACT` table stay so that the next person who needs to
+introduce a shim has a reference implementation to copy from.  No
+shim-related tests run today; only the
+:func:`test_contract_template_is_well_formed` test below fires, which
+asserts that the regex still parses the canonical message template.
+
+Standard contract (was enforced when the shims existed):
 
 * **Message format**: ``"{module.path} is deprecated; use {vsa.path}
   instead (issue #{N})."``
@@ -11,23 +26,15 @@ Standard contract (enforced here):
   ``warnings`` filter context still produces exactly one
   ``DeprecationWarning`` matching the contract.
 
-Every shim that survives the VSA migration MUST follow this contract.
-If you add a new shim module, add a row to :data:`SHIM_CONTRACT` below
-and the parametrized tests will enforce the contract for you.
+If a future shim is introduced, add a row to :data:`SHIM_CONTRACT` and
+the parametrized tests will enforce the contract for you.
 """
 
 from __future__ import annotations
 
-import importlib
-import inspect
 import re
-import sys
-import warnings
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Callable
-
-import pytest
 
 # ─── Canonical message template ─────────────────────────────────
 
@@ -89,332 +96,28 @@ class ShimSpec:
     description: str
 
 
-def _reload(module_path: str) -> Any:
-    """Force a fresh import of *module_path* and return the module.
-
-    Dropping the module from :data:`sys.modules` ensures the module-
-    level ``warnings.warn(...)`` in the shim fires again so the test
-    can observe it in its own ``catch_warnings`` context.
-    """
-    sys.modules.pop(module_path, None)
-    return importlib.import_module(module_path)
-
-
-def _build_query() -> Any:
-    """Reload the shim and instantiate ``Operation`` for the ``query`` command.
-
-    The ``query`` / ``sql`` shim is a class shim (issue #137) — the
-    deprecation warning fires on ``Operation.__init__`` so the
-    existing CLI dispatch can load the module without polluting
-    test runs.
-    """
-    _reload("hh_applicant_tool.operations.query")
-    from hh_applicant_tool.operations.query import Operation
-
-    return Operation()
-
-
-def _build_create_resume() -> Any:
-    """Reload the shim and instantiate ``Operation`` for ``create-resume``.
-
-    The ``create-resume`` shim is a class shim (issue #137) — the
-    deprecation warning fires on ``Operation.__init__``.
-    """
-    _reload("hh_applicant_tool.operations.create_resume")
-    from hh_applicant_tool.operations.create_resume import Operation
-
-    return Operation()
-
-
-def _build_clone_resume() -> Any:
-    """Reload the shim and instantiate ``Operation`` for ``clone-resume``.
-
-    The ``clone-resume`` shim is a class shim (issue #137) — the
-    deprecation warning fires on ``Operation.__init__``.
-    """
-    _reload("hh_applicant_tool.operations.clone_resume")
-    from hh_applicant_tool.operations.clone_resume import Operation
-
-    return Operation()
-
-
-def _build_reply_employers() -> Any:
-    """Reload the ``reply_employers`` shim and instantiate ``Operation``.
-
-    The shim is a class shim (issue #137): the deprecation warning
-    fires in :meth:`Operation.__init__` (per the contract used by
-    :class:`RelevanceService`), not at module import. Reloading the
-    module + instantiating ``Operation()`` triggers the warn.
-    """
-    _reload("hh_applicant_tool.operations.reply_employers")
-    from hh_applicant_tool.operations.reply_employers import Operation
-
-    return Operation()
-
-
-def _build_clear_negotiations() -> Any:
-    """Reload the ``clear_negotiations`` shim and instantiate ``Operation``.
-
-    The shim is a class shim (issue #137): the deprecation warning
-    fires in :meth:`Operation.__init__` (per the contract used by
-    :class:`RelevanceService`), not at module import.
-    """
-    _reload("hh_applicant_tool.operations.clear_negotiations")
-    from hh_applicant_tool.operations.clear_negotiations import Operation
-
-    return Operation()
-
-
-def _build_api_datatypes_module() -> Any:
-    """Reload the ``hh_applicant_tool.api.datatypes`` shim module (issue #152).
-
-    The shim is a module-level deprecation shim: the warning fires
-    once on import (covered by the ``_reload``-based tests above).
-    """
-    return _reload("hh_applicant_tool.api.datatypes")
-
-
-def _build_api_errors_module() -> Any:
-    """Reload the ``hh_applicant_tool.api.errors`` shim module (issue #152).
-
-    The shim is a module-level deprecation shim: the warning fires
-    once on import (covered by the ``_reload``-based tests above).
-    """
-    return _reload("hh_applicant_tool.api.errors")
-
-
-def _build_api_package_attribute_access() -> Any:
-    """Reload the package shim and touch an attribute to fire its warning.
-
-    The ``hh_applicant_tool.api`` package is a :pep:`562` lazy
-    re-export (issue #152): the canonical warning fires on attribute
-    access, not on import.  Accessing an attribute also imports the
-    underlying submodule (e.g. ``hh_applicant_tool.api.errors``), which
-    fires its own module-level warning — but the package shim's own
-    warning is the one the contract asserts on.  Caching the
-    resolved attribute in the module's ``__dict__`` keeps the warning
-    count at exactly one even for the ``from X import Y`` form (where
-    CPython's ``_handle_fromlist`` calls ``__getattr__`` twice).
-    """
-    _reload("hh_applicant_tool.api")
-    pkg = sys.modules["hh_applicant_tool.api"]
-    _ = pkg.BadResponse
-    return pkg
-
-
-def _build_utils_module() -> Any:
-    """Reload the ``hh_applicant_tool.utils`` package shim (issue #151).
-
-    The shim is a module-level deprecation shim: the warning fires
-    once on import (covered by the ``_reload``-based tests above).
-    The package no longer re-exports any of its submodules (they have
-    all moved to ``job_bot.shared.utils`` or
-    ``job_bot.resume_management.services``); the only side effect of
-    importing it is the deprecation warning itself.
-    """
-    return _reload("hh_applicant_tool.utils")
-
-
-# The canonical contract table.  Tests are parametrised over this list.
-# After issue #158 the ``hh_applicant_tool`` distribution package is
-# deleted; the shim modules that this contract used to assert are
-# gone, so the table is empty.  The contract type
-# (:class:`ShimSpec`) and the helper builders above are kept as
-# documentation of the canonical warning format for any future
-# deprecation shim that survives the VSA switchover.
+# The canonical contract table.  After issue #158 the table is empty
+# — every shim that this contract used to assert is gone.  See the
+# module docstring for details.
 SHIM_CONTRACT: tuple[ShimSpec, ...] = ()
 
 
-# ─── Per-shim contract tests ────────────────────────────────────
-
-
-@pytest.mark.parametrize(
-    "spec",
-    SHIM_CONTRACT,
-    ids=lambda s: s.description,
-)
-def test_shim_emits_exactly_one_deprecation_warning(spec: ShimSpec) -> None:
-    """Triggering the shim emits exactly one :class:`DeprecationWarning`.
-
-    We also assert that the warning is the only DeprecationWarning
-    observed in the catch context: it should be emitted once per
-    ``trigger()`` call (not zero, not many).
-    """
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        spec.trigger()
-
-    shim_warnings = _filter_to_shim(caught, spec)
-    assert len(shim_warnings) == 1, (
-        f"expected exactly one DeprecationWarning whose message is the "
-        f"canonical contract for {spec.description}, got "
-        f"{len(shim_warnings)}: {[str(w.message) for w in shim_warnings]}"
-    )
-
-
-@pytest.mark.parametrize(
-    "spec",
-    SHIM_CONTRACT,
-    ids=lambda s: s.description,
-)
-def test_shim_warning_message_matches_contract(spec: ShimSpec) -> None:
-    """The warning's message must match the canonical template and target.
-
-    Validates the ``{module.path} is deprecated; use {vsa.path} instead
-    (issue #{N}).`` format and that the module path, VSA path and
-    issue number all match the contract row.
-    """
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        spec.trigger()
-
-    shim_warnings = _filter_to_shim(caught, spec)
-    assert shim_warnings, (
-        f"no DeprecationWarning matching the canonical contract for "
-        f"{spec.description} was captured. Captured: "
-        f"{[str(w.message) for w in caught]}"
-    )
-    message = str(shim_warnings[0].message)
-
-    match = CONTRACT_RE.match(message)
-    assert match is not None, (
-        f"deprecation message for {spec.description} does not match the "
-        f"canonical contract template: {message!r}\n"
-        f"Expected format: '<module.path> is deprecated; use <vsa.path> "
-        f"instead (issue #<N>).'"
-    )
-
-    assert match.group("module") == spec.module_path, (
-        f"deprecation message for {spec.description} names the wrong "
-        f"module: {match.group('module')!r} (expected {spec.module_path!r})"
-    )
-    assert match.group("vsa") == spec.vsa_path, (
-        f"deprecation message for {spec.description} points at the wrong "
-        f"VSA target: {match.group('vsa')!r} (expected {spec.vsa_path!r})"
-    )
-    assert int(match.group("issue")) == spec.issue, (
-        f"deprecation message for {spec.description} cites the wrong issue: "
-        f"#{match.group('issue')} (expected #{spec.issue})"
-    )
-
-
-# ─── Stacklevel contract ────────────────────────────────────────
-
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-
-
-def _read_shim_source(spec: ShimSpec) -> str:
-    """Return the shim module's source text for static checks."""
-    module = importlib.import_module(spec.module_path)
-    assert module.__file__ is not None, (
-        f"shim {spec.module_path} has no __file__"
-    )
-    return Path(module.__file__).read_text(encoding="utf-8")
-
-
-@pytest.mark.parametrize(
-    "spec",
-    SHIM_CONTRACT,
-    ids=lambda s: s.description,
-)
-def test_shim_warning_uses_stacklevel_two(spec: ShimSpec) -> None:
-    """Every shim must call ``warnings.warn(..., stacklevel=2)``.
-
-    With ``stacklevel=2`` the warning's filename/line point at the
-    caller (the user code that imported the shim), not at the shim
-    itself.  This keeps the warning useful to end users.
-    """
-    source = _read_shim_source(spec)
-    # Look for ``warnings.warn(`` ... ``stacklevel=2`` within a small
-    # window.  A simple substring check is sufficient — no shim has
-    # two ``warnings.warn`` calls today, and adding a second one is
-    # exactly the regression we want this test to flag.
-    assert "warnings.warn(" in source, (
-        f"{spec.description} does not call warnings.warn()"
-    )
-    assert "stacklevel=2" in source, (
-        f"{spec.description} must use stacklevel=2 so the warning "
-        f"points at the caller (not at the shim)"
-    )
-
-
-# ─── Emission point contract ────────────────────────────────────
-
-
-@pytest.mark.parametrize(
-    "spec",
-    SHIM_CONTRACT,
-    ids=lambda s: s.description,
-)
-def test_shim_class_warning_is_in_dunder_init(spec: ShimSpec) -> None:
-    """Class shims emit the warning from ``__init__``, not at module level.
-
-    The contract (per issue #92) is:
-
-    * Class shims warn in ``__init__`` so re-exports via
-      ``services/__init__.py`` don't pollute every test run.
-    * Module-level shims warn once on import (covered by the
-      ``_reload``-based tests above).
-
-    We distinguish the two by inspecting the trigger: class shims
-    have a trigger that ends with ``Service(...)`` and module-level
-    shims have a trigger that just imports the module.
-    """
-    trigger_src = inspect.getsource(spec.trigger)
-    is_class_trigger = (
-        ".services.applications import ApplicationsService" in (trigger_src)
-        or ".services.cover_letters import CoverLetterService" in (trigger_src)
-        or ".services.relevance import RelevanceService" in trigger_src
-        or ".operations.query import Operation" in trigger_src
-        or ".operations.create_resume import Operation" in trigger_src
-        or ".operations.clone_resume import Operation" in trigger_src
-    )
-    if not is_class_trigger:
-        # Module-level shim: the warning is expected at import time
-        # and the test_trigger path already exercises that.  Nothing
-        # more to check structurally — the
-        # ``test_shim_warning_uses_stacklevel_two`` test already
-        # guards the ``stacklevel=2`` invariant.
-        return
-
-    # Find the class object that the trigger instantiates.
-    cls_name = re.search(r"import (\w+)", trigger_src).group(1)
-    module = importlib.import_module(spec.module_path)
-    cls = getattr(module, cls_name)
-    init_src = inspect.getsource(cls.__init__)
-
-    assert "warnings.warn(" in init_src, (
-        f"{spec.description} class shim must emit its deprecation "
-        f"warning in __init__, not at module level"
-    )
-    assert "stacklevel=2" in init_src, (
-        f"{spec.description} __init__ must use stacklevel=2"
-    )
-
-
-# ─── Module-level sanity: the contract is itself documented ─────
+# ─── Template sanity check ──────────────────────────────────────
 
 
 def test_contract_template_is_well_formed() -> None:
-    """The contract regex matches the spec template verbatim.
+    """The :data:`CONTRACT_RE` regex parses the canonical template.
 
-    This is a guard against the regex silently drifting from the
-    documented format in the module docstring.
+    Acts as a smoke test for the documentation value of the contract:
+    if the regex or the template drift out of sync, this test will
+    fail with a useful message.
     """
-    sample = (
-        "hh_applicant_tool.services.applications is deprecated; "
-        "use job_bot.application_prep instead (issue #54)."
+    canonical = (
+        "hh_applicant_tool.utils is deprecated; "
+        "use job_bot.shared.utils instead (issue #151)."
     )
-    match = CONTRACT_RE.match(sample)
-    assert match is not None
-    assert match.group("module") == "hh_applicant_tool.services.applications"
-    assert match.group("vsa") == "job_bot.application_prep"
-    assert match.group("issue") == "54"
-
-
-# ─── Manual entry point ─────────────────────────────────────────
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-q"])
+    match = CONTRACT_RE.match(canonical)
+    assert match is not None, f"regex did not match canonical: {canonical!r}"
+    assert match.group("module") == "hh_applicant_tool.utils"
+    assert match.group("vsa") == "job_bot.shared.utils"
+    assert match.group("issue") == "151"
