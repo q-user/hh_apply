@@ -148,7 +148,7 @@ class Api:
         if self._auth_running:
             return {"status": "error", "message": "Авторизация уже выполняется"}
         try:
-            import playwright  # noqa: F401
+            import playwright  # type: ignore[import-not-found]  # noqa: F401
         except ImportError:
             return {
                 "status": "error",

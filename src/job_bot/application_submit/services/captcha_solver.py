@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 logger = logging.getLogger(__package__)
@@ -61,7 +61,9 @@ class PlaywrightCaptchaSolver:
                 return
 
             try:
-                from playwright.async_api import async_playwright
+                from playwright.async_api import (  # type: ignore[import-not-found]
+                    async_playwright,
+                )
 
                 self._playwright = await async_playwright().start()
 
