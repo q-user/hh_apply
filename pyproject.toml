@@ -49,12 +49,12 @@ authors = ["Senior YAML Developer <yamldeveloper@proton.me>"]
 readme = "README.md"
 packages = [
   { include = "hh_applicant_tool", from = "src" },
+  { include = "job_bot", from = "src" },
 ]
 include = [
-  # Содержит схему и миграции
-  { path = "src/hh_applicant_tool/**/*.sql", format = ["sdist", "wheel"] },
-  # HTML/CSS/JS шаблоны UI
-  { path = "src/hh_applicant_tool/ui/templates/**/*", format = ["sdist", "wheel"] },
+  # Содержит схему и миграции (issue #158: schema moved into
+  # ``job_bot._legacy_compat.storage.queries``).
+  { path = "src/job_bot/_legacy_compat/storage/queries/**/*.sql", format = ["sdist", "wheel"] },
 ]
 
 [tool.poetry.dependencies]
