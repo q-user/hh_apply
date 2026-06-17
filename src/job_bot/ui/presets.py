@@ -17,7 +17,7 @@ identical to the legacy module — the 100-character name limit, the
 from __future__ import annotations
 
 import json
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, cast, runtime_checkable
 
 
 @runtime_checkable
@@ -97,7 +97,10 @@ class PresetsManager:
             normalized = _validate_name(name)
         except PresetValidationError:
             return None
-        return self._settings.get_value(f"{PRESET_PREFIX}{normalized}")
+        return cast(
+            "dict[str, Any] | None",
+            self._settings.get_value(f"{PRESET_PREFIX}{normalized}"),
+        )
 
     def delete(self, name: str) -> None:
         try:
@@ -119,7 +122,9 @@ class PresetsManager:
         self._settings.set_value(LAST_USED_KEY, params)
 
     def load_last_used(self) -> dict[str, Any] | None:
-        return self._settings.get_value(LAST_USED_KEY)
+        return cast(
+            "dict[str, Any] | None", self._settings.get_value(LAST_USED_KEY)
+        )
 
 
 __all__ = [
