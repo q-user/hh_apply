@@ -1,0 +1,1 @@
+"""Vacancy Search slice services."""

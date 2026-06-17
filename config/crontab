@@ -1,0 +1,36 @@
+# shellcheck disable=all
+PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin
+SHELL=/bin/bash
+
+# При старте системы/контейнера
+@reboot /bin/bash /app/scripts/startup.sh >> /var/log/cron.log 2>&1
+
+# Подъем резюме (раз в 4 часа)
+# Символ процента в кронтабе нужно экранировать
+# sleep с рандомной задержкой от 1 до 5 минут нужен во-первых чтобы токен обновиться успел, а во
+# вторых, чтобы антиспам не сработал
+# Подъем резюме (раз в 4 часа)
+7 */4 * * * /bin/bash -c 'sleep $((60 + RANDOM \% 241))' && /usr/local/bin/python -u -m hh_applicant_tool update-resumes --id "$RESUME_ID" >> /var/log/cron.log 2>&1
+
+# Готовим черновики откликов один раз в сутки утром.
+# Отправка теперь НЕ идёт напрямую — черновики попадают в очередь apply_jobs
+# и забираются сервисом hh_apply_worker после одобрения через Telegram-бот
+# (issue #11: collector + bot + worker).
+# Параметры поиска (area, search, resume_id) берутся из таблицы search_profiles,
+# а не из CLI-флагов — настройте профили через Telegram-бот или CLI.
+# Опционально: --search-profile <id> ограничит запуск одним профилем.
+# --no-ai — отключить AI для генерации писем/тестов (по умолчанию уже выключен).
+0 8 * * * /bin/bash -c 'sleep $((60 + RANDOM \% 241))' && /usr/local/bin/python -u -m hh_applicant_tool prepare-vacancies --ai >> /var/log/cron.log 2>&1
+45 * * * * /usr/local/bin/python -u -m hh_applicant_tool clear-negotiations -d >> /var/log/cron.log 2>&1
+
+# Тест: каждые 5 минут (задержка до 1 минуты, чтобы не накладывались)
+#*/5 * * * * /bin/bash -c 'sleep $((1 + RANDOM \% 59))' && /usr/local/bin/python -u -m hh_applicant_tool apply-vacancies >> /var/log/cron.log 2>&1
+
+# Пытаемся обновить токен каждую минуту. В этом нет необходимости, можно закомментировать, так как
+# токен обновляется автоматически при любом запросе
+*/1 * * * * /usr/local/bin/python -u -m hh_applicant_tool refresh-token
+
+# Раскомментируй, если хочешь удалять чаты с отказами
+#0 */1 * * * /bin/bash -c 'sleep $((60 + RANDOM \% 241))' && /usr/local/bin/python -m hh-applicant-tool clear-negotiations -d >> /var/log/cron.log 2>&1
+
+#*/1 * * * * echo "Cron is alive at $(date)" >> /var/log/cron.log 2>&1

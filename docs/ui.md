@@ -74,19 +74,31 @@ hh-applicant-tool ui --debug
 
 ## Архитектура
 
+UI — единственная часть проекта, которая пока **не** имеет собственного VSA-слайса. Это осознанное техническое решение: фронтенд на pywebview — тонкий слой, который вызывает use case-ы через `AppContainer` (см. `src/hh_applicant_tool/container.py`). Сами use case-ы (`PrepareVacanciesUseCase`, `ApplyToVacanciesUseCase`) уже работают через VSA-слайсы (`application_prep`, `application_submit`, `vacancy_search`), которые поднимаются лениво при первом обращении.
+
+`hh_applicant_tool/` сейчас в основном состоит из deprecation-шимов (стандартизованный контракт см. в [issue #92](https://github.com/q-user/hh_apply/issues/92) и в `tests/test_issue_92_deprecation.py`). UI — единственная его часть, которая пока не имеет замены в `src/job_bot/`. Когда будет принято решение о переезде UI в собственный VSA-слайс, переезд синхронизируется с Phase D из [ROADMAP](../ROADMAP.md) (deprecation shim removal). Подробности по VSA-структуре — в [`docs/vsa_migration_guide.md`](./vsa_migration_guide.md).
+
 ```
 src/hh_applicant_tool/
   ui/
     __init__.py          # create_window() — точка входа
     api.py               # class Api — Python<->JS мост (pywebview js_api)
-    presets.py            # PresetsManager — CRUD пресетов через SettingsRepository
+    presets.py           # PresetsManager — CRUD пресетов через SettingsRepository
     templates/
       index.html         # SPA — единая HTML страница с навигацией
       css/app.css        # Кастомные стили
       js/app.js          # JS логика — вызовы pywebview.api.*
   operations/
     ui.py                # CLI команда: hh-applicant-tool ui [--debug]
+  container.py           # AppContainer — лениво создаёт VSA-слайсы (см. vsa_migration_guide.md)
 ```
+
+Use case-ы, вызываемые UI (`prepare-vacancies`, `apply-vacancies`), исполняют код из VSA-слайсов:
+
+- `application_prep` (`src/job_bot/application_prep/slice.py`) — генерация черновиков
+- `application_submit` (`src/job_bot/application_submit/slice.py`) — отправка откликов
+- `vacancy_search` (`src/job_bot/vacancy_search/slice.py`) — поиск вакансий
+- `config_auth` (`src/job_bot/config_auth/slice.py`) — конфиг, OAuth, профили пользователей
 
 ### Как работает мост Python <-> JS
 

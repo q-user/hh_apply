@@ -1,0 +1,59 @@
+"""ReviewHandler -- thin orchestration around ``ReviewFlowService``.
+
+The review state machine is the most complex piece of the bot. The slice
+keeps it as a thin pass-through that delivers every outgoing message
+returned by the underlying service.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from job_bot.telegram_bot.telegram_transport import TelegramTransportError
+from job_bot.shared.storage.ports import StoragePort
+from job_bot.telegram_bot.ports.review_port import ReviewFlowPort
+from job_bot.telegram_bot.ports.transport_port import TelegramTransportPort
+
+logger = logging.getLogger(__package__)
+
+
+class ReviewHandler:
+    """Forward updates to the review state machine and ship its replies."""
+
+    def __init__(
+        self,
+        *,
+        storage: StoragePort,
+        transport: TelegramTransportPort,
+        review_service: ReviewFlowPort,
+    ) -> None:
+        self._storage = storage
+        self._transport = transport
+        self._review = review_service
+
+    def process_message(self, update: dict[str, Any]) -> list[Any]:
+        """Forward a text update; return and ship the outgoing messages."""
+        messages = self._review.process_message(update)
+        self._deliver(messages)
+        return messages
+
+    def process_callback(self, update: dict[str, Any]) -> list[Any]:
+        """Forward a callback_query; return and ship the outgoing messages."""
+        messages = self._review.process_callback(update)
+        self._deliver(messages)
+        return messages
+
+    def resume_session(self, chat_id: int) -> list[Any]:
+        """Resume a paused session and ship any pending messages."""
+        messages = self._review.resume_session(chat_id)
+        self._deliver(messages)
+        return messages
+
+    def _deliver(self, messages: list[Any]) -> None:
+        """Ship all outgoing messages via the transport."""
+        for msg in messages:
+            try:
+                self._transport.send_message(msg.chat_id, msg.text)
+            except TelegramTransportError as exc:
+                logger.error("Failed to send message: %s", exc)

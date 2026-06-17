@@ -1,0 +1,21 @@
+# See https://pre-commit.com for more information
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.9
+    hooks:
+      - id: ruff
+        # No `--fix` here: auto-fix on the pre-commit stage would silently
+        # mutate staged files, which can mask changes and break the
+        # staged-vs-working-tree invariant. Run `uv run ruff check --fix`
+        # manually before staging (or wire it into a separate CI job)
+        # so the developer sees and reviews every fix.
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: uv run pytest tests/
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-commit]

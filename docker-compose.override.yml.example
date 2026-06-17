@@ -1,0 +1,60 @@
+# Local Development Overrides (issue #49)
+#
+# Copy this file to docker-compose.override.yml and customize for your local environment.
+# This file is gitignored and should not be committed.
+#
+# Usage:
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#   # Edit docker-compose.override.yml with your local settings
+#   docker compose up -d
+
+services:
+  # Override the app service for local development with hot reload
+  app:
+    # Uncomment to enable hot reload with watchfiles
+    # command: ["watchfiles", "--filter", "python", "hh-applicant-tool"]
+    # Or use uvicorn for API server (if applicable)
+    # command: ["uvicorn", "hh_applicant_tool.api.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
+
+    # Mount additional local directories if needed
+    # volumes:
+    #   - ./my-local-config:/app/config:ro
+
+    # Override environment variables for local development
+    # environment:
+    #   - HH_PROFILE_ID=my-local-profile
+    #   - RESUME_ID=your-resume-id
+    #   - TELEGRAM_BOT_TOKEN=your-bot-token
+    #   - TELEGRAM_ALLOWED_USER_IDS=123456789
+    #   - OPENAI_API_KEY=sk-...
+    #   - DATABASE_URL=postgresql://hh_user:hh_password@postgres:5432/hh_applicant_tool
+    #   - LOG_LEVEL=DEBUG
+
+  # Override postgres for local customization
+  postgres:
+    # ports:
+    #   - "5433:5432"  # Use different host port if 5432 is in use
+    # environment:
+    #   - POSTGRES_DB=my_custom_db
+    #   - POSTGRES_USER=my_user
+    #   - POSTGRES_PASSWORD=my_password
+
+  # Override redis for local customization
+  redis:
+    # ports:
+    #   - "6380:6379"  # Use different host port if 6379 is in use
+
+  # Override mailhog for local customization
+  mailhog:
+    # ports:
+    #   - "1026:1025"  # SMTP
+    #   - "8026:8025"  # Web UI
+
+  # Override minio for local customization
+  minio:
+    # ports:
+    #   - "9002:9000"  # S3 API
+    #   - "9003:9001"  # Console
+    # environment:
+    #   - MINIO_ROOT_USER=my_access_key
+    #   - MINIO_ROOT_PASSWORD=my_secret_key

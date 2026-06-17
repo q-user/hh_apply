@@ -1,36 +1,249 @@
+# Local Development Stack (issue #49)
+#
+# This docker-compose.yml provides a complete local development environment with:
+#   - hh_apply (app): Main application with hot reload for development
+#   - postgres: PostgreSQL database (optional, profile: postgres)
+#   - redis: Redis for caching and queue (profile: redis)
+#   - mailhog: Email testing UI at http://localhost:8025 (profile: mailhog)
+#   - minio: S3-compatible storage at http://localhost:9000 (profile: minio)
+#   - hh_collector: Cron job for vacancy collection (production)
+#   - hh_tg_bot: Telegram bot for draft review (production)
+#   - hh_apply_worker: Worker for sending applications (production)
+#
+# Usage:
+#   docker compose up -d                    # Start core dev stack (app + redis)
+#   docker compose --profile postgres up -d # Start with PostgreSQL
+#   docker compose --profile mailhog up -d  # Start with MailHog
+#   docker compose --profile minio up -d    # Start with MinIO
+#   docker compose --profile prod up -d     # Start production services
+#
+# For local development overrides, copy docker-compose.override.yml.example
+# to docker-compose.override.yml and customize as needed.
+
+x-hh-base: &hh-base
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: hh_applicant_tool:latest
+  restart: unless-stopped
+  volumes:
+    # Shared config and data (SQLite, config.json, tokens, templates)
+    - ./config:/app/config
+    # Host timezone for cron
+    - /etc/localtime:/etc/localtime:ro
+  environment: &hh-base-environment
+    - CONFIG_DIR=/app/config
+    # === Search Profile ===
+    - HH_PROFILE_ID=${HH_PROFILE_ID:-default}
+    - RESUME_ID=${RESUME_ID:-}
+    # SEARCH_QUERY is legacy (not used) — prepare-vacancies uses search profiles from DB instead
+    # === Telegram Bot ===
+    - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+    - TELEGRAM_ALLOWED_USER_IDS=${TELEGRAM_ALLOWED_USER_IDS:-}
+    # === OpenAI ===
+    - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    # === Database (PostgreSQL) ===
+    - DATABASE_URL=${DATABASE_URL:-sqlite:///app/config/hh_applicant_tool.db}
+    # === Redis ===
+    - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    # === MailHog (SMTP) ===
+    - SMTP_HOST=${SMTP_HOST:-mailhog}
+    - SMTP_PORT=${SMTP_PORT:-1025}
+    - SMTP_USER=${SMTP_USER:-}
+    - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+    - SMTP_SSL=${SMTP_SSL:-false}
+    - SMTP_FROM=${SMTP_FROM:-noreply@localhost}
+    # === MinIO (S3) ===
+    - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
+    - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+    - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
+    - MINIO_BUCKET=${MINIO_BUCKET:-hh-applicant-tool}
+    - MINIO_SECURE=${MINIO_SECURE:-false}
+    # === General ===
+    - TERM=${TERM:-xterm}
+    - PYTHONUNBUFFERED=1
+    - PYTHONDONTWRITEBYTECODE=1
+
+x-hh-dev-base: &hh-dev-base
+  <<: *hh-base
+  build:
+    context: .
+    dockerfile: Dockerfile.dev
+  command: ["sleep", "infinity"]
+  volumes:
+    - ./config:/app/config
+    - ./src:/app/src
+    - ./scripts:/app/scripts
+    - ./tests:/app/tests
+    - ./pyproject.toml:/app/pyproject.toml
+    - ./uv.lock:/app/uv.lock
+    - /etc/localtime:/etc/localtime:ro
+  environment:
+    - CONFIG_DIR=/app/config
+    # === Search Profile ===
+    - HH_PROFILE_ID=${HH_PROFILE_ID:-default}
+    - RESUME_ID=${RESUME_ID:-}
+    # === Telegram Bot ===
+    - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+    - TELEGRAM_ALLOWED_USER_IDS=${TELEGRAM_ALLOWED_USER_IDS:-}
+    # === OpenAI ===
+    - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    # === Database (PostgreSQL) ===
+    - DATABASE_URL=${DATABASE_URL:-sqlite:///app/config/hh_applicant_tool.db}
+    # === Redis ===
+    - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    # === MailHog (SMTP) ===
+    - SMTP_HOST=${SMTP_HOST:-mailhog}
+    - SMTP_PORT=${SMTP_PORT:-1025}
+    - SMTP_USER=${SMTP_USER:-}
+    - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+    - SMTP_SSL=${SMTP_SSL:-false}
+    - SMTP_FROM=${SMTP_FROM:-noreply@localhost}
+    # === MinIO (S3) ===
+    - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
+    - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+    - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
+    - MINIO_BUCKET=${MINIO_BUCKET:-hh-applicant-tool}
+    - MINIO_SECURE=${MINIO_SECURE:-false}
+    # === General ===
+    - TERM=${TERM:-xterm}
+    - PYTHONUNBUFFERED=1
+    - PYTHONDONTWRITEBYTECODE=1
+    - PYTHONPATH=/app/src
+  stdin_open: true
+  tty: true
+
 services:
-  hh_applicant_tool:
-    container_name: hh_applicant_tool
-    image: hh_applicant_tool:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - .:/app
-      # Пробрасываем таймзону хоста
-      - /etc/localtime:/etc/localtime:ro
+  # Development application service with hot reload
+  app:
+    <<: *hh-dev-base
+    container_name: hh_apply_dev
+    profiles: ["dev"]
+    ports:
+      - "8000:8000" # For potential future API server
+    command: ["tail", "-f", "/dev/null"] # Keep container running for `make shell`
+
+  # PostgreSQL database (optional)
+  postgres:
+    image: postgres:16-alpine
+    container_name: hh_postgres
+    profiles: ["postgres"]
     restart: unless-stopped
     environment:
-      # Это не трогаем
-      - CONFIG_DIR=/app/config
-      # Смените или закомментируйте при проблемах
-      - TERM=${TERM}
-      # Если время на сервере отличается
-      # - TZ=Europe/Moscow
+      - POSTGRES_DB=${POSTGRES_DB:-hh_applicant_tool}
+      - POSTGRES_USER=${POSTGRES_USER:-hh_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-hh_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-postgres.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-hh_user} -d ${POSTGRES_DB:-hh_applicant_tool}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
-  stepansky_automation_hh:
-    extends: hh_applicant_tool
-    container_name: stepansky_automation_hh
+  # Redis for caching and queue
+  redis:
+    image: redis:7-alpine
+    container_name: hh_redis
+    profiles: ["dev", "redis"]
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # MailHog for email testing
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: hh_mailhog
+    profiles: ["mailhog"]
+    restart: unless-stopped
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # Web UI
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8025"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # MinIO for S3-compatible storage
+  minio:
+    image: minio/minio:latest
+    container_name: hh_minio
+    profiles: ["minio"]
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
     environment:
-      - HH_PROFILE_ID=stepansky
-      - RESUME_ID=3b52b973ff103b3d1c0039ed1f6c6b6c596b56
-      - SEARCH_QUERY="n8n" OR "AI" OR "ИИ" OR "LLM" OR "GPT" OR "нейросети" OR "prompt" OR "промпт" OR "автоматизац*"
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY:-minioadmin}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # Console
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
-  nataly_automation_hh:
-    extends: hh_applicant_tool
-    container_name: nataly_automation_hh
-    environment:
-      - HH_PROFILE_ID=nataly
-      - RESUME_ID=4f9eb4ceff1063dd760039ed1f58494648676b
-      - SEARCH_QUERY="CEO OR COO OR Managing Director OR Executive"
+  # Production services (from original docker-compose.yml)
+  hh_collector:
+    <<: *hh-base
+    container_name: hh_collector
+    profiles: ["prod"]
+    command:
+      - sh
+      - -c
+      - |
+        printenv | grep -E '^(CONFIG_DIR|HH_PROFILE_ID|RESUME_ID|SEARCH_QUERY)=' >> /etc/environment &&
+        chown -R docker:docker /app/config &&
+        cron &&
+        tail -f /var/log/cron.log
 
+  hh_tg_bot:
+    <<: *hh-base
+    container_name: hh_tg_bot
+    profiles: ["prod"]
+    command: ["hh-applicant-tool", "telegram-bot"]
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f telegram-bot"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  hh_apply_worker:
+    <<: *hh-base
+    container_name: hh_apply_worker
+    profiles: ["prod"]
+    command: ["hh-applicant-tool", "apply-worker"]
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f apply-worker"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

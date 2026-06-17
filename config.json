@@ -1,0 +1,37 @@
+{
+  "hh": {
+    "client_id": null,
+    "client_secret": null,
+    "user_agent": null,
+    "api_delay": 0.345,
+    "redirect_uri": null,
+    "scope": null,
+    "base_url": "https://api.hh.ru"
+  },
+  "telegram": {
+    "bot_token": null,
+    "allowed_user_ids": [],
+    "digest_chat_id": null
+  },
+  "ai": {
+    "api_key": null,
+    "base_url": null,
+    "model": "gpt-4o-mini",
+    "timeout": 60.0,
+    "max_retries": 3
+  },
+  "max": {
+    "bot_token": null,
+    "api_url": "https://botapi.max.ru"
+  },
+  "smtp": {
+    "host": null,
+    "port": 587,
+    "username": null,
+    "password": null,
+    "from_email": null,
+    "use_tls": true
+  },
+  "profiles": {},
+  "active_profile": null
+}

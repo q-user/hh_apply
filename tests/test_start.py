@@ -55,7 +55,9 @@ class TestHasToken:
     """Тесты определения первого запуска по наличию токена."""
 
     def test_no_config_file(self, tmp_path):
-        with patch("start.get_config_json", return_value=tmp_path / "nope.json"):
+        with patch(
+            "start.get_config_json", return_value=tmp_path / "nope.json"
+        ):
             assert start.has_token() is False
 
     def test_empty_config(self, tmp_path):
@@ -151,7 +153,9 @@ class TestInstallCompatiblePython:
     @patch("start.platform.system", return_value="Windows")
     @patch("start.subprocess.run")
     def test_winget_install_success(self, mock_run, _mock_sys):
-        ok = type("R", (), {"returncode": 0, "check_returncode": lambda self: None})()
+        ok = type(
+            "R", (), {"returncode": 0, "check_returncode": lambda self: None}
+        )()
         mock_run.return_value = ok
         assert start._install_compatible_python() is True
 

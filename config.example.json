@@ -1,0 +1,17 @@
+{
+  "client_id": "YOUR_HH_RU_OAUTH_CLIENT_ID",
+  "client_secret": "YOUR_HH_RU_OAUTH_CLIENT_SECRET",
+  "api_delay": 0.345,
+  "user_agent": "",
+  "token": {
+    "access_token": "",
+    "refresh_token": "",
+    "access_expires_at": 0
+  },
+  "telegram": {
+    "bot_token": "YOUR_TELEGRAM_BOT_TOKEN",
+    "poll_timeout": 30,
+    "allowed_user_ids": [123456789],
+    "proxy_url": "socks5://user:pass@host:1080"
+  }
+}

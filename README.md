@@ -40,7 +40,7 @@
 
 - 💬 **Рассылка сообщений по чатам работодателей.** Помогает не затеряться на фоне огромного количества откликов от других соискателей (в 2024 их было по 300 штук на вакансию джуна, сейчас по 3000).
 
-- 🔒 **Безопасность персональных данных.** Ваши email, телефон, пароль и другие личные данные никуда не передаются в отличие от сторонних сервисов. В этом можно убедиться, изучив [открытый исходный код](https://github.com/s3rgeym/hh-applicant-tool/tree/main/src/hh_applicant_tool). Владельцы сторонних сервисов никогда вам не покажут исходники. Они знают о вас все и эти данные спокойно продадут каким-нибудь жуликам, либо те утекут в результате взлома.
+- 🔒 **Безопасность персональных данных.** Ваши email, телефон, пароль и другие личные данные никуда не передаются в отличие от сторонних сервисов. В этом можно убедиться, изучив [открытый исходный код](https://github.com/q-user/hh_apply) — VSA-слайсы в `src/job_bot/`, CLI-обвязка в `src/hh_applicant_tool/`. Владельцы сторонних сервисов никогда вам не покажут исходники. Они знают о вас все и эти данные спокойно продадут каким-нибудь жуликам, либо те утекут в результате взлома.
 
 - 💾 **Сохранение контактов работодателей и прочей информации.** Контакты работодателей и информация о них и их вакансиях сохраняются в базе данных на вашем устройстве, что позволяет производить быстрый поиск нужной информации, в отличие от сайта, при минимальном опыте с SQL (язык запросов, придуманный в свое время для домохозяек).
 
@@ -82,6 +82,7 @@
   - [Описание](#описание)
   - [Предыстория](#предыстория)
   - [Запуск через Docker](#запуск-через-docker)
+  - [Архитектура](#архитектура)
   - [Стандартная установка](#стандартная-установка)
     - [Установка утилиты](#установка-утилиты)
     - [Дополнительные зависимости](#дополнительные-зависимости)
@@ -143,6 +144,25 @@ $$('[data-qa="vacancy-serp__vacancy_response"]').forEach((el) => el.click());
 
 ---
 
+## Архитектура
+
+Кодовая база разбита на два слоя:
+
+- **`src/job_bot/`** — [Vertical Slice Architecture (VSA)](./docs/vsa_migration_guide.md). Семь слайсов (`vacancy_search`, `config_auth`, `channel_monitoring`, `max_bot`, `telegram_bot`, `application_prep`, `application_submit`) + shared kernel (`storage/`, `api/`, `ai/`, `config/`). Каждый слайс самодостаточен: свои `models/`, `handlers/`, `ports/`, опционально `repositories/` / `services/`, фабрика `slice.py` и публичный `__init__.py`. Межслайсовое взаимодействие — только через порты.
+- **`src/hh_applicant_tool/`** — CLI-обвязка и переходный слой. Содержит точку входа `main.py` (`HHApplicantTool`), composition root `container.py` (`AppContainer` — лениво создаёт VSA-слайсы), операции в `operations/` и UI в `ui/`. VSA-миграция по сути завершена: весь оставшийся код в этом пакете — либо deprecation-шимы со стандартизованным контрактом ([issue #92](https://github.com/q-user/hh_apply/issues/92), `tests/test_issue_92_deprecation.py`), либо CLI/UI, у которых пока нет VSA-слайса. Следующий шаг — поэтапное удаление шимов (см. [ROADMAP](./ROADMAP.md), Phase D).
+
+CLI-операции (`apply-worker`, `telegram-bot`, `channel-monitor`, `max-bot`, `apply-vacancies`, `prepare-vacancies` и т. д.) парсят argparse → собирают соответствующий VSA-слайс через `AppContainer` → делегируют выполнение. Например, `apply-worker` (см. `src/hh_applicant_tool/operations/apply_worker.py`) — это тонкий адаптер над `ApplicationSubmitSlice.worker.run`.
+
+Тесты:
+
+- `tests/vsa/` — изолированные тесты VSA-слайсов;
+- `tests/integration/` — сквозные сценарии между слайсами (запускаются через `pytest -m integration`);
+- `tests/test_*.py` (без `vsa/` и `integration/`) — легаси-тесты легаси-кода.
+
+Актуальное состояние миграции — в [ROADMAP.md](./ROADMAP.md) и в [issues](https://github.com/q-user/hh_apply/issues).
+
+---
+
 ## Запуск через Docker
 
 Это рекомендованный разработчиком способ. Если не работает стандартная установка, то используйте его. Также это самый простой способ запуска и использования утилиты, требующий скопипастить 5 команд. Он подойдет обладателям выделенных серверов, используемых под VPN. Единственным недостатком использования `docker` является его требовательность к месту, так как для запуска Chromium, который используется при авторизации, нужно половину убунты поставить (более гига).
@@ -199,107 +219,158 @@ docker-compose run -u docker -it hh_applicant_tool \
 В случае успешной авторизации можно запускать рассылку откликов по крону:
 
 ```sh
-docker-compose up -d
+docker compose up -d
 ```
 
-Что будет делать?
+### Архитектура (issue #11): три сервиса
 
-- Рассылать отклики со всех опубликованных резюме.
-- Поднимать резюме.
+`docker-compose.yml` поднимает **три контейнера** с общей папкой `./config`
+(SQLite-файл, токены, `config.json`, шаблоны писем). Все они используют один
+и тот же образ `hh_applicant_tool:latest` (собирается из `Dockerfile`) и
+стартуют с `restart: unless-stopped`. Никакие порты наружу не публикуются —
+Telegram-бот работает в режиме long polling, вебхуков нет.
 
-Просмотр логов `cron`:
+| Сервис              | Команда                                 | Назначение |
+|---------------------|------------------------------------------|------------|
+| `hh_collector`      | `cron && tail -f /var/log/cron.log`      | По крону готовит черновики откликов (`prepare-vacancies`) раз в сутки утром, поднимает резюме, обновляет токен |
+| `hh_tg_bot`         | `hh-applicant-tool telegram-bot`         | Long-polling Telegram-бот: ревью черновиков, ежедневный дайджест, пометка «готово к отправке» |
+| `hh_apply_worker`   | `hh-applicant-tool apply-worker`         | Забирает одобренные черновики из очереди `apply_jobs` и отправляет отклики на hh.ru с rate-limit и ретраями |
+
+Поток данных:
+
+```
+hh_collector  --подготавливает-->  application_drafts
+                                       │
+                                       ▼
+                                Telegram-бот --одобряет--> apply_jobs
+                                                                    │
+                                                                    ▼
+                                                          hh_apply_worker
+```
+
+Все три процесса пишут в один файл SQLite. Параллельный доступ безопасен,
+потому что `storage/utils.py:init_db` выставляет `PRAGMA journal_mode=WAL`
+и `PRAGMA busy_timeout=5000` на каждом соединении (issue #1). Без WAL-режима
+при одновременной записи из бота и воркера возникали бы `database is locked`.
+
+Что будет делать `docker compose up -d`?
+
+- `hh_collector` по крону готовит черновики и поднимает резюме.
+- `hh_tg_bot` ждёт команд в Telegram и одобряет/правит черновики.
+- `hh_apply_worker` отправляет одобренные черновики на hh.ru.
+
+Просмотр логов всех сервисов сразу:
 
 ```sh
 docker compose logs -f
 ```
 
-В выводе должно быть что-то типа:
+Или по отдельности:
 
 ```sh
-hh_applicant_tool  | [Wed Jan 14 08:33:53 MSK 2026] Running startup tasks...
-hh_applicant_tool  | ℹ️ Токен не истек, обновление не требуется.
-hh_applicant_tool  | ✅ Обновлено Программист
+docker compose logs -f hh_collector      # cron + prepare-vacancies
+docker compose logs -f hh_tg_bot        # бот
+docker compose logs -f hh_apply_worker  # отправка откликов
+```
+
+В выводе `hh_collector` должно быть что-то типа:
+
+```sh
+hh_collector  | [Wed Jan 14 08:33:53 MSK 2026] Running startup tasks...
+hh_collector  | ℹ️ Токен не истек, обновление не требуется.
+hh_collector  | ✅ Обновлено Программист
 ```
 
 Чтобы прекратить просмотр логов, нажмите `Ctrl-C`.
 
-Информацию об ошибках можно посмотреть в файле `config/log.txt`, а контакты работодателей — в `config/data` с помощью `sqlite3`. В `config/config.json` хранятся токены, дающие доступ к аккаунту.
+Информацию об ошибках можно посмотреть в файле `config/log.txt`, а контакты работодателей — в `config/data` с помощью `sqlite3`. В `config/config.json` хранятся токены, дающие доступ к аккаунту. Черновики откликов лежат в `config/data` (таблицы `application_drafts` и `apply_jobs`).
 
 Также советую отредактировать файл `letter.txt`.
 
 Запущенные сервисы докер стартуют автоматически после перезагрузки. Остановить их можно выполнив:
 
 ```sh
-docker-compose down
+docker compose down
+```
+
+Остановить только один сервис (например, воркер на время отладки):
+
+```sh
+docker compose stop hh_apply_worker
 ```
 
 Чтобы обновить утилиту, в большинстве случаев достаточно в каталоге выполнить:
 
 ```sh
 git pull
-```
-
-В редких случаях нужно пересобрать все:
-
-```sh
 docker compose up -d --build
 ```
 
-Чтобы рассылать отклики с нескольких аккаунтов, нужно переписать `docker-compose.yml`:
+Ключ `--build` нужен, чтобы Docker пересобрал образ: с новым кодом поедут все
+три сервиса. Без `--build` запустятся контейнеры на старом образе.
+
+### Несколько профилей (несколько аккаунтов HH)
+
+`docker-compose.yml` рассчитан на один профиль поиска. Чтобы запустить
+несколько аккаунтов параллельно, скопируйте тройку сервисов и поменяйте
+`container_name` плюс значения `HH_PROFILE_ID` / `RESUME_ID`
+(`SEARCH_QUERY` — legacy, теперь поиск определяется профилями в БД).
+Либо создайте отдельный `search_profiles` в БД и оставьте переменные
+пустыми — воркер возьмёт профили из таблицы):
 
 ```yaml
 services:
-  # Не меняем ничего тут
-  hh_applicant_tool:
-    # ...
+  # Профиль 1 (по умолчанию)
+  hh_collector: &hh-collector { ... }
+  hh_tg_bot:    &hh-tg-bot    { ... }
+  hh_apply_worker: &hh-worker { ... }
 
-  # Добавляем новые строки
-
-  # Просто копипастим, меняя имя сервиса, container_name и значение HH_PROFILE_ID
-  hh_second:
-    extends: hh_applicant_tool
-    container_name: hh_second
+  # Профиль 2: ещё один набор из трёх сервисов
+  hh_collector_2:
+    <<: *hh-collector
+    container_name: hh_collector_2
     environment:
       - HH_PROFILE_ID=second
-
-  hh_third:
-    extends: hh_applicant_tool
-    container_name: hh_third
+      - RESUME_ID=...
+  hh_tg_bot_2:
+    <<: *hh-tg_bot
+    container_name: hh_tg_bot_2
     environment:
-      - HH_PROFILE_ID=third
-
-  # Общий шаблон для новых профилей
-  уникальное_имя_сервиса:
-    extends: hh_applicant_tool
-    # может совпадать с именем сервиса
-    container_name: уникальное_имя_контейнера
+      - HH_PROFILE_ID=second
+  hh_apply_worker_2:
+    <<: *hh-worker
+    container_name: hh_apply_worker_2
     environment:
-      - HH_PROFILE_ID=название_профиля
+      - HH_PROFILE_ID=second
 ```
 
 > [!IMPORTANT]
 > В этом файле важны отступы!
 
+Каждый набор сервисов пишет в **ту же** папку `./config` (тот же SQLite-файл) —
+это нормально, благодаря WAL-режиму. Если нужна полная изоляция профилей
+(свои токены, свой SQLite), вынесите каждый профиль в отдельный каталог с
+отдельным `docker-compose.yml`.
+
 Обратите внимание на `HH_PROFILE_ID` — его значение указывается при авторизации, если профиль отличен от дефолтного. Далее нужно авторизоваться в каждом профиле:
 
 ```sh
 # Авторизуемся со второго профиля
-docker-compose exec -u docker -it hh_applicant_tool \
+docker compose run -u docker -it hh_collector \
   hh-applicant-tool --profile-id second auth -k
-
-# Авторизуемся с третьего профиля
-docker-compose exec -u docker -it hh_applicant_tool \
-  hh-applicant-tool --profile-id third auth -k
 
 # И так далее
 ```
 
-Ну и выполнить `docker-compose up -d`, чтобы запустить новые сервисы.
+> [!TIP]
+> Можно авторизоваться и через бота/воркер — в них те же ENV. Но удобнее
+> через `hh_collector`, потому что там же крутится `cron` и сразу видно,
+> что `prepare-vacancies` запускается под нужным профилем.
 
 [Команды](#описание-команд) можно потестировать в запущенном контейнере:
 
 ```sh
-$ docker-compose exec -u docker -it hh_applicant_tool bash
+$ docker compose exec -u docker -it hh_collector bash
 docker@1897bdd7c80b:/app$ hh-applicant-tool config -p
 /app/config/config.json
 docker@1897bdd7c80b:/app$ hh-applicant-tool refresh-token
@@ -308,20 +379,189 @@ docker@1897bdd7c80b:/app$
 ```
 
 > [!IMPORTANT]
-> Обратите внимание, что `docker-compose exec`/`docker-compose run` запускаются с аргументами `-u docker`. Только для пользователя `docker` установлен `chromium`, необходимый для авторизации, а также это избавляет от проблем с правами, когда созданные файлы для изменения требуют root-права.
+> Обратите внимание, что `docker compose exec`/`docker compose run` запускаются с аргументами `-u docker`. Только для пользователя `docker` установлен `chromium`, необходимый для авторизации, а также это избавляет от проблем с правами, когда созданные файлы для изменения требуют root-права.
 
-Если хотите команду `apply-vacancies` вызывать с какими-то аргументами, то создайте в корне файл `apply-vacancies.sh`:
+### Часовой пояс
 
-```sh
-#!/bin/bash
+`/etc/localtime` хоста пробрасывается в каждый контейнер, поэтому cron
+срабатывает по локальному времени сервера. Если время на сервере отличается
+от вашего — раскомментируйте `TZ=Europe/Moscow` (или свой регион) в
+`environment` секции `x-hh-base` в `docker-compose.yml` и пересоберите
+образ.
 
-# Пример с фильтрацией по исключаемым словам
-/usr/local/bin/python -m hh_applicant_tool apply-vacancies \
-  -l letter.txt \
-  --excluded-filter "fullstack|junior|php" # укажите любые аргументы
+### Переопределение аргументов `prepare-vacancies` / `apply-worker`
+
+`hh_collector` гонит `prepare-vacancies` из `config/crontab` с дефолтными
+аргументами. Если нужно добавить флаги (например, ограничить запуск одним
+профилем), отредактируйте строку в `config/crontab`:
+
+```cron
+0 8 * * * ... /usr/local/bin/python -u -m hh_applicant_tool prepare-vacancies --search-profile stepansky --ai
 ```
 
-В файлах `startup.sh` и `crontab` замените `/usr/local/bin/python -m hh_applicant_tool apply-vacancies` на `/bin/sh /app/apply-vacancies.sh`.
+Аналогично для `hh_apply_worker`: чтобы поменять `--max-jobs`, `--idle-sleep`
+и т. п., отредактируйте `command:` соответствующего сервиса в
+`docker-compose.yml` или вынесите CLI-флаги в entrypoint-скрипт.
+
+---
+
+## Локальная разработка (Local Development Stack) {#local-dev}
+
+> **New in v1.8.11** (issue #49): Полный стек для локальной разработки с PostgreSQL, Redis, MailHog, MinIO и горячей перезагрузкой.
+
+### Быстрый старт
+
+```bash
+# 1. Клонируйте репозиторий
+ git clone https://github.com/s3rgeym/hh-applicant-tool
+ cd hh-applicant-tool
+
+# 2. Настройте переменные окружения
+ cp .env.example .env
+ # Отредактируйте .env под свои нужды
+
+# 3. Запустите dev-стек (app + redis)
+ make up
+
+# 4. Откройте шелл в контейнере приложения
+ make shell
+
+# 5. Запустите тесты
+ make test
+```
+
+### Доступные сервисы
+
+| Сервис | Порт | Описание | Профиль |
+|--------|------|----------|---------|
+| **app** | 8000 | Основное приложение с hot reload | `dev` (по умолчанию) |
+| **redis** | 6379 | Кэш и очередь | `dev`, `redis` |
+| **postgres** | 5432 | PostgreSQL БД | `postgres` |
+| **mailhog** | 1025 (SMTP), 8025 (UI) | Тестирование email | `mailhog` |
+| **minio** | 9000 (S3), 9001 (Console) | S3-совместимое хранилище | `minio` |
+| **hh_collector** | — | Cron для сбора вакансий | `prod` |
+| **hh_tg_bot** | — | Telegram-бот для ревью | `prod` |
+| **hh_apply_worker** | — | Воркер для отправки откликов | `prod` |
+
+### Команды Makefile
+
+```bash
+make help          # Показать все доступные команды
+make up            # Запустить dev-стек (app + redis)
+make up-all        # Запустить все сервисы
+make down          # Остановить и удалить контейнеры
+make logs          # Просмотр логов
+make shell         # Шелл в контейнере app
+make test          # Запуск тестов
+make test-cov      # Тесты с покрытием
+make lint          # Проверка кода (ruff)
+make lint-fix      # Автоисправление lint
+make migrate       # Миграции БД
+make db-shell      # PostgreSQL шелл
+make redis-shell   # Redis CLI
+make build         # Пересборка образов
+make clean         # Полная очистка
+make prod-up       # Запуск продакшн-сервисов
+make prod-down     # Остановка продакшн-сервисов
+```
+
+### Горячая перезагрузка (Hot Reload)
+
+Контейнер `app` монтирует исходный код как volume. Для hot reload:
+
+```bash
+# Внутри контейнера app:
+watchfiles --filter python hh-applicant-tool
+
+# Или через docker compose exec:
+docker compose exec app watchfiles --filter python hh-applicant-tool
+```
+
+### PostgreSQL для разработки
+
+```bash
+# Запуск с PostgreSQL
+make up-all
+# или
+docker compose --profile postgres up -d
+
+# Подключение к БД
+make db-shell
+```
+
+По умолчанию приложение использует SQLite (`sqlite:///app/config/hh_applicant_tool.db`).
+Для использования PostgreSQL установите в `.env`:
+
+```env
+DATABASE_URL=postgresql://hh_user:hh_password@postgres:5432/hh_applicant_tool
+```
+
+### Тестирование email с MailHog
+
+```bash
+# Запуск с MailHog
+docker compose --profile mailhog up -d
+
+# Web UI: http://localhost:8025
+# SMTP: localhost:1025
+```
+
+Настройте в `.env`:
+```env
+SMTP_HOST=mailhog
+SMTP_PORT=1025
+SMTP_SSL=false
+```
+
+### S3-хранилище с MinIO
+
+```bash
+# Запуск с MinIO
+docker compose --profile minio up -d
+
+# S3 API: http://localhost:9000
+# Console: http://localhost:9001 (minioadmin/minioadmin)
+```
+
+Настройте в `.env`:
+```env
+MINIO_ENDPOINT=minio:9000
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
+MINIO_BUCKET=hh-applicant-tool
+MINIO_SECURE=false
+```
+
+### Переопределение настроек
+
+Создайте `docker-compose.override.yml` на основе примера:
+
+```bash
+cp docker-compose.override.yml.example docker-compose.override.yml
+```
+
+Этот файл игнорируется git и позволяет переопределять любые настройки без изменения основного `docker-compose.yml`.
+
+### Полный цикл разработки
+
+```bash
+# 1. Запуск окружения
+make up
+
+# 2. Работа в контейнере
+make shell
+# Внутри контейнера:
+hh-applicant-tool -vv auth -k
+hh-applicant-tool prepare-vacancies
+hh-applicant-tool apply-worker --dry-run
+
+# 3. Запуск тестов перед коммитом
+make test
+make lint
+
+# 4. Остановка
+make down
+```
 
 ---
 
@@ -626,7 +866,7 @@ $ hh-applicant-tool settings auth.username 'user@example.com'
 > [!IMPORTANT]
 > Почитайте про [язык для поисковых запросов](https://hh.ru/article/1175). Он позволяет отсеивать мусор при поиске подходящих вакансий, например, `(Go OR Golang) NOT PHP NOT JavaScript`.
 
-Утилита использует систему плагинов. Все они лежат в [operations](https://github.com/s3rgeym/hh-applicant-tool/tree/main/src/hh_applicant_tool/operations). Модули, расположенные там, автоматически добавляются как доступные команды. За основу для своего плагина можно взять [whoami.py](https://github.com/s3rgeym/hh-applicant-tool/tree/main/src/hh_applicant_tool/operations/whoami.py).
+Утилита использует систему плагинов. Все они лежат в [operations](https://github.com/q-user/hh_apply/tree/develop/src/hh_applicant_tool/operations) (`src/hh_applicant_tool/operations/`). Модули, расположенные там, автоматически добавляются как доступные команды. Сами операции (например, `apply-worker`, `telegram-bot`, `channel-monitor`, `max-bot`) собирают VSA-слайсы через `AppContainer` (см. `src/hh_applicant_tool/container.py`); за основу для своего плагина можно взять [whoami.py](https://github.com/q-user/hh_apply/tree/develop/src/hh_applicant_tool/operations/whoami.py).
 
 Для тестирования запросов к API используйте команду `call-api` совместно с `jq` для обработки JSON.
 
@@ -865,11 +1105,19 @@ hh-applicant-tool config -p
 | `reply_message`         | Сообщение для ответа работодателю при отклике на вакансии, см. формат сообщений            |
 | `vacancy_test_answer`   | Ответ на вопрос из теста. Можно использовать синтаксис шаблонов.                           |
 | `user_agent`            | Кастомный юзерагент, передаваемый при каждом запросе. По умолчанию используется от Android |
-| `client_id`             | Идентификатор клиента, используемый для авторизации. По умолчанию используется от Android  |
-| `client_secret`         | Секретный ключ клиента, используемый для авторизации. По умолчанию используется от Android |
+| `client_id`             | Идентификатор клиента для авторизации (получите на dev.hh.ru). **Обязательно**           |
+| `client_secret`         | Секретный ключ клиента для авторизации. **Обязательно**                                  |
 | `openai_cover_letter`   | Конфигурация AI для генерации сопроводительных писем                                       |
 | `openai_vacancy_filter` | Конфигурация AI для фильтрации вакансий                                                    |
 | `openai_captcha`        | Конфигурация AI для распознавания капчи                                                    |
+
+> **Важно:** Жестко заданные (hardcoded) учетные данные OAuth удалены из кода.
+> Пользователи **обязаны** предоставить свои `client_id` и `client_secret`.
+> Получите их на <https://dev.hh.ru/> после регистрации приложения.
+>
+> Альтернативно можно задать переменные окружения:
+> - `HH_ANDROID_CLIENT_ID`
+> - `HH_ANDROID_CLIENT_SECRET`
 
 Если вы залогинитесь под другим аккаунтом, то данные не исчезнут.
 
@@ -978,6 +1226,26 @@ tool.storage.settings.set_value("_last_script_run", dt.datetime.now())
 # Учтите, что в таком случае токены, которые могут обновиться при выполнении запросов,
 # нужно сохранять вручную
 tool.save_token()
+```
+
+> [!NOTE]
+> Внутренняя бизнес-логика утилиты живёт в VSA-слайсах (`src/job_bot/`);
+> CLI-операции в `src/hh_applicant_tool/operations/` собирают их
+> через `AppContainer` (см. `src/hh_applicant_tool/container.py`).
+> Прямой импорт `from hh_applicant_tool import HHApplicantTool` пока
+> остаётся публичным API и будет поддерживаться до удаления
+> deprecation-шимов в рамках Phase D из [ROADMAP](./ROADMAP.md). Для
+> нового кода рекомендуется импортировать VSA-слайсы напрямую:
+
+```python
+from job_bot.vacancy_search import create_vacancy_search_slice
+from job_bot.application_prep import create_application_prep_slice
+from job_bot.application_submit import create_application_submit_slice
+
+vacancy_search = create_vacancy_search_slice()
+prep = create_application_prep_slice()
+submit = create_application_submit_slice()
+# ... используйте prep / submit / vacancy_search через их порты
 ```
 
 Команды тоже можно вызывать:

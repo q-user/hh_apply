@@ -1,0 +1,69 @@
+# Development Dockerfile (issue #49)
+# Optimized for local development with hot reload and dev dependencies
+
+FROM python:3.13-slim
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
+# System dependencies for development
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libc6-dev \
+    procps \
+    cron \
+    dos2unix \
+    tzdata \
+    less \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Setup user (same UID/GID as host for file permissions)
+ARG UID=1000
+ARG GID=1000
+RUN groupadd -g $GID docker && \
+    useradd -u $UID -g docker -m -s /bin/bash docker
+
+WORKDIR /app
+
+# Copy dependency files first for better caching
+COPY pyproject.toml uv.lock* README.md /app/
+
+# Install ALL dependencies including dev dependencies
+# This layer is cached unless pyproject.toml or uv.lock changes
+RUN uv sync --system --all-extras --all-groups
+
+# Install playwright browsers (cached separately)
+RUN playwright install-deps chromium && \
+    su docker -c "playwright install chromium"
+
+# Copy source code (will be overridden by volume mount in docker-compose)
+COPY src /app/src
+COPY scripts /app/scripts
+COPY config /app/config
+
+# Setup cron (for collector service)
+RUN touch /var/log/cron.log && chown docker:docker /var/log/cron.log && \
+    dos2unix /app/config/crontab && \
+    chmod +x /app/scripts/startup.sh && \
+    chmod 0644 /app/config/crontab && \
+    crontab -u docker /app/config/crontab
+
+# Set ownership for docker user
+RUN chown -R docker:docker /app
+
+# Switch to non-root user
+USER docker
+
+# Default command - keep container running for development
+# Override in docker-compose.override.yml or via command line
+CMD ["sleep", "infinity"]
+
+# Development entry points (use via `docker compose exec app <command>`):
+#   hh-applicant-tool          - Main CLI
+#   pytest                     - Run tests
+#   ruff check src/ tests/     - Lint code
+#   ruff check --fix src/ tests/ - Auto-fix lint issues
+#   watchfiles --filter python hh-applicant-tool  - Hot reload CLI
+#   python -m debugpy --listen 0.0.0.0:5678 -m pytest  - Debug tests
