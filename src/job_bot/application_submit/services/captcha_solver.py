@@ -61,7 +61,7 @@ class PlaywrightCaptchaSolver:
                 return
 
             try:
-                from playwright.async_api import (  # type: ignore[import-not-found]
+                from playwright.async_api import (  # type: ignore[import-not-found,unused-ignore]
                     async_playwright,
                 )
 
