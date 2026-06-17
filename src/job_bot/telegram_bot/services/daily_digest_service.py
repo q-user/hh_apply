@@ -42,7 +42,7 @@ from job_bot.telegram_bot.telegram_transport import (
 )
 
 if TYPE_CHECKING:
-    from job_bot.application_submit.ports.port_defs import AIClientPort, Clock
+    from job_bot.shared.ports import AIClientPort, Clock
 
 logger = logging.getLogger(__package__)
 
