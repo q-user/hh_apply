@@ -48,13 +48,17 @@ class HhApiClientPort(Protocol):
     access_expires_at: int
     delay: float
 
-    def get(self, endpoint: str, params: dict | None = None) -> Any:
+    def get(self, endpoint: str, params: dict[str, Any] | None = None) -> Any:
         """Perform a ``GET`` request and return the parsed JSON body."""
         ...
 
-    def post(self, endpoint: str, payload: dict | None = None) -> Any: ...
+    def post(
+        self, endpoint: str, payload: dict[str, Any] | None = None
+    ) -> Any: ...
 
-    def put(self, endpoint: str, json_data: dict | None = None) -> Any: ...
+    def put(
+        self, endpoint: str, json_data: dict[str, Any] | None = None
+    ) -> Any: ...
 
     def delete(self, endpoint: str) -> Any: ...
 

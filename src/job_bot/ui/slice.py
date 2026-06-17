@@ -44,7 +44,7 @@ def _default_get_me() -> Any:
     return {"first_name": "", "last_name": "", "email": ""}
 
 
-def _default_get_resumes() -> list[dict]:
+def _default_get_resumes() -> list[dict[str, Any]]:
     return []
 
 
@@ -87,7 +87,7 @@ class UiSlice:
         # Optional helpers — bound by the legacy shim, replaced by
         # port adapters in the VSA slice.
         get_me: Callable[[], Any] | None = None,
-        get_resumes: Callable[[], list[dict]] | None = None,
+        get_resumes: Callable[[], list[dict[str, Any]]] | None = None,
         get_negotiations: Callable[..., Any] | None = None,
         clear_token: Callable[[], None] | None = None,
     ) -> None:

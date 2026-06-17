@@ -18,7 +18,7 @@ Everything here is **pure** — no I/O, no service-locator, no
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 if TYPE_CHECKING:
     from hh_applicant_tool.application.dto import ApplyToVacanciesCommand
@@ -226,6 +226,7 @@ def _build_command_from_params(
         if key not in p:
             continue
         value = p[key]
+        coerced: Any
         if key in _APPLY_LIST_KEYS:
             coerced = _coerce_list(value)
         elif key in _APPLY_BOOL_KEYS:
@@ -252,7 +253,10 @@ def _build_command_from_params(
         dry_run=_coerce_bool(p.get("dry_run")),
         force_message=_coerce_bool(p.get("force_message")),
         use_ai=_coerce_bool(p.get("use_ai")),
-        ai_filter=_coerce_str(p.get("ai_filter")),
+        ai_filter=cast(
+            'Literal["heavy", "light"] | None',
+            _coerce_str(p.get("ai_filter")),
+        ),
         ai_rate_limit=_coerce_int(p.get("ai_rate_limit")) or 40,
         skip_tests=_coerce_bool(p.get("skip_tests")),
         send_email=_coerce_bool(p.get("send_email")),

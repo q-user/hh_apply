@@ -24,7 +24,7 @@ import logging
 import sqlite3
 import threading
 from contextlib import redirect_stdout
-from typing import Any
+from typing import Any, cast
 
 from ._helpers import (
     MASK_VALUE,
@@ -169,15 +169,15 @@ class Api:
             event = "error"
             message = "Ошибка авторизации"
             try:
-                from hh_applicant_tool.operations.authorize import (
-                    Operation as AuthOp,
-                )
+                import hh_applicant_tool.operations.authorize as _authorize_mod  # type: ignore[import-untyped]
 
-                op = AuthOp()
+                _AuthOp = _authorize_mod.Operation
+
+                op: Any = _AuthOp()
                 parser = argparse.ArgumentParser()
                 op.setup_parser(parser)
                 args = parser.parse_args(["--no-headless", "--manual"])
-                op.run(self._ctx.api_client, args)  # type: ignore[arg-type]
+                op.run(self._ctx.api_client, args)
 
                 if self._ctx.api_client.access_token:
                     try:
@@ -208,7 +208,7 @@ class Api:
         self._clear_token()
         return {"status": "ok"}
 
-    def get_resumes(self) -> list[dict]:
+    def get_resumes(self) -> list[dict[str, Any]]:
         client = self._ctx.api_client
         if not client.access_token and not client.refresh_token:
             return []
@@ -223,7 +223,7 @@ class Api:
             return []
 
     def get_config(self) -> dict[str, Any]:
-        return _mask_secrets(dict(self._ctx.config))
+        return cast("dict[str, Any]", _mask_secrets(dict(self._ctx.config)))
 
     def save_config(self, updates: dict[str, Any]) -> dict[str, str]:
         try:
@@ -246,7 +246,7 @@ class Api:
             }
 
     def list_presets(self) -> list[str]:
-        return self._ctx.presets.list_names()
+        return cast("list[str]", self._ctx.presets.list_names())
 
     def save_preset(self, name: str, params: dict[str, Any]) -> dict[str, str]:
         try:
@@ -259,13 +259,13 @@ class Api:
             return {"status": "error", "message": "Ошибка сохранения пресета"}
 
     def load_preset(self, name: str) -> dict[str, Any] | None:
-        return self._ctx.presets.load(name)
+        return cast("dict[str, Any] | None", self._ctx.presets.load(name))
 
     def delete_preset(self, name: str) -> None:
         self._ctx.presets.delete(name)
 
     def get_last_used_params(self) -> dict[str, Any] | None:
-        return self._ctx.presets.load_last_used()
+        return cast("dict[str, Any] | None", self._ctx.presets.load_last_used())
 
     def save_last_used_params(self, params: dict[str, Any]) -> None:
         try:
@@ -275,7 +275,7 @@ class Api:
         except (OSError, ValueError, TypeError, sqlite3.Error) as e:
             logger.error("save_last_used_params error: %s", e)
 
-    def get_negotiations_from_db(self) -> list[dict]:
+    def get_negotiations_from_db(self) -> list[dict[str, Any]]:
         try:
             conn = self._ctx.storage.negotiations.conn
             cur = conn.execute(
@@ -298,7 +298,7 @@ class Api:
             logger.error("get_negotiations_from_db error: %s", e)
             return []
 
-    def refresh_negotiations(self, status: str = "active") -> dict:
+    def refresh_negotiations(self, status: str = "active") -> dict[str, Any]:
         try:
             from hh_applicant_tool.storage.models.negotiation import (
                 NegotiationModel,
@@ -306,7 +306,7 @@ class Api:
 
             count = 0
             for item in self._ctx.get_negotiations(status):
-                model = NegotiationModel.from_dict(item)
+                model = NegotiationModel.from_dict(item)  # type: ignore[attr-defined]
                 self._ctx.storage.negotiations.save(model)
                 count += 1
             return {"status": "ok", "count": count}
@@ -317,7 +317,7 @@ class Api:
                 "message": "Ошибка синхронизации откликов",
             }
 
-    def get_statistics(self) -> dict:
+    def get_statistics(self) -> dict[str, Any]:
         try:
             conn = self._ctx.storage.negotiations.conn
             stats: dict[str, Any] = {}
@@ -423,10 +423,14 @@ class Api:
             if event is not None:
                 event.set()
 
-    def get_areas(self) -> list[dict]:
+    def get_areas(self) -> list[dict[str, Any]]:
         try:
 
-            def flatten(nodes: list, result: list, depth: int = 0) -> None:
+            def flatten(
+                nodes: list[dict[str, Any]],
+                result: list[dict[str, Any]],
+                depth: int = 0,
+            ) -> None:
                 for node in nodes:
                     result.append(
                         {
@@ -438,17 +442,17 @@ class Api:
                         flatten(node["areas"], result, depth + 1)
 
             data = self._ctx.api_client.get("/areas")
-            result: list[dict] = []
+            result: list[dict[str, Any]] = []
             flatten(data, result)
             return result
         except Exception as e:  # noqa: BLE001  # network/parsing — best-effort
             logger.error("get_areas error: %s", e)
             return []
 
-    def get_professional_roles(self) -> list[dict]:
+    def get_professional_roles(self) -> list[dict[str, Any]]:
         try:
             data = self._ctx.api_client.get("/professional_roles")
-            result = []
+            result: list[dict[str, Any]] = []
             for cat in data.get("categories", []):
                 for role in cat.get("roles", []):
                     result.append({"id": role["id"], "name": role["name"]})
@@ -457,10 +461,10 @@ class Api:
             logger.error("get_professional_roles error: %s", e)
             return []
 
-    def get_industries(self) -> list[dict]:
+    def get_industries(self) -> list[dict[str, Any]]:
         try:
             data = self._ctx.api_client.get("/industries")
-            result = []
+            result: list[dict[str, Any]] = []
             for item in data:
                 result.append({"id": item["id"], "name": item["name"]})
                 for sub in item.get("industries", []):
