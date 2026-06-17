@@ -21,7 +21,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 if TYPE_CHECKING:
-    from hh_applicant_tool.application.dto import ApplyToVacanciesCommand
+    from job_bot.application_submit.models.command import ApplyToVacanciesCommand
 
 
 MASKED_KEYS = {"client_secret", "token"}
@@ -217,7 +217,7 @@ def _build_command_from_params(
     выше (``api_delay``) или просто не поддерживаются текущей версией
     use case'а.
     """
-    from hh_applicant_tool.application.dto import ApplyToVacanciesCommand
+    from job_bot.application_submit.models.command import ApplyToVacanciesCommand
 
     p = dict(params)  # defensive copy
 

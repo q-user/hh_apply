@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from hh_applicant_tool.ai.openai import ChatOpenAI
-    from hh_applicant_tool.application.ports import (
+    from job_bot.shared.ai._chat_openai import ChatOpenAI
+    from job_bot.application_submit.ports.port_defs import (
         AIClientPort,
         RateLimiterPort,
     )
@@ -26,7 +26,7 @@ class ChatOpenAIClient:
         """Initialize with existing ChatOpenAI instance.
 
         Args:
-            chat_openai: Existing ChatOpenAI instance from hh_applicant_tool.ai.
+            chat_openai: Existing ChatOpenAI instance from job_bot.shared.ai.
         """
         self._chat_openai = chat_openai
 

@@ -9,14 +9,11 @@ composition root. It exposes:
 * 2 use-case factory methods (``apply_to_vacancies_use_case`` and
   ``prepare_vacancies_use_case``).
 
-The 4 ``_Adapter`` shim classes that used to live in
-``hh_applicant_tool.container`` are deleted. The legacy
-``hh_applicant_tool.container.AppContainer`` is now a 5-LOC stub
-that re-exports the new container.
-
-These tests pin the **public surface** of the new container and the
-constraint that ``job_bot.container`` does not import from
-``hh_applicant_tool`` at module level.
+After issue #158 the legacy ``hh_applicant_tool.container`` import
+path is removed (the package itself is gone). These tests pin the
+**public surface** of the new container and the constraint that
+``job_bot.container`` does not import from ``hh_applicant_tool``
+at module level.
 """
 
 from __future__ import annotations
@@ -272,7 +269,7 @@ class TestUseCaseFactories:
     def test_apply_to_vacancies_use_case_returns_use_case(
         self, tool: _StubTool
     ) -> None:
-        from hh_applicant_tool.application.use_cases import (
+        from job_bot.application_submit.services.use_cases import (
             ApplyToVacanciesUseCase,
         )
         from job_bot.container import AppContainer
@@ -302,7 +299,7 @@ class TestUseCaseFactories:
     def test_prepare_vacancies_use_case_returns_use_case(
         self, tool: _StubTool
     ) -> None:
-        from hh_applicant_tool.application.use_cases import (
+        from job_bot.application_submit.services.use_cases import (
             PrepareVacanciesUseCase,
         )
         from job_bot.container import AppContainer
@@ -413,33 +410,3 @@ class TestLocBudget:
             if line.strip() and not line.strip().startswith("#")
         )
         assert loc <= 400, f"job_bot/container.py is {loc} LOC; budget is 400"
-
-
-# ─── Stub at the old import path ─────────────────────────────
-
-
-class TestLegacyStub:
-    """The legacy ``hh_applicant_tool.container`` is a thin stub."""
-
-    def test_legacy_container_re_exports_new_class(self) -> None:
-        from hh_applicant_tool.container import (
-            AppContainer as LegacyAppContainer,
-        )
-        from job_bot.container import AppContainer as NewAppContainer
-
-        # The legacy import path resolves to the new class.
-        assert LegacyAppContainer is NewAppContainer
-
-    def test_legacy_container_module_under_15_loc(self) -> None:
-        """The legacy stub is at most ~5 effective LOC (per issue #155)."""
-        import hh_applicant_tool.container as legacy
-
-        source = inspect.getsource(legacy)
-        loc = sum(
-            1
-            for line in source.splitlines()
-            if line.strip() and not line.strip().startswith("#")
-        )
-        # The issue says 5 LOC; we allow up to 15 to be defensive
-        # about docstrings + __all__.
-        assert loc <= 15, f"legacy container is {loc} LOC; budget is 15"

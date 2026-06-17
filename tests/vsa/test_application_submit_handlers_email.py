@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hh_applicant_tool.application.dto import ApplyToVacanciesCommand
+from job_bot.application_submit.models.command import ApplyToVacanciesCommand
 from job_bot.application_submit.handlers.email_handler import EmailHandler
 
 # ─── send (EmailSenderPort) ───────────────────────────────────────────

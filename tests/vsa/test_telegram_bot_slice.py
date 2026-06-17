@@ -44,7 +44,7 @@ def storage_conn() -> sqlite3.Connection:
     We re-use the canonical ``StorageFacade`` from ``hh_applicant_tool`` so
     the slice talks to the same tables the rest of the project uses.
     """
-    from hh_applicant_tool.storage import StorageFacade
+    from job_bot._legacy_compat.storage import StorageFacade
 
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
@@ -218,7 +218,7 @@ class TestTelegramSessionModel:
 
         s = TelegramSession(chat_id=CHAT_ID, state="review_intro", draft_id=7)
         # ``to_storage`` produces a ``TelegramSessionModel`` (legacy model).
-        from hh_applicant_tool.storage.models.telegram_session import (
+        from job_bot._legacy_compat.storage.models.telegram_session import (
             TelegramSessionModel,
         )
 
@@ -229,7 +229,7 @@ class TestTelegramSessionModel:
         assert m.draft_id == 7
 
     def test_from_storage(self) -> None:
-        from hh_applicant_tool.storage.models.telegram_session import (
+        from job_bot._legacy_compat.storage.models.telegram_session import (
             TelegramSessionModel,
         )
         from job_bot.telegram_bot.models.session import TelegramSession
@@ -718,8 +718,8 @@ class TestBotService:
     ) -> None:
         # Pre-seed a session in 'awaiting_test_regen' state so the bot
         # routes the text message to the review service.
-        from hh_applicant_tool.storage import StorageFacade
-        from hh_applicant_tool.storage.models.telegram_session import (
+        from job_bot._legacy_compat.storage import StorageFacade
+        from job_bot._legacy_compat.storage.models.telegram_session import (
             TelegramSessionModel,
         )
 
@@ -759,8 +759,8 @@ class TestBotService:
         review.process_message.side_effect = RuntimeError("boom")
         service = self._build(storage_conn, transport, review_service=review)
         # Pre-seed an active state to force the review path
-        from hh_applicant_tool.storage import StorageFacade
-        from hh_applicant_tool.storage.models.telegram_session import (
+        from job_bot._legacy_compat.storage import StorageFacade
+        from job_bot._legacy_compat.storage.models.telegram_session import (
             TelegramSessionModel,
         )
 

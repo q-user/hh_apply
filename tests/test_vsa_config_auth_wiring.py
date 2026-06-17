@@ -43,7 +43,7 @@ class TestConfigAuthSliceWiring:
         default :class:`AppConfig`, which is fine for tests that
         only check slice construction.
         """
-        from hh_applicant_tool.main import HHApplicantTool
+        from job_bot._legacy_compat.main_stub import HHApplicantTool
 
         with patch.object(HHApplicantTool, "__init__", lambda self: None):
             tool = HHApplicantTool()

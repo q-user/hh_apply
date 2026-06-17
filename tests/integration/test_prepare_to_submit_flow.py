@@ -48,8 +48,8 @@ def _make_draft(
     status: str = "prepared",
 ) -> int:
     """Insert an ``application_drafts`` row and return its id."""
-    from hh_applicant_tool.storage import StorageFacade
-    from hh_applicant_tool.storage.models.application_draft import (
+    from job_bot._legacy_compat.storage import StorageFacade
+    from job_bot._legacy_compat.storage.models.application_draft import (
         ApplicationDraftModel,
     )
 
@@ -78,8 +78,8 @@ def _make_job(
     *,
     status: str = "queued",
 ) -> int:
-    from hh_applicant_tool.storage import StorageFacade
-    from hh_applicant_tool.storage.models.apply_job import ApplyJobModel
+    from job_bot._legacy_compat.storage import StorageFacade
+    from job_bot._legacy_compat.storage.models.apply_job import ApplyJobModel
 
     facade = StorageFacade(conn)
     facade.apply_jobs.save(ApplyJobModel(draft_id=draft_id, status=status))
@@ -170,7 +170,7 @@ class TestPrepareToSubmitFlow:
         assert stats.processed == 2
         assert stats.succeeded == 2
 
-        from hh_applicant_tool.storage import StorageFacade
+        from job_bot._legacy_compat.storage import StorageFacade
 
         facade = StorageFacade(test_db)
         for vid in vacancy_ids:
@@ -221,7 +221,7 @@ class TestPrepareToSubmitFlow:
         )
         worker.run(stop_when_idle=True)
 
-        from hh_applicant_tool.storage import StorageFacade
+        from job_bot._legacy_compat.storage import StorageFacade
 
         facade = StorageFacade(test_db)
         running = facade.apply_jobs.conn.execute(
@@ -245,7 +245,7 @@ class TestPrepareToSubmitFlow:
         terminal — the slice's retry handler kicks in).
         """
         from job_bot.application_submit.errors import RetryableError
-        from hh_applicant_tool.storage import StorageFacade
+        from job_bot._legacy_compat.storage import StorageFacade
 
         draft_id = _make_draft(test_db, vacancy_id=999)
         job_id = _make_job(test_db, draft_id)

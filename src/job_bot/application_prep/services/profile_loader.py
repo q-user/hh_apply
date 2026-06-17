@@ -109,7 +109,7 @@ class ProfileLoaderService:
             Resumes with ``status.id == "published"``, in the order
             returned by the API.
         """
-        from hh_applicant_tool.storage.repositories.errors import (
+        from job_bot._legacy_compat.storage.repositories.errors import (
             RepositoryError,
         )
 

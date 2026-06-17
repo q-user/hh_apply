@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from hh_applicant_tool.storage import StorageFacade
+from job_bot._legacy_compat.storage import StorageFacade
 from job_bot.telegram_bot.handlers.command_handler import CommandHandler
 from job_bot.telegram_bot.handlers.digest_handler import DigestHandler
 from job_bot.telegram_bot.handlers.review_handler import ReviewHandler
@@ -43,7 +43,7 @@ def _as_facade(storage: Any) -> Any:
     and :func:`_session_state_for` so the wrapping logic lives in one
     place.
     """
-    from hh_applicant_tool.storage import StorageFacade
+    from job_bot._legacy_compat.storage import StorageFacade
 
     return (
         storage

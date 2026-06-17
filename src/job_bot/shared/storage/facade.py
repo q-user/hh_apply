@@ -247,7 +247,7 @@ class StorageFacade:
         cached = self._cache.get("application_test_answers")
         if cached is not None:
             return cached
-        from hh_applicant_tool.storage.repositories.application_test_answers import (
+        from job_bot._legacy_compat.storage.repositories.application_test_answers import (
             ApplicationTestAnswersRepository,
         )
 
@@ -261,7 +261,7 @@ class StorageFacade:
         cached = self._cache.get("apply_jobs")
         if cached is not None:
             return cached
-        from hh_applicant_tool.storage.repositories.apply_jobs import (
+        from job_bot._legacy_compat.storage.repositories.apply_jobs import (
             ApplyJobsRepository,
         )
 
@@ -275,7 +275,7 @@ class StorageFacade:
         cached = self._cache.get("employer_sites")
         if cached is not None:
             return cached
-        from hh_applicant_tool.storage.repositories.employer_sites import (
+        from job_bot._legacy_compat.storage.repositories.employer_sites import (
             EmployerSitesRepository,
         )
 
@@ -289,7 +289,7 @@ class StorageFacade:
         cached = self._cache.get("employers")
         if cached is not None:
             return cached
-        from hh_applicant_tool.storage.repositories.employers import (
+        from job_bot._legacy_compat.storage.repositories.employers import (
             EmployersRepository,
         )
 
@@ -303,7 +303,7 @@ class StorageFacade:
         cached = self._cache.get("negotiations")
         if cached is not None:
             return cached
-        from hh_applicant_tool.storage.repositories.negotiations import (
+        from job_bot._legacy_compat.storage.repositories.negotiations import (
             NegotiationRepository,
         )
 
@@ -317,7 +317,7 @@ class StorageFacade:
         cached = self._cache.get("resumes")
         if cached is not None:
             return cached
-        from hh_applicant_tool.storage.repositories.resumes import (
+        from job_bot._legacy_compat.storage.repositories.resumes import (
             ResumesRepository,
         )
 
@@ -331,7 +331,7 @@ class StorageFacade:
         cached = self._cache.get("settings")
         if cached is not None:
             return cached
-        from hh_applicant_tool.storage.repositories.settings import (
+        from job_bot._legacy_compat.storage.repositories.settings import (
             SettingsRepository,
         )
 
@@ -345,7 +345,7 @@ class StorageFacade:
         cached = self._cache.get("skipped_vacancies")
         if cached is not None:
             return cached
-        from hh_applicant_tool.storage.repositories.skipped_vacancies import (
+        from job_bot._legacy_compat.storage.repositories.skipped_vacancies import (
             SkippedVacanciesRepository,
         )
 
@@ -359,7 +359,7 @@ class StorageFacade:
         cached = self._cache.get("telegram_sessions")
         if cached is not None:
             return cached
-        from hh_applicant_tool.storage.repositories.telegram_sessions import (
+        from job_bot._legacy_compat.storage.repositories.telegram_sessions import (
             TelegramSessionsRepository,
         )
 
@@ -373,7 +373,7 @@ class StorageFacade:
         cached = self._cache.get("vacancy_contacts")
         if cached is not None:
             return cached
-        from hh_applicant_tool.storage.repositories.contacts import (
+        from job_bot._legacy_compat.storage.repositories.contacts import (
             VacancyContactsRepository,
         )
 

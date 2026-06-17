@@ -20,22 +20,22 @@ import logging
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, cast
 
-from hh_applicant_tool.storage.facade import StorageFacade
-from hh_applicant_tool.storage.models.application_draft import (
+from job_bot._legacy_compat.storage.facade import StorageFacade
+from job_bot._legacy_compat.storage.models.application_draft import (
     ApplicationDraftModel,
 )
-from hh_applicant_tool.storage.models.application_test_answer import (
+from job_bot._legacy_compat.storage.models.application_test_answer import (
     ApplicationTestAnswerModel,
 )
-from hh_applicant_tool.storage.models.apply_job import ApplyJobModel
-from hh_applicant_tool.storage.models.telegram_session import (
+from job_bot._legacy_compat.storage.models.apply_job import ApplyJobModel
+from job_bot._legacy_compat.storage.models.telegram_session import (
     TelegramSessionModel,
 )
 from job_bot.telegram_bot.telegram_transport import TelegramTransport
 from job_bot.telegram_bot.models.message import InlineButton, OutgoingMessage
 
 if TYPE_CHECKING:
-    from hh_applicant_tool.application.ports import AIClientPort, Clock
+    from job_bot.application_submit.ports.port_defs import AIClientPort, Clock
 
 logger = logging.getLogger(__package__)
 # Callback_data (формат: rf:<state>:<action>) и целевые объекты регенерации.

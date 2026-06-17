@@ -74,7 +74,7 @@ class DraftPersisterService:
         Errors are logged at DEBUG (vacancy) / EXCEPTION (contacts)
         but never raised — matches the legacy contract.
         """
-        from hh_applicant_tool.storage.repositories.errors import (
+        from job_bot._legacy_compat.storage.repositories.errors import (
             RepositoryError,
         )
 
@@ -101,8 +101,8 @@ class DraftPersisterService:
         """
         import requests
 
-        from hh_applicant_tool.api.errors import ApiError, BadResponse
-        from hh_applicant_tool.storage.repositories.errors import (
+        from job_bot.shared.api.errors import ApiError, BadResponse
+        from job_bot._legacy_compat.storage.repositories.errors import (
             RepositoryError,
         )
 
@@ -127,7 +127,7 @@ class DraftPersisterService:
     ) -> None:
         """Persist a ``skipped_vacancies`` row for an AI-rejected
         vacancy (``reason='ai_rejected'``)."""
-        from hh_applicant_tool.storage.repositories.errors import (
+        from job_bot._legacy_compat.storage.repositories.errors import (
             RepositoryError,
         )
 
@@ -174,10 +174,10 @@ class DraftPersisterService:
         if vsa_draft is None:
             return None
 
-        from hh_applicant_tool.storage.models.application_draft import (
+        from job_bot._legacy_compat.storage.models.application_draft import (
             ApplicationDraftModel,
         )
-        from hh_applicant_tool.storage.repositories.errors import (
+        from job_bot._legacy_compat.storage.repositories.errors import (
             RepositoryError,
         )
 

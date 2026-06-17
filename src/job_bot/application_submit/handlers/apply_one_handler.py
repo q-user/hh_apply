@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, cast
 from job_bot.application_submit.errors import FatalError, RetryableError
 
 if TYPE_CHECKING:
-    from hh_applicant_tool.storage.models.application_draft import (
+    from job_bot._legacy_compat.storage.models.application_draft import (
         ApplicationDraftModel,
     )
 
@@ -102,11 +102,11 @@ class ApplyOneHandler:
         # at module load time.
         from requests import RequestException
 
-        from hh_applicant_tool.api.errors import (
-            ApiError,
+        from job_bot.application_submit.errors import (
             CaptchaRequired,
             LimitExceeded,
         )
+        from job_bot.shared.api.errors import ApiError
 
         try:
             response = self._api_client.post("/negotiations", params)

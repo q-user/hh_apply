@@ -115,7 +115,7 @@ class TestConfigToAllSlicesFlow:
         sends a digest when the current time is past the gate, and
         stays silent when it's before.
         """
-        from hh_applicant_tool.storage import StorageFacade
+        from job_bot._legacy_compat.storage import StorageFacade
         from job_bot.shared.storage.database import create_database
         from job_bot.telegram_bot.slice import create_telegram_bot_slice
         from tests.integration._mocks import (

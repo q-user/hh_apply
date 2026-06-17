@@ -17,16 +17,16 @@ import sqlite3
 from typing import Any
 from unittest.mock import MagicMock
 
-from hh_applicant_tool.application.dto import (
-    PrepareVacanciesCommand,
-    PrepareVacanciesResult,
+from job_bot._legacy_compat.storage.facade import StorageFacade
+from job_bot._legacy_compat.storage.models.search_profile import (
+    SearchProfileModel,
 )
-from hh_applicant_tool.application.use_cases.prepare_vacancies import (
+from job_bot.application_prep.models.command import PrepareVacanciesCommand
+from job_bot.application_prep.models.relevance import RelevanceResult
+from job_bot.application_prep.models.result import PrepareVacanciesResult
+from job_bot.application_submit.services.use_cases.prepare_vacancies import (
     PrepareVacanciesUseCase,
 )
-from hh_applicant_tool.storage.facade import StorageFacade
-from hh_applicant_tool.storage.models.search_profile import SearchProfileModel
-from job_bot.application_prep.models.relevance import RelevanceResult
 
 # ─── Helpers ───────────────────────────────────────────────────────
 

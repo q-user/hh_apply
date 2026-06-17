@@ -20,9 +20,10 @@ Test layout
   ``set_window`` propagates into the underlying :class:`Api`.
 * :class:`TestApiMethodDispatch` — the 19 public methods on the new
   :class:`Api` route to the right port on the :class:`UiApiContext`.
-* :class:`TestLegacyShim` — the legacy ``hh_applicant_tool.ui.api.Api``
-  import path is a drop-in replacement that constructs a
-  :class:`UiApiContext` from an :class:`HHApplicantTool`-shaped object.
+
+After issue #158 the legacy ``hh_applicant_tool.ui`` shim is deleted
+and the ``TestLegacyShim`` class is removed; the VSA surface above
+is the only one the codebase supports.
 """
 
 from __future__ import annotations
@@ -35,8 +36,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hh_applicant_tool.storage import StorageFacade
-from hh_applicant_tool.storage.repositories.settings import SettingsRepository
+from job_bot._legacy_compat.storage import StorageFacade
 
 # ─── In-memory fakes for the slice's ports ────────────────────────────
 
@@ -122,7 +122,7 @@ def fake_storage() -> StorageFacade:
     """
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
-    from hh_applicant_tool.storage.utils import init_db
+    from job_bot._legacy_compat.storage.utils import init_db
 
     init_db(conn)
     return StorageFacade(conn)
@@ -925,7 +925,6 @@ class TestApiMethodDispatch:
         progress_sink: Callable[[int, int, str], None],
         auth_event_sink: Callable[[str, str], None],
     ) -> None:
-
         from job_bot.ui.api import Api
         from job_bot.ui.ports import UiApiContext
         from job_bot.ui.presets import PresetsManager
@@ -1143,102 +1142,3 @@ class TestApiMethodDispatch:
         finally:
             logger.removeHandler(probe)
         assert progress_sink.calls == [(99, 0, "hello")]  # type: ignore[attr-defined]
-
-
-# ─── Legacy shim tests ───────────────────────────────────────────────
-
-
-class TestLegacyShim:
-    """``hh_applicant_tool.ui.api.Api(tool)`` is a drop-in replacement.
-
-    The legacy import path must keep working — the existing webview
-    round-trip in ``create_window(tool)`` and the 27 tests in
-    ``tests/test_ui_api.py`` all build :class:`Api` from a
-    ``HHApplicantTool``-shaped object (in production) or a
-    :class:`MagicMock` (in tests).  The shim constructs a
-    :class:`UiApiContext` from the tool and delegates to the new
-    :class:`Api` under the hood.
-    """
-
-    def test_legacy_api_construction_with_mock_tool(self) -> None:
-        from hh_applicant_tool.ui.api import Api
-
-        tool = MagicMock()
-        # The ``storage.settings`` must support the presets contract.
-        tool.storage.settings = SettingsRepository(sqlite3.connect(":memory:"))
-        # The ``api_client`` must be a real object (not a Mock) so the
-        # ``.get()`` calls succeed — pywebview's ``js_api`` returns
-        # JSON-serialisable values.  A MagicMock would otherwise return
-        # a MagicMock.
-        tool.api_client = _FakeApiClient()
-        api = Api(tool)
-        assert api is not None
-        # The legacy shim exposes the same public method names as the
-        # new ``Api`` — pin the surface so the webview HTML/JS keeps
-        # working.
-        expected_methods = {
-            "get_status",
-            "start_login",
-            "logout",
-            "get_resumes",
-            "get_config",
-            "save_config",
-            "list_presets",
-            "save_preset",
-            "load_preset",
-            "delete_preset",
-            "get_last_used_params",
-            "save_last_used_params",
-            "get_negotiations_from_db",
-            "refresh_negotiations",
-            "get_statistics",
-            "apply_vacancies",
-            "cancel_apply",
-            "get_areas",
-            "get_professional_roles",
-            "get_industries",
-        }
-        for name in expected_methods:
-            assert callable(getattr(api, name)), f"missing method: {name}"
-
-    def test_legacy_api_get_status(
-        self, fake_api_client: _FakeApiClient
-    ) -> None:
-        from hh_applicant_tool.ui.api import Api
-
-        tool = MagicMock()
-        tool.api_client = fake_api_client
-        tool.storage.settings = SettingsRepository(sqlite3.connect(":memory:"))
-        tool.get_me = MagicMock(return_value={"first_name": "Тест"})
-        api = Api(tool)
-        status = api.get_status()
-        assert status["authorized"] is True
-        assert status["user"]["first_name"] == "Тест"
-
-    def test_legacy_api_set_window_propagates(self) -> None:
-        from hh_applicant_tool.ui.api import Api
-
-        tool = MagicMock()
-        tool.api_client = _FakeApiClient()
-        tool.storage.settings = SettingsRepository(sqlite3.connect(":memory:"))
-        api = Api(tool)
-        sentinel = object()
-        api.set_window(sentinel)
-        # The shim's ``set_window`` propagates to the underlying
-        # :class:`Api`'s context, so the progress / auth event sinks
-        # can call into ``window.evaluate_js`` if needed.
-        assert api._ctx.window is sentinel  # type: ignore[attr-defined]
-
-    def test_legacy_presets_module_emits_deprecation_warning(self) -> None:
-        """``hh_applicant_tool.ui.presets`` is a deprecation shim.
-
-        Importing from it must still work, but it should emit a
-        :class:`DeprecationWarning` pointing at the new location
-        (``job_bot.ui.presets``).
-        """
-        with pytest.warns(DeprecationWarning, match="job_bot.ui.presets"):
-            # Force the import (the warning fires on access, not on
-            # the initial ``import hh_applicant_tool.ui``).
-            from hh_applicant_tool.ui.presets import (
-                PresetsManager,  # noqa: F401
-            )

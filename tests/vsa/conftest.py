@@ -43,7 +43,7 @@ def storage_conn() -> Iterator[sqlite3.Connection]:
     ``StorageFacade(conn)``) so this fixture no longer pulls in the
     legacy facade class for a pure side-effect call.
     """
-    from hh_applicant_tool.storage.utils import init_db
+    from job_bot._legacy_compat.storage.utils import init_db
 
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row

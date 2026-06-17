@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from hh_applicant_tool.api.errors import ApiError
+from job_bot.shared.api.errors import ApiError
 
 from job_bot.resume_management.models.options import CloneResult
 from job_bot.resume_management.ports.api_client_port import HhApiClientPort

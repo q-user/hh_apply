@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from hh_applicant_tool.main import HHApplicantTool
+from job_bot._legacy_compat.main_stub import HHApplicantTool
 
 
 def main(argv: Sequence[str] | None = None) -> None | int:
@@ -53,7 +53,9 @@ def main(argv: Sequence[str] | None = None) -> None | int:
         and the ``hh-applicant-tool`` script both wrap this call in
         :func:`sys.exit`.
     """
-    return HHApplicantTool().run(argv)  # type: ignore[no-untyped-call]  # legacy untyped entry-point; #155 will swap to AppContainer.run()
+    return HHApplicantTool().run(
+        argv
+    )  # legacy untyped entry-point; #155 will swap to AppContainer.run()
 
 
 __all__ = ["main"]

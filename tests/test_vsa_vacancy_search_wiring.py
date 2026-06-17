@@ -35,7 +35,7 @@ class TestVacancySearchSliceWiring:
 
     def _make_mock_tool(self):
         """Create a mock HHApplicantTool with all required attributes."""
-        from hh_applicant_tool.main import HHApplicantTool
+        from job_bot._legacy_compat.main_stub import HHApplicantTool
 
         with patch.object(HHApplicantTool, "__init__", lambda self: None):
             tool = HHApplicantTool()
@@ -81,7 +81,7 @@ class TestVacancySearchSliceWiring:
     def test_apply_to_vacancies_use_case_receives_factory(self):
         """``apply_to_vacancies_use_case`` wires a VSA-backed
         ``vacancy_search_service_factory`` (the slice's search port)."""
-        from hh_applicant_tool.application.use_cases import (
+        from job_bot.application_submit.services.use_cases import (
             ApplyToVacanciesUseCase,
         )
         from job_bot.container import AppContainer
@@ -103,7 +103,7 @@ class TestVacancySearchSliceWiring:
     def test_prepare_vacancies_use_case_receives_factory(self):
         """``prepare_vacancies_use_case`` wires a VSA-backed
         ``vacancy_search_service_factory``."""
-        from hh_applicant_tool.application.use_cases import (
+        from job_bot.application_submit.services.use_cases import (
             PrepareVacanciesUseCase,
         )
         from job_bot.container import AppContainer

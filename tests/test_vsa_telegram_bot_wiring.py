@@ -67,7 +67,7 @@ class TestTelegramBotSliceWiring:
         bot_token: str = "test-token",
     ) -> MagicMock:
         """Create a mock ``HHApplicantTool`` with all required attributes."""
-        from hh_applicant_tool.main import HHApplicantTool
+        from job_bot._legacy_compat.main_stub import HHApplicantTool
 
         with patch.object(HHApplicantTool, "__init__", lambda self: None):
             tool = HHApplicantTool()

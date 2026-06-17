@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from hh_applicant_tool.application.dto import ApplyToVacanciesCommand
+from job_bot.application_submit.models.command import ApplyToVacanciesCommand
 from job_bot.application_submit.handlers.search_handler import SearchHandler
 
 

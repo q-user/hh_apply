@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Callable
 
-from hh_applicant_tool.ai.base import AIError
+from job_bot.shared.ai._errors import AIError
 from job_bot.application_prep.handlers.relevance_handler import (
     build_filter_system_prompt_heavy,
     build_filter_system_prompt_light,

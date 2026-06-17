@@ -32,8 +32,7 @@ from typing import TYPE_CHECKING, Any
 
 import requests
 
-from hh_applicant_tool.api.errors import ApiError, BadResponse
-from hh_applicant_tool.storage.repositories.errors import RepositoryError
+from job_bot._legacy_compat.storage.repositories.errors import RepositoryError
 from job_bot.application_prep.handlers.application_handler import (
     ApplicationHandler,
 )
@@ -50,13 +49,12 @@ from job_bot.application_prep.services.draft_persister import (
 from job_bot.application_prep.services.vacancy_iteration import (
     VacancyIterationService,
 )
+from job_bot.shared.api.errors import ApiError, BadResponse
 from job_bot.shared.storage.database import Database
 
 if TYPE_CHECKING:
-    from hh_applicant_tool.application.dto import (
-        PrepareVacanciesCommand,
-        PrepareVacanciesResult,
-    )
+    from job_bot.application_prep.models.command import PrepareVacanciesCommand
+    from job_bot.application_prep.models.result import PrepareVacanciesResult
 
 logger = logging.getLogger(__package__)
 
@@ -211,7 +209,7 @@ class LegacyPreparePipeline:
         # Imported here (not at module level) to avoid a circular import
         # through ``hh_applicant_tool.application.__init__`` →
         # ``use_cases.prepare_vacancies`` → ``legacy_prepare_pipeline``.
-        from hh_applicant_tool.application.dto import (
+        from job_bot.application_prep.models.result import (
             PrepareVacanciesResult,
         )
 

@@ -34,15 +34,15 @@ from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
-from hh_applicant_tool.ai.base import AIError
-from hh_applicant_tool.storage.facade import StorageFacade
+from job_bot.shared.ai._errors import AIError
+from job_bot._legacy_compat.storage.facade import StorageFacade
 from job_bot.telegram_bot.telegram_transport import (
     TelegramTransport,
     TelegramTransportError,
 )
 
 if TYPE_CHECKING:
-    from hh_applicant_tool.application.ports import AIClientPort, Clock
+    from job_bot.application_submit.ports.port_defs import AIClientPort, Clock
 
 logger = logging.getLogger(__package__)
 

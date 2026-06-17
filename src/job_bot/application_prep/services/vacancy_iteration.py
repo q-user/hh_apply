@@ -153,7 +153,7 @@ class VacancyIterationService:
         try:
             import requests
 
-            from hh_applicant_tool.api.errors import ApiError, BadResponse
+            from job_bot.shared.api.errors import ApiError, BadResponse
 
             result: dict[str, Any] | None = self.api_client.get(
                 f"/vacancies/{vacancy_id}"
@@ -215,7 +215,7 @@ class VacancyIterationService:
             return False
         if self.storage is None:
             return False
-        from hh_applicant_tool.storage.repositories.errors import (
+        from job_bot._legacy_compat.storage.repositories.errors import (
             RepositoryError,
         )
 

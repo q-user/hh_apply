@@ -235,34 +235,34 @@ class TestStorageFacadeExposesAllRepos:
         is to return the same legacy instances so those shims work
         without a behavioural change.
         """
-        from hh_applicant_tool.storage.repositories.application_test_answers import (
+        from job_bot._legacy_compat.storage.repositories.application_test_answers import (
             ApplicationTestAnswersRepository,
         )
-        from hh_applicant_tool.storage.repositories.apply_jobs import (
+        from job_bot._legacy_compat.storage.repositories.apply_jobs import (
             ApplyJobsRepository,
         )
-        from hh_applicant_tool.storage.repositories.contacts import (
+        from job_bot._legacy_compat.storage.repositories.contacts import (
             VacancyContactsRepository,
         )
-        from hh_applicant_tool.storage.repositories.employer_sites import (
+        from job_bot._legacy_compat.storage.repositories.employer_sites import (
             EmployerSitesRepository,
         )
-        from hh_applicant_tool.storage.repositories.employers import (
+        from job_bot._legacy_compat.storage.repositories.employers import (
             EmployersRepository,
         )
-        from hh_applicant_tool.storage.repositories.negotiations import (
+        from job_bot._legacy_compat.storage.repositories.negotiations import (
             NegotiationRepository,
         )
-        from hh_applicant_tool.storage.repositories.resumes import (
+        from job_bot._legacy_compat.storage.repositories.resumes import (
             ResumesRepository,
         )
-        from hh_applicant_tool.storage.repositories.settings import (
+        from job_bot._legacy_compat.storage.repositories.settings import (
             SettingsRepository,
         )
-        from hh_applicant_tool.storage.repositories.skipped_vacancies import (
+        from job_bot._legacy_compat.storage.repositories.skipped_vacancies import (
             SkippedVacanciesRepository,
         )
-        from hh_applicant_tool.storage.repositories.telegram_sessions import (
+        from job_bot._legacy_compat.storage.repositories.telegram_sessions import (
             TelegramSessionsRepository,
         )
 
@@ -359,7 +359,7 @@ class TestStorageFacadeLazyInit:
         should only open the legacy connection + run ``init_db`` when
         the first legacy property is accessed.
         """
-        from hh_applicant_tool.storage.repositories import (
+        from job_bot._legacy_compat.storage.repositories import (
             application_test_answers,
             apply_jobs,
             contacts,

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import sqlite3
 
-from hh_applicant_tool.storage.facade import StorageFacade
-from hh_applicant_tool.storage.models.application_draft import (
+from job_bot._legacy_compat.storage.facade import StorageFacade
+from job_bot._legacy_compat.storage.models.application_draft import (
     ApplicationDraftModel,
 )
 

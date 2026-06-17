@@ -31,7 +31,7 @@ def storage() -> Iterator[sqlite3.Connection]:
     legacy facade class for a pure side-effect call. Tests that need
     the facade still import it themselves.
     """
-    from hh_applicant_tool.storage.utils import init_db
+    from job_bot._legacy_compat.storage.utils import init_db
 
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row

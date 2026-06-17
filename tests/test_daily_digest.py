@@ -14,13 +14,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hh_applicant_tool.ai.base import AIError
-from hh_applicant_tool.storage.facade import StorageFacade
-from hh_applicant_tool.storage.models.application_draft import (
+from job_bot.shared.ai._errors import AIError
+from job_bot._legacy_compat.storage.facade import StorageFacade
+from job_bot._legacy_compat.storage.models.application_draft import (
     ApplicationDraftModel,
 )
-from hh_applicant_tool.storage.models.search_profile import SearchProfileModel
-from hh_applicant_tool.storage.models.setting import SettingModel
+from job_bot._legacy_compat.storage.models.search_profile import SearchProfileModel
+from job_bot._legacy_compat.storage.models.setting import SettingModel
 from job_bot.telegram_bot.services.daily_digest_service import (
     LAST_DIGEST_KEY,
     DailyDigestService,

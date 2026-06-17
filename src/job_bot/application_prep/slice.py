@@ -263,7 +263,7 @@ class ApplicationPrepSlice:
         per_page = self._pipeline_profile_per_page(profile, per_page)
         total_pages = self._pipeline_profile_total_pages(profile, total_pages)
 
-        from hh_applicant_tool.api.errors import ApiError, BadResponse
+        from job_bot.shared.api.errors import ApiError, BadResponse
 
         try:
             vacancies = list(
@@ -343,8 +343,8 @@ class ApplicationPrepSlice:
             merged, context.api_client, context.storage
         )
 
-        from hh_applicant_tool.api.errors import ApiError, BadResponse
-        from hh_applicant_tool.storage.repositories.errors import (
+        from job_bot.shared.api.errors import ApiError, BadResponse
+        from job_bot._legacy_compat.storage.repositories.errors import (
             RepositoryError,
         )
 
@@ -478,7 +478,7 @@ class ApplicationPrepSlice:
         vacancy_id = vacancy.get("id")
         if vacancy_id is None:
             return False
-        from hh_applicant_tool.storage.repositories.errors import (
+        from job_bot._legacy_compat.storage.repositories.errors import (
             RepositoryError,
         )
 
@@ -508,7 +508,7 @@ class ApplicationPrepSlice:
         created_at = (
             context.clock.now() if context.clock is not None else datetime.now()
         )
-        from hh_applicant_tool.storage.repositories.errors import (
+        from job_bot._legacy_compat.storage.repositories.errors import (
             RepositoryError,
         )
 
@@ -532,7 +532,7 @@ class ApplicationPrepSlice:
         vacancy: dict[str, Any], storage: Any
     ) -> None:
         """Persist vacancy (+ contacts) to storage."""
-        from hh_applicant_tool.storage.repositories.errors import (
+        from job_bot._legacy_compat.storage.repositories.errors import (
             RepositoryError,
         )
 
@@ -555,7 +555,7 @@ class ApplicationPrepSlice:
         employer_id = employer.get("id")
         if not employer_id:
             return
-        from hh_applicant_tool.api.errors import ApiError, BadResponse
+        from job_bot.shared.api.errors import ApiError, BadResponse
 
         try:
             profile = api_client.get(f"/employers/{employer_id}")
@@ -565,7 +565,7 @@ class ApplicationPrepSlice:
                 ex,
             )
             return
-        from hh_applicant_tool.storage.repositories.errors import (
+        from job_bot._legacy_compat.storage.repositories.errors import (
             RepositoryError,
         )
 
@@ -581,7 +581,7 @@ class ApplicationPrepSlice:
         """Fetch full vacancy data; return None on error."""
         if vacancy_id is None:
             return None
-        from hh_applicant_tool.api.errors import ApiError, BadResponse
+        from job_bot.shared.api.errors import ApiError, BadResponse
 
         try:
             return cast(

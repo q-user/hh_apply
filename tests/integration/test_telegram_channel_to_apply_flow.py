@@ -100,8 +100,8 @@ class TestTelegramChannelToApplyFlow:
         and the BotService swallows any exception the default
         ReviewFlowService may raise on an unhandled callback.
         """
-        from hh_applicant_tool.storage import StorageFacade
-        from hh_applicant_tool.storage.models.telegram_session import (
+        from job_bot._legacy_compat.storage import StorageFacade
+        from job_bot._legacy_compat.storage.models.telegram_session import (
             TelegramSessionModel,
         )
 
@@ -142,8 +142,8 @@ class TestTelegramChannelToApplyFlow:
            the mocked ``/negotiations`` endpoint.
         4. The transport still holds the welcome reply from step 1.
         """
-        from hh_applicant_tool.storage import StorageFacade
-        from hh_applicant_tool.storage.models.application_draft import (
+        from job_bot._legacy_compat.storage import StorageFacade
+        from job_bot._legacy_compat.storage.models.application_draft import (
             ApplicationDraftModel,
         )
 

@@ -38,9 +38,9 @@ import sqlite3
 from typing import Any
 
 
-from hh_applicant_tool.storage.facade import StorageFacade
-from hh_applicant_tool.storage.models.search_profile import SearchProfileModel
-from hh_applicant_tool.storage.utils import init_db
+from job_bot._legacy_compat.storage.facade import StorageFacade
+from job_bot._legacy_compat.storage.models.search_profile import SearchProfileModel
+from job_bot._legacy_compat.storage.utils import init_db
 from job_bot.application_prep.services.profile_loader import (
     ProfileLoaderService,
 )
@@ -289,7 +289,7 @@ class TestFetchPublishedResumes:
 
             class _ExplodingResumeRepo:
                 def save_batch(self, _items: list[dict[str, Any]]) -> None:
-                    from hh_applicant_tool.storage.repositories.errors import (
+                    from job_bot._legacy_compat.storage.repositories.errors import (
                         RepositoryError,
                     )
 
