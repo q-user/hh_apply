@@ -22,6 +22,7 @@ from . import ai, api, utils
 
 if TYPE_CHECKING:
     from .container import AppContainer
+from job_bot.shared.utils.cookiejar import HHOnlyCookieJar
 from job_bot.shared.utils.logging import setup_logger
 
 from .constants import (
@@ -38,8 +39,6 @@ from .constants import (
 # the path through the container, which imports ``CONFIG_FILENAME``
 # directly from ``.constants``.
 from .storage import StorageFacade
-from .utils.cookiejar import HHOnlyCookieJar
-from .utils.mixins import MegaTool
 
 logger = logging.getLogger(__package__)
 
@@ -66,7 +65,7 @@ class BaseNamespace(argparse.Namespace):
     operation_run: Callable[[HHApplicantTool, BaseNamespace], None | int] | None
 
 
-class HHApplicantTool(MegaTool):
+class HHApplicantTool:
     """Утилита для автоматизации действий соискателя на сайте hh.ru.
 
     Исходники и предложения: <https://github.com/s3rgeym/hh-applicant-tool>

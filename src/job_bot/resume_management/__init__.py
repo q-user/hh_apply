@@ -13,6 +13,8 @@ Public surface:
 * :class:`HhApiClientPort` / :class:`TemplateLoaderPort` — ports.
 * :class:`CreateOptions` / :class:`CreateResult` / :class:`CloneResult`
   — DTOs.
+* :class:`ResumeRenderer` / :func:`parse_resume_md` — markdown
+  resume template renderer (issue #151).
 """
 
 from job_bot.resume_management.handlers.resume_clone_handler import (
@@ -32,6 +34,10 @@ from job_bot.resume_management.ports.api_client_port import HhApiClientPort
 from job_bot.resume_management.ports.template_loader_port import (
     TemplateLoaderPort,
 )
+from job_bot.resume_management.services.resume_renderer import (
+    ResumeRenderer,
+    parse_resume_md,
+)
 from job_bot.resume_management.slice import (
     ResumeManagementSlice,
     create_resume_management_slice,
@@ -47,6 +53,8 @@ __all__ = [
     "ResumeCloneHandler",
     "ResumeCreateHandler",
     "ResumeManagementSlice",
+    "ResumeRenderer",
     "TemplateLoaderPort",
     "create_resume_management_slice",
+    "parse_resume_md",
 ]

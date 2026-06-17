@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from hh_applicant_tool.api.errors import ApiError
-from hh_applicant_tool.utils.resume_md import parse_resume_md
+from job_bot.resume_management.services.resume_renderer import parse_resume_md
 
 from job_bot.resume_management.models.options import (
     CreateOptions,
