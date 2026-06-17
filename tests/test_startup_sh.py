@@ -25,10 +25,13 @@ def test_startup_sh_runs_without_error():
             "CONFIG_DIR": "/tmp/test_config",
             "HH_PROFILE_ID": "default",
             "RESUME_ID": "test_resume_id",
-            # The script uses python -m hh_applicant_tool commands which would
-            # fail without real config/tokens, but we only test that the script
-            # itself runs (syntax, permissions, basic flow). The actual HH API
-            # calls will fail but that's expected in a smoke test without auth.
+            # The script uses python -m hh_applicant_tool CLI commands
+            # (the legacy package was deleted in #158, but the script
+            # is still invoked the same way). They would fail without
+            # real config/tokens, but we only test that the script itself
+            # runs (syntax, permissions, basic flow). The actual HH API
+            # calls will fail but that's expected in a smoke test
+            # without auth.
             # We set PYTHONPATH to ensure the module can be imported.
             "PYTHONPATH": str(Path(__file__).resolve().parent.parent / "src"),
         }

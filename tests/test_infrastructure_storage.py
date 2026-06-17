@@ -9,7 +9,7 @@ to its class name (``"MagicMock"``) and created a stray
 that regression.
 
 Scope: the VSA storage path (``src/job_bot/shared/storage/``). The
-legacy ``src/hh_applicant_tool/storage/`` module is being cleaned up
+legacy storage module is cleaned up
 under issue #77 and is intentionally not guarded here.
 """
 
@@ -26,7 +26,6 @@ from job_bot.shared.storage.database import (
     validate_db_path,
 )
 from job_bot.shared.storage.facade import create_storage_facade
-
 
 # A single anchor phrase that BOTH branches of validate_db_path use, so the
 # tests stay pinned to a single substring and won't drift apart.

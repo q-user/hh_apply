@@ -2,7 +2,7 @@
 
 The VSA ``RelevanceHandler`` is the single source of truth for AI
 relevance filtering. ``ApplicationPrepSlice`` must NOT fall back to the
-legacy ``hh_applicant_tool.services.relevance.RelevanceService`` shim
+legacy ``RelevanceService`` shim
 anymore. These tests pin that contract and mirror the legacy
 ``tests/test_services_relevance.py`` / ``tests/test_relevance_failure_modes.py``
 behaviour at the slice boundary (issue #135 acceptance criteria).
@@ -10,9 +10,9 @@ behaviour at the slice boundary (issue #135 acceptance criteria).
 Note on ``AIError``:
     The VSA ``RelevanceHandler`` uses its own module-local ``AIError``
     class for the failure-mode machinery (strict / raise). In real
-    production the AI client (``hh_applicant_tool.ai.openai.OpenAIError``)
+    production the AI client (e.g. OpenAI's ``OpenAIError``)
     raises a different ``AIError`` subclass from
-    ``hh_applicant_tool.ai.base``. Bridging that gap is a separate
+    the AI base module. Bridging that gap is a separate
     issue — the tests below exercise the VSA handler's local contract
     with its OWN ``AIError`` class, exactly as the handler documents.
 """
@@ -120,7 +120,7 @@ def database(temp_db_path: Path) -> Database:
 
 class TestSliceNoLongerImportsLegacyRelevance:
     """The slice must not import or instantiate the legacy
-    ``hh_applicant_tool.services.relevance`` module at runtime (issue #135).
+    ``RelevanceService`` shim at runtime (issue #135).
     """
 
     def test_slice_does_not_import_hh_applicant_tool_services_relevance(
@@ -143,7 +143,7 @@ class TestSliceNoLongerImportsLegacyRelevance:
         self, database: Database
     ) -> None:
         """The slice module's source must not reference the legacy
-        ``hh_applicant_tool.services.relevance`` shim (issue #135).
+        ``RelevanceService`` shim (issue #135).
 
         This is a static check: any reference — import, attribute access,
         or string mention — indicates the legacy shim is still wired in.
@@ -155,8 +155,9 @@ class TestSliceNoLongerImportsLegacyRelevance:
         from job_bot.application_prep import slice as slice_mod
 
         source = inspect.getsource(slice_mod)
-        # The legacy shim is imported only as ``from hh_applicant_tool.services
-        # import RelevanceService`` (or similar). Block any reference.
+        # The VSA handler is at
+        # ``job_bot.application_prep.handlers.relevance_handler``.
+        # Block any reference to the legacy shim import path.
         assert "hh_applicant_tool.services.relevance" not in source, (
             "ApplicationPrepSlice still references the legacy "
             "hh_applicant_tool.services.relevance shim (issue #135). "
@@ -398,7 +399,7 @@ class TestVsaRelevanceHandlerFailureModes:
     """permissive / strict / raise mirrors legacy behaviour.
 
     The VSA handler catches its OWN local ``AIError`` class. The legacy
-    service caught ``hh_applicant_tool.ai.base.AIError``. Tests below
+    service caught the AI base module's ``AIError``. Tests below
     exercise the VSA contract with the VSA's local ``AIError`` so they
     hit the same code path that production code WOULD hit IF the AI
     client factory returned an AI client raising the VSA error.

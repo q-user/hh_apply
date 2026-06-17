@@ -1,6 +1,6 @@
 """Tests for :mod:`job_bot.shared.utils.cookiejar` (issue #151).
 
-The VSA port of the legacy :mod:`hh_applicant_tool.utils.cookiejar`
+The VSA port of the legacy cookiejar module
 module preserves the public :class:`HHOnlyCookieJar` name and
 behaviour: a :class:`http.cookiejar.MozillaCookieJar` subclass that
 silently drops cookies whose domain is **not** an ``hh.*`` domain

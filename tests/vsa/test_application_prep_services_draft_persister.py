@@ -7,7 +7,7 @@ and the ``save_vsa_draft_to_legacy_storage`` VSA→legacy shim.
 Strategy
 --------
 
-* **Storage** — a real :class:`hh_applicant_tool.storage.facade.StorageFacade`
+* **Storage** — a real :class:`job_bot._legacy_compat.storage.facade.StorageFacade`
   backed by an in-memory ``:memory:`` SQLite connection (initialised
   via ``init_db``). This proves the upsert paths work end-to-end
   against the canonical legacy schema (issue #147 acceptance
@@ -365,9 +365,9 @@ class TestSaveSkippedAiRejected:
 
 class TestSaveVsaDraftToLegacyStorage:
     """VSA :class:`ApplicationDraft` → legacy
-    :class:`hh_applicant_tool.storage.facade.StorageFacade` shim.
+    :class:`job_bot._legacy_compat.storage.facade.StorageFacade` shim.
 
-    TODO(#158): remove when hh_applicant_tool is gone.
+    TODO: remove when _legacy_compat is gone — tracked separately.
     """
 
     def test_upserts_vsa_draft_into_legacy_storage(self) -> None:

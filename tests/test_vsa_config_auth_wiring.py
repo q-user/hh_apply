@@ -111,7 +111,7 @@ class TestConfigAuthSliceWiring:
         shim). The slice is the single source of truth for config
         round-trips; legacy callers must migrate to the slice's
         :class:`ConfigHandler` / :class:`AuthHandler` ports directly
-        (this is the contract used by ``hh_applicant_tool.main``'s
+        (this is the contract used by the CLI's
         VSA-native ``__main__`` path).
         """
         from job_bot.container import AppContainer

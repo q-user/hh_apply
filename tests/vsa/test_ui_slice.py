@@ -2,7 +2,7 @@
 
 TDD: tests are written first, then the slice is implemented to make them
 pass.  The slice is a thin re-implementation of the legacy
-``hh_applicant_tool.ui.api.Api`` class — same public method names, so
+``job_bot.ui.api.Api`` class — same public method names, so
 the webview HTML/JS in ``src/job_bot/ui/templates/`` keeps working
 unchanged — but the methods are now 1-3 line dispatches into a
 :class:`UiApiContext` that bundles the slice's dependencies.
@@ -21,7 +21,7 @@ Test layout
 * :class:`TestApiMethodDispatch` — the 19 public methods on the new
   :class:`Api` route to the right port on the :class:`UiApiContext`.
 
-After issue #158 the legacy ``hh_applicant_tool.ui`` shim is deleted
+After issue #158 the legacy UI shim is deleted
 and the ``TestLegacyShim`` class is removed; the VSA surface above
 is the only one the codebase supports.
 """
@@ -253,7 +253,7 @@ class TestPresetsManagerOnStoragePort:
     """``PresetsManager`` only needs ``storage.settings`` from the port.
 
     Issue #150 acceptance criterion: ``src/job_bot/ui/presets.py`` no
-    longer imports ``hh_applicant_tool.storage``.  The move shifts
+    longer imports the legacy storage layer.  The move shifts
     the dependency to the abstract :class:`StoragePort` Protocol — any
     object that exposes ``.settings`` (with the four
     ``SettingsRepository`` methods) satisfies the contract.

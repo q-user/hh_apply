@@ -5,7 +5,7 @@ Three concerns, one test class each:
 * :class:`TestReviewServiceModule` — the new VSA module exports the
   public API (service + callback + state constants + DTOs).
 * :class:`TestReviewFlowShim` — the legacy
-  :mod:`hh_applicant_tool.services.review_flow` shim re-exports the
+  :mod:`job_bot.telegram_bot.services.review_flow` module re-exports the
   same classes and emits the canonical deprecation warning.
 * :class:`TestReviewServiceWiring` — the :class:`TelegramBotSlice` can
   build and expose a :class:`ReviewFlowService` end-to-end.

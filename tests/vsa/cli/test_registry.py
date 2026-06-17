@@ -7,7 +7,7 @@ immutable, well-typed, and discoverable.
 
 The plan promises a single ``BUILTIN_OPERATIONS`` tuple that the next PR
 (issue #148) will use to replace ``pkgutil.iter_modules`` in
-``hh_applicant_tool.main._create_parser``. This test pins that contract
+``HHApplicantTool._create_parser``. This test pins that contract
 so the dispatcher swap can be done in one place.
 """
 

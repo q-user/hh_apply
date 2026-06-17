@@ -1,8 +1,8 @@
 """Tests for the resume_management VSA slice (issue #137).
 
 Covers the resume creation (markdown/TOML template) and clone workflows
-migrated from ``hh_applicant_tool.operations.create_resume`` and
-``hh_applicant_tool.operations.clone_resume`` into a self-contained
+migrated from the old ``create_resume`` and ``clone_resume`` operations
+into a self-contained
 vertical slice. HH API calls are replaced with an in-memory fake; the
 markdown parser and TOML loader are real.
 """
