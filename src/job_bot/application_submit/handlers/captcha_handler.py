@@ -18,7 +18,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from job_bot.application_submit.ports.port_defs import CaptchaSolverPort
+    from job_bot.shared.ports import CaptchaSolverPort
 
 logger = logging.getLogger(__package__)
 

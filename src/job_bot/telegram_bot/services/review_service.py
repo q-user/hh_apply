@@ -35,7 +35,7 @@ from job_bot.telegram_bot.telegram_transport import TelegramTransport
 from job_bot.telegram_bot.models.message import InlineButton, OutgoingMessage
 
 if TYPE_CHECKING:
-    from job_bot.application_submit.ports.port_defs import AIClientPort, Clock
+    from job_bot.shared.ports import AIClientPort, Clock
 
 logger = logging.getLogger(__package__)
 # Callback_data (формат: rf:<state>:<action>) и целевые объекты регенерации.
