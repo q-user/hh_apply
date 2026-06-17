@@ -36,11 +36,10 @@ from job_bot.max_bot.handlers.transport_handler import TransportHandler
 from job_bot.max_bot.ports.transport_port import MaxTransportPort
 
 from .conftest import (
+    _make_args,
     _NoopSession,
     _SimpleTool,
-    _make_args,
 )
-
 
 # ─── VSA slice surface ──────────────────────────────────────────
 
@@ -158,9 +157,10 @@ def test_max_bot_operation_send_message_uses_slice() -> None:
 # ─── DI container wiring ────────────────────────────────────────
 
 
-def test_container_exposes_max_bot_adapter() -> None:
-    """``AppContainer.create_max_bot_adapter()`` returns a slice-like object."""
-    from hh_applicant_tool.container import AppContainer
+def test_container_exposes_max_bot_slice() -> None:
+    """``AppContainer.max_bot`` returns a slice whose transport satisfies
+    :class:`MaxTransportPort`."""
+    from job_bot.container import AppContainer
 
     tool = _SimpleTool()
     tool.config = {
@@ -174,22 +174,21 @@ def test_container_exposes_max_bot_adapter() -> None:
     tool.session = _NoopSession()
 
     container = AppContainer(tool)
-    adapter = container.create_max_bot_adapter()
+    slice_ = container.max_bot
 
-    # The adapter is the slice itself (the operation only needs the slice
-    # surface: ``.transport``, ``.handler``, ``.send_message``).
-    # Use ``isinstance`` (not ``hasattr``) so a wrong object can't slip
-    # through — the test fails if the container returns anything other
-    # than a real :class:`MaxBotSlice` whose ``.handler`` is a
-    # :class:`TransportHandler`.
-    assert isinstance(adapter, MaxBotSlice)
-    assert isinstance(adapter.handler, TransportHandler)
-    assert adapter.transport is not None
+    # The slice is the operation's surface (``.transport``, ``.handler``,
+    # ``.send_message``). Use ``isinstance`` (not ``hasattr``) so a wrong
+    # object can't slip through — the test fails if the container returns
+    # anything other than a real :class:`MaxBotSlice` whose ``.handler``
+    # is a :class:`TransportHandler`.
+    assert isinstance(slice_, MaxBotSlice)
+    assert isinstance(slice_.handler, TransportHandler)
+    assert slice_.transport is not None
 
 
-def test_container_max_bot_adapter_is_memoised() -> None:
-    """``create_max_bot_adapter`` returns the same slice across calls."""
-    from hh_applicant_tool.container import AppContainer
+def test_container_max_bot_slice_is_memoised() -> None:
+    """``max_bot`` returns the same slice across accesses (``@cached_property``)."""
+    from job_bot.container import AppContainer
 
     tool = _SimpleTool()
     tool.config = {
@@ -201,8 +200,8 @@ def test_container_max_bot_adapter_is_memoised() -> None:
     tool.session = _NoopSession()
 
     container = AppContainer(tool)
-    a = container.create_max_bot_adapter()
-    b = container.create_max_bot_adapter()
+    a = container.max_bot
+    b = container.max_bot
     assert a is b
 
 
