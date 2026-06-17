@@ -1,6 +1,6 @@
 """Tests for :class:`ResumeRenderer` (issue #151).
 
-The VSA port of the legacy :mod:`hh_applicant_tool.utils.resume_md`
+The VSA port of the legacy resume-renderer module
 module exposes a :class:`ResumeRenderer` service that turns a
 markdown resume template into the dict payload expected by
 ``POST /resumes``. The renderer preserves the legacy behaviour bit-

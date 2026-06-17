@@ -1,7 +1,7 @@
 """Tests for the ``employer_engagement`` VSA slice (issue #137).
 
 The slice encapsulates the "reply to employers" workflow that used to
-live in :mod:`hh_applicant_tool.operations.reply_employers`:
+live in :mod:`job_bot.employer_engagement`:
 
 * iterate over open negotiations,
 * pick the right reply mode (template / AI / interactive),

@@ -8,7 +8,7 @@ fetching parts of the legacy
 Strategy
 --------
 
-* **Storage** — a real :class:`hh_applicant_tool.storage.facade.StorageFacade`
+* **Storage** — a real :class:`job_bot._legacy_compat.storage.facade.StorageFacade`
   against an in-memory ``:memory:`` SQLite connection (initialised
   via ``init_db``). This proves the service integrates with the same
   facade the legacy use case / VSA slice pass to it.
@@ -16,7 +16,7 @@ Strategy
   returns canned responses for ``GET /resumes/mine``. No
   ``unittest.mock.Mock`` for in-process test doubles.
 * **Search profile model** — uses the real
-  :class:`hh_applicant_tool.storage.models.search_profile.SearchProfileModel`
+  :class:`job_bot._legacy_compat.storage.models.search_profile.SearchProfileModel`
   so the facade's ``save``/``get``/``find_enabled`` paths are
   exercised end-to-end.
 
@@ -37,9 +37,10 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-
 from job_bot._legacy_compat.storage.facade import StorageFacade
-from job_bot._legacy_compat.storage.models.search_profile import SearchProfileModel
+from job_bot._legacy_compat.storage.models.search_profile import (
+    SearchProfileModel,
+)
 from job_bot._legacy_compat.storage.utils import init_db
 from job_bot.application_prep.services.profile_loader import (
     ProfileLoaderService,

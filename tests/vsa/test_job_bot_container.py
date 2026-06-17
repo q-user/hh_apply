@@ -9,10 +9,10 @@ composition root. It exposes:
 * 2 use-case factory methods (``apply_to_vacancies_use_case`` and
   ``prepare_vacancies_use_case``).
 
-After issue #158 the legacy ``hh_applicant_tool.container`` import
+After issue #158 the legacy container import
 path is removed (the package itself is gone). These tests pin the
 **public surface** of the new container and the constraint that
-``job_bot.container`` does not import from ``hh_applicant_tool``
+``job_bot.container`` does not import from the legacy distribution
 at module level.
 """
 
