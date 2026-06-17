@@ -4,6 +4,7 @@ import time
 from dataclasses import KW_ONLY, dataclass, field
 from email.utils import parsedate_to_datetime
 from threading import Lock
+from typing import Any
 
 import requests
 
@@ -54,7 +55,7 @@ class ChatOpenAI:
     def _min_request_interval(self) -> float:
         return 60.0 / self.rate_limit if self.rate_limit > 0 else 0.0
 
-    def _request(self, payload: dict) -> requests.Response:
+    def _request(self, payload: dict[str, Any]) -> requests.Response:
         """Выполнение запроса с минимальным интервалом между запросами."""
         with self._lock:
             if self._previous_request_time > 0:
@@ -162,7 +163,7 @@ class ChatOpenAI:
 
         content_type = "image/png"
 
-        messages = []
+        messages: list[dict[str, Any]] = []
 
         system_prompt = "Ты должен распознать текст на изображении. Верни ТОЛЬКО текст, без каких-либо объяснений или дополнительных символов."
 

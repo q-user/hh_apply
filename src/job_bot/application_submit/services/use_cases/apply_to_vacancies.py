@@ -253,7 +253,9 @@ class ApplyToVacanciesUseCase:
             url
         )
 
-    def _handle_vacancy_test(self, vacancy: dict, resume_id: str) -> None:
+    def _handle_vacancy_test(
+        self, vacancy: dict[str, Any], resume_id: str
+    ) -> None:
         if self._test_logger is not None:
             self._test_logger.log(vacancy, resume_id)
             return

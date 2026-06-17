@@ -62,9 +62,8 @@ if TYPE_CHECKING:
     from job_bot.application_prep.handlers.relevance_handler import (
         RelevanceHandler,
     )
+    from job_bot.shared.ports import CancellationToken, Clock
     from job_bot.shared.storage.database import Database
-
-    from ..ports import CancellationToken, Clock
 
 logger = logging.getLogger(__package__)
 
