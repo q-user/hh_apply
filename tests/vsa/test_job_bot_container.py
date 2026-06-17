@@ -27,7 +27,7 @@ import sqlite3
 import tempfile
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -334,12 +334,12 @@ class TestUseCaseFactories:
 
         container = AppContainer(tool)
 
-        with_use_ai = container.apply_to_vacancies_use_case(use_ai=True)
+        container.apply_to_vacancies_use_case(use_ai=True)
         tool.get_cover_letter_ai.assert_called()
         # Reset the call count
         tool.get_cover_letter_ai.reset_mock()  # type: ignore[attr-defined]
 
-        no_ai = container.apply_to_vacancies_use_case(use_ai=False)
+        container.apply_to_vacancies_use_case(use_ai=False)
         # With use_ai=False, get_cover_letter_ai should not be called
         tool.get_cover_letter_ai.assert_not_called()  # type: ignore[attr-defined]
 
