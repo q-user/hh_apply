@@ -143,7 +143,7 @@ class AppContainer:
         settings.hh_api.timeout = 30
         # Local import of the constant keeps the module-level imports
         # clean of legacy code.
-        from hh_applicant_tool.constants import CONFIG_FILENAME  # noqa: PLC0415
+        from job_bot.shared.config.paths import CONFIG_FILENAME  # noqa: PLC0415
 
         config_path = tool.config_path / CONFIG_FILENAME
         return create_config_auth_slice(
@@ -245,7 +245,7 @@ class AppContainer:
         ``service.search_vacancies_raw(...)`` on it (the port exposes
         the same search surface the legacy adapter shimmed).
         """
-        from hh_applicant_tool.application.use_cases import (  # noqa: PLC0415
+        from job_bot.application_submit.services.use_cases import (  # noqa: PLC0415
             ApplyToVacanciesUseCase,
         )
 
@@ -288,7 +288,7 @@ class AppContainer:
         legacy adapter). The ``vacancy_search_service_factory`` is a
         thin closure that returns the slice's search port.
         """
-        from hh_applicant_tool.application.use_cases import (  # noqa: PLC0415
+        from job_bot.application_submit.services.use_cases import (  # noqa: PLC0415
             PrepareVacanciesUseCase,
         )
 

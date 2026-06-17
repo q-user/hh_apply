@@ -34,7 +34,7 @@ CHAT_ID = 12345
 @pytest.fixture
 def storage_conn() -> sqlite3.Connection:
     """In-memory SQLite with the canonical schema initialised."""
-    from hh_applicant_tool.storage import StorageFacade
+    from job_bot._legacy_compat.storage import StorageFacade
 
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row

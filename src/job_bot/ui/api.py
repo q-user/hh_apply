@@ -169,9 +169,9 @@ class Api:
             event = "error"
             message = "Ошибка авторизации"
             try:
-                import hh_applicant_tool.operations.authorize as _authorize_mod  # type: ignore[import-untyped]
-
-                _AuthOp = _authorize_mod.Operation
+                from job_bot.config_auth.handlers.auth_browser_login import (
+                    Operation as _AuthOp,
+                )
 
                 op: Any = _AuthOp()
                 parser = argparse.ArgumentParser()
@@ -300,7 +300,7 @@ class Api:
 
     def refresh_negotiations(self, status: str = "active") -> dict[str, Any]:
         try:
-            from hh_applicant_tool.storage.models.negotiation import (
+            from job_bot._legacy_compat.storage.models.negotiation import (
                 NegotiationModel,
             )
 

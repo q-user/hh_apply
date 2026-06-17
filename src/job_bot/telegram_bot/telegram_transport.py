@@ -22,7 +22,7 @@ from typing import Any
 
 import requests
 
-from hh_applicant_tool.constants import CONFIG_DIR, CONFIG_FILENAME
+from job_bot.shared.config.paths import CONFIG_DIR, CONFIG_FILENAME
 
 # VSA path (issue #59): the telegram transport used to instantiate
 # the legacy ``hh_applicant_tool.utils.config.Config`` directly. That

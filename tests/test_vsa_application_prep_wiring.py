@@ -46,7 +46,7 @@ class TestApplicationPrepSliceWiring:
 
     def _make_mock_tool(self):
         """Create a mock HHApplicantTool with all required attributes."""
-        from hh_applicant_tool.main import HHApplicantTool
+        from job_bot._legacy_compat.main_stub import HHApplicantTool
 
         with patch.object(HHApplicantTool, "__init__", lambda self: None):
             tool = HHApplicantTool()
@@ -90,7 +90,7 @@ class TestApplicationPrepSliceWiring:
         """PrepareVacanciesUseCase receives the application prep service
         factory (mirrors the ``vacancy_search_service_factory`` wiring from
         issue #53)."""
-        from hh_applicant_tool.application.use_cases.prepare_vacancies import (
+        from job_bot.application_submit.services.use_cases.prepare_vacancies import (
             PrepareVacanciesUseCase,
         )
         from job_bot.container import AppContainer
@@ -108,7 +108,7 @@ class TestPerProfileAIInjection:
     """Per-profile AI client injection (issue #54 followup)."""
 
     def _make_mock_tool(self):
-        from hh_applicant_tool.main import HHApplicantTool
+        from job_bot._legacy_compat.main_stub import HHApplicantTool
 
         with patch.object(HHApplicantTool, "__init__", lambda self: None):
             tool = HHApplicantTool()
@@ -134,7 +134,7 @@ class TestPerProfileAIInjection:
             return tool
 
     def _make_profile(self, ai_filter_mode="heavy"):
-        from hh_applicant_tool.storage.models.search_profile import (
+        from job_bot._legacy_compat.storage.models.search_profile import (
             SearchProfileModel,
         )
 
@@ -199,20 +199,20 @@ class TestPerProfileAIInjection:
         legacy path builds VSA handlers directly via
         :class:`LegacyPreparePipeline` / :class:`AiFilterService`.
         """
-        from hh_applicant_tool.application.dto import (
-            PrepareVacanciesCommand,
-        )
-        from hh_applicant_tool.application.use_cases.prepare_vacancies import (
-            PrepareVacanciesUseCase,
-        )
-        from hh_applicant_tool.storage.models.search_profile import (
+        from job_bot._legacy_compat.storage.models.search_profile import (
             SearchProfileModel,
+        )
+        from job_bot.application_prep.models.command import (
+            PrepareVacanciesCommand,
         )
         from job_bot.application_prep.services.ai_filter import (
             AiFilterService,
         )
         from job_bot.application_prep.services.legacy_prepare_pipeline import (
             LegacyPreparePipeline,
+        )
+        from job_bot.application_submit.services.use_cases.prepare_vacancies import (
+            PrepareVacanciesUseCase,
         )
 
         profile = SearchProfileModel(
@@ -522,10 +522,10 @@ class TestPrepareVacanciesVsaBridge:
     def test_constructor_accepts_application_prep_slice(self):
         """``PrepareVacanciesUseCase`` accepts an optional
         ``application_prep_slice`` constructor parameter (issue #90)."""
-        from hh_applicant_tool.application.use_cases.prepare_vacancies import (
+        from job_bot.application_prep import ApplicationPrepSlice
+        from job_bot.application_submit.services.use_cases.prepare_vacancies import (
             PrepareVacanciesUseCase,
         )
-        from job_bot.application_prep import ApplicationPrepSlice
 
         slice_ = MagicMock(spec=ApplicationPrepSlice)
         use_case = PrepareVacanciesUseCase(
@@ -541,7 +541,7 @@ class TestPrepareVacanciesVsaBridge:
     def test_constructor_default_slice_is_none(self):
         """Default value of ``application_prep_slice`` is ``None``
         (backward compat with tests that don't wire the slice)."""
-        from hh_applicant_tool.application.use_cases.prepare_vacancies import (
+        from job_bot.application_submit.services.use_cases.prepare_vacancies import (
             PrepareVacanciesUseCase,
         )
 
@@ -558,17 +558,19 @@ class TestPrepareVacanciesVsaBridge:
         """When ``application_prep_slice`` is injected, ``execute()``
         calls ``slice.run_prepare_pipeline()`` and returns the
         converted ``PrepareVacanciesResult``."""
-        from hh_applicant_tool.application.dto import (
-            PrepareVacanciesCommand,
-            PrepareVacanciesResult,
-        )
-        from hh_applicant_tool.application.use_cases.prepare_vacancies import (
-            PrepareVacanciesUseCase,
-        )
-        from hh_applicant_tool.storage.models.search_profile import (
+        from job_bot._legacy_compat.storage.models.search_profile import (
             SearchProfileModel,
         )
         from job_bot.application_prep import PreparePipelineStats
+        from job_bot.application_prep.models.command import (
+            PrepareVacanciesCommand,
+        )
+        from job_bot.application_prep.models.result import (
+            PrepareVacanciesResult,
+        )
+        from job_bot.application_submit.services.use_cases.prepare_vacancies import (
+            PrepareVacanciesUseCase,
+        )
 
         profile = SearchProfileModel(
             id="p1",
@@ -635,11 +637,11 @@ class TestPrepareVacanciesVsaBridge:
         per-vacancy loop. The test verifies the slice attribute
         defaults to ``None`` and the legacy methods are present on
         the pipeline (not on the use case itself)."""
-        from hh_applicant_tool.application.use_cases.prepare_vacancies import (
-            PrepareVacanciesUseCase,
-        )
         from job_bot.application_prep.services.legacy_prepare_pipeline import (
             LegacyPreparePipeline,
+        )
+        from job_bot.application_submit.services.use_cases.prepare_vacancies import (
+            PrepareVacanciesUseCase,
         )
 
         use_case = PrepareVacanciesUseCase(
@@ -663,15 +665,15 @@ class TestPrepareVacanciesVsaBridge:
     def test_execute_via_slice_helper_builds_context(self):
         """``_execute_via_slice`` builds a ``PreparePipelineContext``
         from the use case's dependencies and calls the slice."""
-        from hh_applicant_tool.application.dto import (
-            PrepareVacanciesCommand,
-        )
-        from hh_applicant_tool.application.use_cases.prepare_vacancies import (
-            PrepareVacanciesUseCase,
-        )
         from job_bot.application_prep import (
             PreparePipelineContext,
             PreparePipelineStats,
+        )
+        from job_bot.application_prep.models.command import (
+            PrepareVacanciesCommand,
+        )
+        from job_bot.application_submit.services.use_cases.prepare_vacancies import (
+            PrepareVacanciesUseCase,
         )
 
         slice_ = MagicMock()
@@ -702,8 +704,10 @@ class TestPrepareVacanciesVsaBridge:
     def test_prepare_pipeline_stats_fields_match_result(self):
         """``PreparePipelineStats`` field names match
         ``PrepareVacanciesResult`` so the conversion is trivial."""
-        from hh_applicant_tool.application.dto import PrepareVacanciesResult
         from job_bot.application_prep import PreparePipelineStats
+        from job_bot.application_prep.models.result import (
+            PrepareVacanciesResult,
+        )
 
         stats_fields = set(PreparePipelineStats.__dataclass_fields__.keys())
         result_fields = set(PrepareVacanciesResult.__dataclass_fields__.keys())

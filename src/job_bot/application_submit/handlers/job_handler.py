@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Protocol
 from job_bot.application_submit.models.apply_job import ApplyJob
 
 if TYPE_CHECKING:
-    from hh_applicant_tool.storage.models.application_draft import (
+    from job_bot._legacy_compat.storage.models.application_draft import (
         ApplicationDraftModel,
     )
 
@@ -48,7 +48,7 @@ class JobHandler:
         self._conn = storage_conn
         # Lazy import: the slice should not fail to import if the legacy
         # package isn't fully initialised in some test environments.
-        from hh_applicant_tool.storage import StorageFacade
+        from job_bot._legacy_compat.storage import StorageFacade
 
         self._facade = StorageFacade(storage_conn)
         # Optional clock for deterministic tests; defaults to real time.

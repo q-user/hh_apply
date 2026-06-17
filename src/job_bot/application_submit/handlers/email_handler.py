@@ -20,7 +20,7 @@ from email.message import EmailMessage
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from hh_applicant_tool.application.ports import EmailSenderPort
+    from job_bot.application_submit.ports.port_defs import EmailSenderPort
 
 logger = logging.getLogger(__package__)
 

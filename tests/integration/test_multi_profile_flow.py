@@ -49,8 +49,8 @@ def _seed_profile(
     search_params: dict | None = None,
 ) -> None:
     """Insert a search profile into the DB (issue #54 polish)."""
-    from hh_applicant_tool.storage import StorageFacade
-    from hh_applicant_tool.storage.models.search_profile import (
+    from job_bot._legacy_compat.storage import StorageFacade
+    from job_bot._legacy_compat.storage.models.search_profile import (
         SearchProfileModel,
     )
 
@@ -88,7 +88,7 @@ class TestMultiProfileFlow:
         carry the right ``search_profile_id`` and the relevance
         score reflects the per-profile rules.
         """
-        from hh_applicant_tool.storage import StorageFacade
+        from job_bot._legacy_compat.storage import StorageFacade
 
         # Seed both profiles with different rules
         _seed_profile(
@@ -160,7 +160,7 @@ class TestMultiProfileFlow:
         ``rejected`` and carries a low score. The two rejected
         drafts are distinct rows, one per profile.
         """
-        from hh_applicant_tool.storage import StorageFacade
+        from job_bot._legacy_compat.storage import StorageFacade
 
         mock_ai_client.mode = "unsuitable"
         full_vacancy = _make_full_vacancy(0)

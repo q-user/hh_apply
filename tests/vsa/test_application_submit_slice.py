@@ -91,8 +91,8 @@ def _make_draft(
     cover_letter: str | None = "Hi there",
 ) -> int:
     """Insert an application_drafts row and return its id."""
-    from hh_applicant_tool.storage import StorageFacade
-    from hh_applicant_tool.storage.models.application_draft import (
+    from job_bot._legacy_compat.storage import StorageFacade
+    from job_bot._legacy_compat.storage.models.application_draft import (
         ApplicationDraftModel,
     )
 
@@ -132,8 +132,8 @@ def _make_job(
     chat_id: int | None = CHAT_ID,
 ) -> int:
     """Insert an apply_jobs row and return its id."""
-    from hh_applicant_tool.storage import StorageFacade
-    from hh_applicant_tool.storage.models.apply_job import ApplyJobModel
+    from job_bot._legacy_compat.storage import StorageFacade
+    from job_bot._legacy_compat.storage.models.apply_job import ApplyJobModel
 
     facade = StorageFacade(conn)
     job = ApplyJobModel(
@@ -602,7 +602,7 @@ class TestJobHandler:
         assert job.locked_by is None
 
     def test_load_draft_returns_draft(self, storage_conn: sqlite3.Connection):
-        from hh_applicant_tool.storage.models.application_draft import (
+        from job_bot._legacy_compat.storage.models.application_draft import (
             ApplicationDraftModel,
         )
         from job_bot.application_submit.handlers.job_handler import JobHandler
@@ -659,7 +659,7 @@ class TestApplyOneHandler:
     """``handlers/apply_one_handler.py`` -- the slice's apply-one handler."""
 
     def test_call_succeeds_for_simple_draft(self) -> None:
-        from hh_applicant_tool.storage.models.application_draft import (
+        from job_bot._legacy_compat.storage.models.application_draft import (
             ApplicationDraftModel,
         )
         from job_bot.application_submit.handlers.apply_one_handler import (
@@ -679,14 +679,14 @@ class TestApplyOneHandler:
         assert args[0] == "/negotiations"
 
     def test_call_raises_retryable_on_5xx(self) -> None:
-        from hh_applicant_tool.api.errors import ApiError
-        from job_bot.application_submit.errors import RetryableError
-        from hh_applicant_tool.storage.models.application_draft import (
+        from job_bot._legacy_compat.storage.models.application_draft import (
             ApplicationDraftModel,
         )
+        from job_bot.application_submit.errors import RetryableError
         from job_bot.application_submit.handlers.apply_one_handler import (
             ApplyOneHandler,
         )
+        from job_bot.shared.api.errors import ApiError
 
         api_client = MagicMock()
         fake_resp = MagicMock()
@@ -705,14 +705,14 @@ class TestApplyOneHandler:
             )
 
     def test_call_raises_fatal_on_400(self) -> None:
-        from hh_applicant_tool.api.errors import ApiError
-        from job_bot.application_submit.errors import FatalError
-        from hh_applicant_tool.storage.models.application_draft import (
+        from job_bot._legacy_compat.storage.models.application_draft import (
             ApplicationDraftModel,
         )
+        from job_bot.application_submit.errors import FatalError
         from job_bot.application_submit.handlers.apply_one_handler import (
             ApplyOneHandler,
         )
+        from job_bot.shared.api.errors import ApiError
 
         api_client = MagicMock()
         fake_resp = MagicMock()
@@ -732,13 +732,15 @@ class TestApplyOneHandler:
 
     def test_convert_errors_false_propagates_captcha_required(self) -> None:
         """``convert_errors=False`` -> ``CaptchaRequired`` propagates as-is (issue #73)."""
-        from hh_applicant_tool.api.errors import CaptchaRequired
+        from job_bot._legacy_compat.storage.models.application_draft import (
+            ApplicationDraftModel,
+        )
+        from job_bot.application_submit.errors import (
+            CaptchaRequired,
+            RetryableError,
+        )
         from job_bot.application_submit.handlers.apply_one_handler import (
             ApplyOneHandler,
-        )
-        from job_bot.application_submit.errors import RetryableError
-        from hh_applicant_tool.storage.models.application_draft import (
-            ApplicationDraftModel,
         )
 
         api_client = MagicMock()
@@ -776,13 +778,15 @@ class TestApplyOneHandler:
 
     def test_convert_errors_false_propagates_limit_exceeded(self) -> None:
         """``convert_errors=False`` -> ``LimitExceeded`` propagates as-is (issue #73)."""
-        from hh_applicant_tool.api.errors import LimitExceeded
+        from job_bot._legacy_compat.storage.models.application_draft import (
+            ApplicationDraftModel,
+        )
+        from job_bot.application_submit.errors import (
+            LimitExceeded,
+            RetryableError,
+        )
         from job_bot.application_submit.handlers.apply_one_handler import (
             ApplyOneHandler,
-        )
-        from job_bot.application_submit.errors import RetryableError
-        from hh_applicant_tool.storage.models.application_draft import (
-            ApplicationDraftModel,
         )
 
         api_client = MagicMock()
@@ -812,10 +816,10 @@ class TestApplyOneHandler:
 
     def test_call_passes_session_and_xsrf(self) -> None:
         """When a test draft is used, the session/xsrf are forwarded."""
-        from job_bot.application_submit.errors import FatalError
-        from hh_applicant_tool.storage.models.application_draft import (
+        from job_bot._legacy_compat.storage.models.application_draft import (
             ApplicationDraftModel,
         )
+        from job_bot.application_submit.errors import FatalError
         from job_bot.application_submit.handlers.apply_one_handler import (
             ApplyOneHandler,
         )
@@ -1350,8 +1354,10 @@ class TestWorkerService:
     def test_missing_draft_marks_failed(
         self, storage_conn: sqlite3.Connection, clock: _FixedClock
     ):
-        from hh_applicant_tool.storage import StorageFacade
-        from hh_applicant_tool.storage.models.apply_job import ApplyJobModel
+        from job_bot._legacy_compat.storage import StorageFacade
+        from job_bot._legacy_compat.storage.models.apply_job import (
+            ApplyJobModel,
+        )
         from job_bot.application_submit.models.submit_result import (
             SubmitStatus,
         )
@@ -1562,7 +1568,7 @@ class TestApplicationSubmitSlice:
         assert stats.succeeded == 2
         assert stats.idle_loops >= 1
 
-        from hh_applicant_tool.storage import StorageFacade
+        from job_bot._legacy_compat.storage import StorageFacade
 
         for vid in (1, 2):
             row = (
@@ -1580,7 +1586,7 @@ class TestApplicationSubmitSlice:
     ) -> None:
         """The slice's apply_one is backed by ``ApplyOneHandler``
         (no reimplementation in the slice itself)."""
-        from hh_applicant_tool.storage.models.application_draft import (
+        from job_bot._legacy_compat.storage.models.application_draft import (
             ApplicationDraftModel,
         )
         from job_bot.application_submit.handlers.apply_one_handler import (

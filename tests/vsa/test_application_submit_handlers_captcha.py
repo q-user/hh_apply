@@ -78,7 +78,7 @@ class TestCaptchaHandlerSolveAsync:
 
     @pytest.mark.asyncio
     async def test_port_raises_aierror_returns_false(self) -> None:
-        from hh_applicant_tool.ai.base import AIError
+        from job_bot.shared.ai._errors import AIError
 
         solver = _FakeCaptchaSolver(raise_with=AIError("ai down"))
         handler = CaptchaHandler(captcha_solver=solver)

@@ -290,7 +290,9 @@ class ApplicationSubmitSlice:
 
         # Import lazily to avoid a hard dependency on the legacy
         # package at module load time.
-        from hh_applicant_tool.application.dto import ApplyToVacanciesResult
+        from job_bot.application_submit.models.submit_result_dto import (
+            ApplyToVacanciesResult,
+        )
 
         result = ApplyToVacanciesResult()
 
@@ -450,10 +452,9 @@ class ApplicationSubmitSlice:
                 # ``command.send_email`` / ``do_apply``; explicit
                 # :class:`LimitExceeded` from the apply-one call short-
                 # circuits the loop.
-                from hh_applicant_tool.ai.base import AIError
-                from hh_applicant_tool.api.errors import BadResponse
                 from job_bot.application_submit.errors import LimitExceeded
-                from job_bot.shared.api.errors import ApiError
+                from job_bot.shared.ai._errors import AIError
+                from job_bot.shared.api.errors import ApiError, BadResponse
 
                 if isinstance(ex, LimitExceeded):
                     do_apply = False
@@ -628,10 +629,13 @@ class ApplicationSubmitSlice:
             )
             return True
         except Exception as ex:  # noqa: BLE001
-            from hh_applicant_tool.ai.base import AIError
-            from hh_applicant_tool.api.errors import ApiError, Redirect
             from job_bot.application_submit.errors import CaptchaRequired
-            from job_bot.shared.api.errors import BadResponse
+            from job_bot.shared.ai._errors import AIError
+            from job_bot.shared.api.errors import (
+                ApiError,
+                BadResponse,
+                Redirect,
+            )
 
             if isinstance(ex, Redirect):
                 logger.warning(

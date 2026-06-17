@@ -17,10 +17,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hh_applicant_tool.application import (
+from job_bot._legacy_compat.storage import StorageFacade
+from job_bot.application_submit.services.use_cases.apply_to_vacancies import (
     ApplyToVacanciesUseCase,
 )
-from hh_applicant_tool.storage import StorageFacade
 
 # ─── Хелперы для построения use case ───────────────────────────
 

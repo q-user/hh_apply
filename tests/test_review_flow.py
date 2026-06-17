@@ -22,14 +22,14 @@ from datetime import datetime
 from typing import Any
 from unittest.mock import MagicMock
 
-from hh_applicant_tool.storage.facade import StorageFacade
-from hh_applicant_tool.storage.models.application_draft import (
+from job_bot._legacy_compat.storage.facade import StorageFacade
+from job_bot._legacy_compat.storage.models.application_draft import (
     ApplicationDraftModel,
 )
-from hh_applicant_tool.storage.models.application_test_answer import (
+from job_bot._legacy_compat.storage.models.application_test_answer import (
     ApplicationTestAnswerModel,
 )
-from hh_applicant_tool.storage.models.telegram_session import (
+from job_bot._legacy_compat.storage.models.telegram_session import (
     TelegramSessionModel,
 )
 from job_bot.telegram_bot.services.review_service import (

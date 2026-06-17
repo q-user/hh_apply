@@ -46,8 +46,8 @@ import sqlite3
 from datetime import datetime
 from typing import Any
 
-from hh_applicant_tool.storage.facade import StorageFacade
-from hh_applicant_tool.storage.utils import init_db
+from job_bot._legacy_compat.storage.facade import StorageFacade
+from job_bot._legacy_compat.storage.utils import init_db
 from job_bot.application_prep.models.application import ApplicationDraft
 from job_bot.application_prep.services.draft_persister import (
     DraftPersisterService,
@@ -208,7 +208,7 @@ class TestSaveVacancy:
 
             class _ExplodingRepo:
                 def save(self, _v: Any) -> None:
-                    from hh_applicant_tool.storage.repositories.errors import (
+                    from job_bot._legacy_compat.storage.repositories.errors import (
                         RepositoryError,
                     )
 
@@ -471,14 +471,14 @@ class TestSaveVsaDraftToLegacyStorage:
 
         class _ExplodingDrafts:
             def save(self, _draft: Any) -> None:
-                from hh_applicant_tool.storage.repositories.errors import (
+                from job_bot._legacy_compat.storage.repositories.errors import (
                     RepositoryError,
                 )
 
                 raise RepositoryError("save boom")
 
             def get_by_resume_vacancy(self, _r: str, _v: int) -> Any:
-                from hh_applicant_tool.storage.repositories.errors import (
+                from job_bot._legacy_compat.storage.repositories.errors import (
                     RepositoryError,
                 )
 

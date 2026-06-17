@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from hh_applicant_tool.storage.models.telegram_session import (
+from job_bot._legacy_compat.storage.models.telegram_session import (
     TelegramSessionModel,
 )
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 import sqlite3
 from unittest.mock import MagicMock, Mock
 
-from hh_applicant_tool.storage.facade import StorageFacade
+from job_bot._legacy_compat.storage.facade import StorageFacade
 from job_bot.telegram_bot.telegram_transport import (
     TelegramTransport,
     TelegramTransportConfig,
@@ -89,13 +89,13 @@ def test_status_command(storage: sqlite3.Connection) -> None:
     """``/status`` returns negotiations / skipped / drafts counts."""
     facade = StorageFacade(storage)
     # Seed one of each so the counts are non-zero.
-    from hh_applicant_tool.storage.models.application_draft import (
+    from job_bot._legacy_compat.storage.models.application_draft import (
         ApplicationDraftModel,
     )
-    from hh_applicant_tool.storage.repositories.negotiations import (
+    from job_bot._legacy_compat.storage.repositories.negotiations import (
         NegotiationModel,
     )
-    from hh_applicant_tool.storage.repositories.skipped_vacancies import (
+    from job_bot._legacy_compat.storage.repositories.skipped_vacancies import (
         SkippedVacancyModel,
     )
 

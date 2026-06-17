@@ -303,7 +303,7 @@ class TestSkipReason:
             def skipped_vacancies(self) -> Any:
                 class _Repo:
                     def find(self, **kwargs: Any) -> Iterator[Any]:
-                        from hh_applicant_tool.storage.repositories.errors import (
+                        from job_bot._legacy_compat.storage.repositories.errors import (
                             RepositoryError,
                         )
 

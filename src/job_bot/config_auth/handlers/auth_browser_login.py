@@ -61,7 +61,7 @@ if TYPE_CHECKING:
         Page,
     )
 
-    from hh_applicant_tool.main import HHApplicantTool
+    from job_bot._legacy_compat.main_stub import HHApplicantTool
 
 logger = logging.getLogger(__name__)
 

@@ -31,7 +31,7 @@ logger = logging.getLogger(__package__)
 
 def _default_digest_service(storage: Any, transport: Any, config: Any) -> Any:
     """Build a :class:`DailyDigestService` from the slice's dependencies."""
-    from hh_applicant_tool.storage import StorageFacade
+    from job_bot._legacy_compat.storage import StorageFacade
     from job_bot.telegram_bot.services.daily_digest_service import (
         DailyDigestService,
     )
@@ -45,7 +45,7 @@ def _default_digest_service(storage: Any, transport: Any, config: Any) -> Any:
 
 def _default_review_service(storage: Any, transport: Any, config: Any) -> Any:
     """Build a :class:`ReviewFlowService` from the slice's dependencies."""
-    from hh_applicant_tool.storage import StorageFacade
+    from job_bot._legacy_compat.storage import StorageFacade
     from job_bot.telegram_bot.services.review_service import ReviewFlowService
 
     return ReviewFlowService(

@@ -23,7 +23,7 @@ import argparse
 
 import pytest
 
-from hh_applicant_tool.main import HHApplicantTool
+from job_bot._legacy_compat.main_stub import HHApplicantTool
 from job_bot.cli import BUILTIN_OPERATIONS
 
 

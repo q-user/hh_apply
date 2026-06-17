@@ -113,7 +113,7 @@ class TestVacancySearchToPrepFlow:
         lands in the DB matches the same fields the production
         ``prepare-vacancies`` use case would write.
         """
-        from hh_applicant_tool.storage import StorageFacade
+        from job_bot._legacy_compat.storage import StorageFacade
         from job_bot.vacancy_search.models.search_profile import (
             SearchProfile,
         )

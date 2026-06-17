@@ -216,71 +216,13 @@ def _build_utils_module() -> Any:
 
 
 # The canonical contract table.  Tests are parametrised over this list.
-SHIM_CONTRACT: tuple[ShimSpec, ...] = (
-    ShimSpec(
-        module_path="hh_applicant_tool.operations.reply_employers",
-        vsa_path="job_bot.employer_engagement",
-        issue=137,
-        trigger=_build_reply_employers,
-        description="operations.reply_employers module (issue #137)",
-    ),
-    ShimSpec(
-        module_path="hh_applicant_tool.operations.clear_negotiations",
-        vsa_path="job_bot.negotiations.lifecycle",
-        issue=137,
-        trigger=_build_clear_negotiations,
-        description="operations.clear_negotiations module (issue #137)",
-    ),
-    ShimSpec(
-        module_path="hh_applicant_tool.operations.query",
-        vsa_path="job_bot.dev_tools",
-        issue=137,
-        trigger=_build_query,
-        description="operations.query module (issue #137)",
-    ),
-    ShimSpec(
-        module_path="hh_applicant_tool.operations.create_resume",
-        vsa_path="job_bot.resume_management",
-        issue=137,
-        trigger=_build_create_resume,
-        description="operations.create_resume module (issue #137)",
-    ),
-    ShimSpec(
-        module_path="hh_applicant_tool.operations.clone_resume",
-        vsa_path="job_bot.resume_management",
-        issue=137,
-        trigger=_build_clone_resume,
-        description="operations.clone_resume module (issue #137)",
-    ),
-    ShimSpec(
-        module_path="hh_applicant_tool.api.datatypes",
-        vsa_path="job_bot.shared.api.datatypes",
-        issue=152,
-        trigger=_build_api_datatypes_module,
-        description="api.datatypes shim module (issue #152)",
-    ),
-    ShimSpec(
-        module_path="hh_applicant_tool.api.errors",
-        vsa_path="job_bot.shared.api.errors",
-        issue=152,
-        trigger=_build_api_errors_module,
-        description="api.errors shim module (issue #152)",
-    ),
-    ShimSpec(
-        module_path="hh_applicant_tool.api",
-        vsa_path="job_bot.shared.api",
-        issue=152,
-        trigger=_build_api_package_attribute_access,
-        description="api package shim (issue #152)",
-    ),
-    ShimSpec(
-        module_path="hh_applicant_tool.utils",
-        vsa_path="job_bot.shared.utils",
-        issue=151,
-        trigger=_build_utils_module,
-        description="utils package shim (issue #151)",
-    ),
-)
+# After issue #158 the ``hh_applicant_tool`` distribution package is
+# deleted; the shim modules that this contract used to assert are
+# gone, so the table is empty.  The contract type
+# (:class:`ShimSpec`) and the helper builders above are kept as
+# documentation of the canonical warning format for any future
+# deprecation shim that survives the VSA switchover.
+SHIM_CONTRACT: tuple[ShimSpec, ...] = ()
 
 
 # ─── Per-shim contract tests ────────────────────────────────────

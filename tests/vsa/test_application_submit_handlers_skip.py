@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hh_applicant_tool.application.dto import ApplyToVacanciesCommand
+from job_bot.application_submit.models.command import ApplyToVacanciesCommand
 from job_bot.application_submit.handlers.skip_handler import SkipHandler
 from job_bot.shared.storage.facade import StorageFacade
 
@@ -41,7 +41,7 @@ class TestSkipHandlerDoApply:
     """``do_apply=False`` short-circuits to ``"limit_reached"``."""
 
     def test_do_apply_false_returns_limit_reached(self, storage_conn) -> None:
-        from hh_applicant_tool.storage.utils import init_db
+        from job_bot._legacy_compat.storage.utils import init_db
 
         init_db(storage_conn)
         facade = StorageFacade(storage_conn)
@@ -68,7 +68,7 @@ class TestSkipHandlerBasicChecks:
 
     @pytest.fixture
     def handler(self, storage_conn):
-        from hh_applicant_tool.storage.utils import init_db
+        from job_bot._legacy_compat.storage.utils import init_db
 
         init_db(storage_conn)
         facade = StorageFacade(storage_conn)
@@ -152,7 +152,7 @@ class TestSkipHandlerExcludedFilter:
     to the blacklist (PUT /vacancies/blacklisted/{id})."""
 
     def test_excluded_filter_saves_and_blacklists(self, storage_conn) -> None:
-        from hh_applicant_tool.storage.utils import init_db
+        from job_bot._legacy_compat.storage.utils import init_db
 
         init_db(storage_conn)
         facade = StorageFacade(storage_conn)
@@ -192,7 +192,7 @@ class TestSkipHandlerExcludedFilter:
     ) -> None:
         """If the PUT /vacancies/blacklisted/{id} call fails, the
         skip still returns ``"excluded"`` (the loop must not crash)."""
-        from hh_applicant_tool.storage.utils import init_db
+        from job_bot._legacy_compat.storage.utils import init_db
 
         init_db(storage_conn)
         facade = StorageFacade(storage_conn)
@@ -217,7 +217,7 @@ class TestSkipHandlerExcludedFilter:
 
     def test_no_excluded_filter_skips_check(self, storage_conn) -> None:
         """``excluded_filter=None`` means the regex check is bypassed."""
-        from hh_applicant_tool.storage.utils import init_db
+        from job_bot._legacy_compat.storage.utils import init_db
 
         init_db(storage_conn)
         facade = StorageFacade(storage_conn)
@@ -252,7 +252,7 @@ class TestSkipHandlerAiRejection:
 
     @pytest.fixture
     def handler(self, storage_conn):
-        from hh_applicant_tool.storage.utils import init_db
+        from job_bot._legacy_compat.storage.utils import init_db
 
         init_db(storage_conn)
         facade = StorageFacade(storage_conn)
@@ -334,7 +334,7 @@ class TestSkipHandlerAiRejection:
         self, handler, storage_conn
     ) -> None:
         """A vacancy that was previously AI-rejected is short-circuited."""
-        from hh_applicant_tool.storage.utils import init_db
+        from job_bot._legacy_compat.storage.utils import init_db
         from job_bot.shared.storage.facade import StorageFacade
 
         init_db(storage_conn)
@@ -365,7 +365,7 @@ class TestSkipHandlerIsAlreadySkipped:
     """Direct test of the :meth:`is_already_skipped` helper."""
 
     def test_returns_true_when_previously_saved(self, storage_conn) -> None:
-        from hh_applicant_tool.storage.utils import init_db
+        from job_bot._legacy_compat.storage.utils import init_db
 
         init_db(storage_conn)
         facade = StorageFacade(storage_conn)
@@ -375,7 +375,7 @@ class TestSkipHandlerIsAlreadySkipped:
         assert handler.is_already_skipped({"id": 1}, resume_id="r1") is True
 
     def test_returns_false_when_not_saved(self, storage_conn) -> None:
-        from hh_applicant_tool.storage.utils import init_db
+        from job_bot._legacy_compat.storage.utils import init_db
 
         init_db(storage_conn)
         facade = StorageFacade(storage_conn)
@@ -388,7 +388,7 @@ class TestSkipHandlerIsAlreadySkipped:
         """A skip saved for resume_id="" (account-wide blacklist) is
         matched by ``is_already_skipped`` regardless of the per-resume
         query."""
-        from hh_applicant_tool.storage.utils import init_db
+        from job_bot._legacy_compat.storage.utils import init_db
 
         init_db(storage_conn)
         facade = StorageFacade(storage_conn)
@@ -405,7 +405,7 @@ class TestSkipHandlerSaveSkipped:
     """Direct test of the :meth:`save_skipped` helper."""
 
     def test_save_persists_row(self, storage_conn) -> None:
-        from hh_applicant_tool.storage.utils import init_db
+        from job_bot._legacy_compat.storage.utils import init_db
         from job_bot.shared.storage.facade import StorageFacade
 
         init_db(storage_conn)

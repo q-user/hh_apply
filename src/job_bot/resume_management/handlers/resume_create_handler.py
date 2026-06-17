@@ -25,7 +25,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from hh_applicant_tool.api.errors import ApiError
+from job_bot.shared.api.errors import ApiError
 from job_bot.resume_management.services.resume_renderer import parse_resume_md
 
 from job_bot.resume_management.models.options import (

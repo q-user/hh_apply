@@ -85,7 +85,7 @@ def _make_service(
     wrap is done here so callers can pass the raw ``sqlite3.Connection``
     from the project-level ``storage`` fixture.
     """
-    from hh_applicant_tool.storage import StorageFacade
+    from job_bot._legacy_compat.storage import StorageFacade
     from job_bot.telegram_bot.services.daily_digest_service import (
         DailyDigestService,
     )
@@ -106,7 +106,7 @@ def _make_service(
 
 
 def _save_profile(facade, pid: str, name: str, enabled: bool = True) -> None:
-    from hh_applicant_tool.storage.models.search_profile import (
+    from job_bot._legacy_compat.storage.models.search_profile import (
         SearchProfileModel,
     )
 
@@ -125,7 +125,7 @@ def _save_draft(
     has_test: bool = False,
     relevance_score: int | None = None,
 ) -> None:
-    from hh_applicant_tool.storage.models.application_draft import (
+    from job_bot._legacy_compat.storage.models.application_draft import (
         ApplicationDraftModel,
     )
 
@@ -237,7 +237,7 @@ class TestDailyDigestServiceBehaviour:
     ) -> None:
         """Minimal constructor: storage + transport only; config/clock/
         ai_client fall back to defaults (``SystemClock``, no AI)."""
-        from hh_applicant_tool.storage import StorageFacade
+        from job_bot._legacy_compat.storage import StorageFacade
         from job_bot.telegram_bot.services.daily_digest_service import (
             DailyDigestService,
         )
@@ -252,7 +252,7 @@ class TestDailyDigestServiceBehaviour:
     ) -> None:
         """Only ``status='prepared'`` rows are aggregated; other statuses
         are filtered out by the WHERE clause."""
-        from hh_applicant_tool.storage import StorageFacade
+        from job_bot._legacy_compat.storage import StorageFacade
 
         facade = StorageFacade(storage)
         _save_profile(facade, "p1", "Profile 1")
@@ -290,7 +290,7 @@ class TestDailyDigestServiceBehaviour:
         """Grouping by ``search_profile_id`` and splitting by
         ``has_test`` produces the expected per-group counts and the
         rounded average ``relevance_score``."""
-        from hh_applicant_tool.storage import StorageFacade
+        from job_bot._legacy_compat.storage import StorageFacade
 
         facade = StorageFacade(storage)
         _save_profile(facade, "django", "Django Senior")
@@ -355,7 +355,7 @@ class TestDailyDigestServiceBehaviour:
         """``send`` invokes ``transport.send_message`` with the resolved
         ``chat_id`` and a Russian-language body listing the prepared
         drafts (with the expected header / footer markers)."""
-        from hh_applicant_tool.storage import StorageFacade
+        from job_bot._legacy_compat.storage import StorageFacade
 
         facade = StorageFacade(storage)
         _save_profile(facade, "p1", "Profile 1")
