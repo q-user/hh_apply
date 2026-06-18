@@ -1,37 +1,42 @@
 # Project Roadmap
 
-> Last updated: 2026-06-15 — see [issues](https://github.com/q-user/hh_apply/issues)
+> Last updated: 2026-06-18 — see [issues](https://github.com/q-user/hh_apply/issues)
 > for the authoritative task list. This document is a high-level summary,
 > not a substitute for the issue tracker.
 
 ## Current State
 
-**VSA migration is essentially complete.** All 7 slices are wired and
-the 4 major bridge PRs plus the daily_digest bridge have been merged.
-The legacy `hh_applicant_tool/` package is reduced to deprecation shims
-plus the CLI/UI entry points that are the *only* reason it still ships.
+**VSA migration is complete and shipped as 2.0.0.** All 7 slices are
+wired, the legacy `hh_applicant_tool/` distribution package has been
+retired from the published wheel, and `v2.0.0` is tagged on `main`
+(commit `a13c9ef`, "Release 2.0.0 — hh_applicant_tool retired").
 
 - 7 VSA slices live under `src/job_bot/` (`application_prep`,
   `application_submit`, `channel_monitoring`, `config_auth`, `max_bot`,
   `telegram_bot`, `vacancy_search`) plus a shared kernel
   (`src/job_bot/shared/`)
-- 4 major orchestrator bridges merged: `review_flow` (#87), `apply_to_vacancies`
-  (#89), `prepare_vacancies` (#90), `config_auth` switchover (#59), and the
-  `daily_digest` service bridge (#8) — see the **Completed** subsection
-  below for the merged PRs
-- All 7 slices are wired through `AppContainer` in
-  `src/hh_applicant_tool/container.py` and exercised by the live CLI
-  operations (`apply-worker`, `telegram-bot`, `channel-monitor`,
-  `max-bot`, `apply-vacancies`, `prepare-vacancies`)
-- `tests/vsa/` covers every slice in isolation, plus
-  `tests/integration/` covers cross-slice flows (issue #63)
-- Legacy `hh_applicant_tool/` is ~14K LOC, the bulk of which is now
-  deprecation shims that re-export the VSA public API and emit a
-  `DeprecationWarning` (contract enforced by
-  `tests/test_issue_92_deprecation.py`)
-- Validation: 1014 tests passed, 7 xfailed (expected), `ruff` clean,
-  `mypy --strict` clean on `src/job_bot/`
-- The CI block (issue #82) remains resolved
+- `src/hh_applicant_tool/` is reduced to a **22-LOC deprecation shim
+  across two files** (`__init__.py` 10 LOC, `__main__.py` 12 LOC). The
+  directory is retained for in-tree `import hh_applicant_tool` (e.g.
+  test fixtures) but is **no longer shipped in the wheel** (PR #192).
+  Full directory removal is gated on the `main` ↔ `develop`
+  reconciliation (Blocker #1).
+- Entry point: `[project.scripts] hh-applicant-tool = "job_bot.cli.main:main"`
+  (since PR #170). `pyproject.toml [tool.poetry] packages` ships only
+  `job_bot`. UI templates (`src/job_bot/ui/templates/`) and SQL schema
+  (`src/job_bot/_legacy_compat/storage/queries/**/*.sql`) are both in
+  `[tool.poetry] include`.
+- Version: `2.0.0` in `pyproject.toml`. Tag `v2.0.0` is at `a13c9ef`
+  on `main`; tag description: "Release 2.0.0 — hh_applicant_tool
+  retired".
+- Validation: `uv run pytest tests/ -q --timeout=60` collects **1256
+  tests** (2 pre-existing failures in `TestCaptchaHandlerLegacyFallback`,
+  see Known issues). `ruff check .` is clean. `uv run ty check
+  src/job_bot/` reports pre-existing diagnostics in
+  `src/job_bot/telegram_bot/services/review_service.py` (unrelated to
+  this PR; see Known issues).
+- `main` is **11 commits behind** `develop` (down from 119). See
+  Blockers.
 
 ## Phase A: Unblock CI — DONE
 
@@ -63,13 +68,10 @@ below for the bridge PRs that landed this phase.
 | #76 | Remove deprecated telegram/channel/MAX service code | Closed 2026-06-14 | PR #123; only deprecation shims remain |
 | #87 | Bridge `review_flow.py` to VSA | Closed 2026-06-14 | PR #132; `services/review_flow.py` is a shim |
 | #88 | Remove `services/applications.py` vacancy_tests shim | Closed 2026-06-13 | Test pipeline lives in `application_submit/handlers/test_handler.py` |
-| #89 | Bridge `apply_to_vacancies.py` to VSA orchestration | Closed 2026-06-14 | PR #129; partial bridge, per-phase handlers to follow |
+| #89 | Bridge `apply_to_vacancies.py` to VSA orchestration | Closed 2026-06-14 | PR #129; followed up by PR #166 (Refs #145) |
 | #90 | Bridge `prepare_vacancies.py` to VSA orchestration | Closed 2026-06-14 | PR #130; `application_prep/slice.py` is the orchestrator |
 
-**Success criteria — met.** All 7 VSA slices are wired; every legacy
-orchestrator that lived in `src/hh_applicant_tool/{services,application/use_cases}/`
-either moved to a VSA slice or is a thin deprecation shim with a
-standardised contract (issue #92).
+**Success criteria — met** (historical marker).
 
 ### Completed (Phase B bridge PRs)
 
@@ -80,15 +82,7 @@ standardised contract (issue #92).
 | #129 | #89 | `apply_to_vacancies` bridge — `ApplicationSubmitSlice.run_apply_pipeline` is the new top-level orchestrator, the use case delegates to the slice when wired |
 | #130 | #90 | `prepare_vacancies` bridge — `ApplicationPrepSlice` is the new orchestrator; container wires it into `PrepareVacanciesUseCase` |
 | #134 | #8 | `daily_digest` bridge — `DailyDigestService` moved to `job_bot.telegram_bot.services.daily_digest_service`; `services/daily_digest.py` is a shim |
-
-### Remaining (next major work item)
-
-The next follow-up is **deprecation shim removal** — once external
-consumers (docs, scripts, third-party forks) have had a release cycle
-on the VSA public API, the shim modules in `src/hh_applicant_tool/`
-can be deleted and the entry point can switch to a VSA-native
-`__main__`. Tracked as the Phase D work item below; see also
-issue #88's follow-up for `services/applications.py`.
+| #166 | #145 | Per-phase handler extraction (WIP) — search/score/cover-letter/skip/email/captcha moved into `ApplicationSubmitSlice` handlers |
 
 ## Phase C: Standardize and clean — DONE
 
@@ -115,33 +109,49 @@ the old checklist (#92–#96) were closed in PRs #122–#127.
 | #95 | Delete dead code and wire or remove decorative `Settings` class | Closed 2026-06-14 (PR #125) |
 | #96 | Update VSA documentation (ROADMAP, migration guide, ui.md, README) | Closed 2026-06-14 (PR #124) |
 
-## Phase D: Deprecation shim removal — NEXT
+## Phase D: Deprecation shim removal — DONE
 
-This is the next major work item. The legacy `hh_applicant_tool/`
-package is fully shimmed, so the remaining work is purely deletion
-plus a small entry-point migration.
+Phase D landed across 15 PRs. The legacy `hh_applicant_tool/` package
+is reduced to a 22-LOC, two-file deprecation shim (`__init__.py` 10
+LOC, `__main__.py` 12 LOC) and is no longer shipped in the wheel.
+The wheel now contains only the `job_bot` package; the entry point
+switched to `job_bot.cli.main:main` (PR #170). v2.0.0 is tagged on
+`main`.
 
-- Decide on the removal timeline (target a major version bump, e.g. 2.0)
-- Delete deprecation shim modules in `src/hh_applicant_tool/{services,utils,operations,application}/`
-  whose public API has been replaced by VSA (`services.applications`,
-  `services.cover_letters`, `services.relevance`, `services.vacancy_search`,
-  `services.daily_digest`, `services.review_flow`, `utils.config`,
-  `operations.authorize`)
-- Replace `hh_applicant_tool.main:main` with a VSA-native
-  `__main__` that constructs `AppContainer` and dispatches CLI ops
-  directly; the `hh_applicant_tool` distribution package can be kept
-  as a thin entry-point shim or retired entirely
-- Update `pyproject.toml` `packages` and entry-points accordingly
-- Audit and remove the corresponding legacy tests under `tests/test_*.py`
-  that exercise the shims (kept today only as contract tests)
+The two-file stub is intentionally retained for in-tree imports
+(e.g. test fixtures). Full directory removal (i.e. dropping the
+`src/hh_applicant_tool/` directory entirely) is gated on the
+`main` ↔ `develop` reconciliation (Blocker #1) and is not a
+precondition for the 2.0.0 release.
 
-## Phase E: Production hardening (later)
+| Issue | PR | Summary |
+|-------|----|---------|
+| #157 | #168 | `chore: bump version to 2.0.0` (SemVer major) |
+| #154 | #170 | `feat(vsa): add VSA-native __main__.py and switch [project.scripts]` |
+| #158 | #174 | `refactor(vsa): delete hh_applicant_tool package, leave 5-line stub` |
+| #159 | #175 | `chore(tests): remove dead trigger functions from test_issue_92_deprecation` |
+| #151 | #167 | `refactor(vsa): port utils/{cookiejar,terminal,resume_md} to shared/utils and resume_management.services` |
+| #152 | #162 | `refactor(vsa): port api/datatypes.py and api/errors.py to shared/api` |
+| #153 | #169 | `refactor(vsa): port infrastructure/* to shared and per-slice services` |
+| #150 | #171 | `refactor(vsa): decouple ui/api.py via UiApiContext port` |
+| #155 | #172 | `refactor(vsa): slim AppContainer to a pure VSA composition root` |
+| #176 | #182 | `fix(build): ship job_bot package in the published wheel` |
+| #189 | #192 | `fix(wheel): ship VSA UI templates, drop stale hh_applicant_tool entries from pyproject.toml` |
+| #188 | #191 | `fix(legacy-compat): tighten __getattr__ descriptor handling and db case` |
+| #190 | #193 | `fix(migration-script): regex handles trailing comments, parenthesised imports, fixture skip` |
+| #195 | #196 | `test: skip sixel test when Pillow missing` |
+| #194 | #197 | `chore(legacy-compat): use inspect.getattr_static for inherited descriptor lookup` |
+
+## Phase E: Production hardening — NEXT (optional)
+
+Phase E was previously listed as "later". With Phases A–D done and
+2.0.0 released, it is the next *intentional* work stream — not on
+the critical path. None of these items block further development.
 
 - Observability: OpenTelemetry, structured logs, Prometheus metrics
 - Health endpoints: `/health`, `/ready`
 - Rate limiting per HH API endpoint
 - Secrets management
-- Sync `main` with `develop` (currently 119 commits behind)
 - CI/CD improvements
 
 ## Timeline (rough estimate)
@@ -152,22 +162,39 @@ plus a small entry-point migration.
 | 2 | Phase B switchover slices |
 | 3 | Phase B use-case bridges (#87, #88, #89, #90) |
 | 4 | Phase C completion (#92–#96) |
-| 5+ | Phase D (deprecation shim removal) and `main` ↔ `develop` reconciliation; Phase E (production hardening) |
+| 5 | Phase D landing + 2.0.0 release |
+| 6+ | `main` ↔ `develop` reconciliation; Phase E (production hardening) |
 
 ## Blockers
 
-1. **Phase D entry-point decision** — the deprecation shim removal
-   needs a target version (likely 2.0) and a documented migration
-   path for any external consumers importing from
-   `hh_applicant_tool.*` directly. Required before the
-   `hh_applicant_tool` distribution package can be retired.
-2. **Main behind develop** — `main` is still 119 commits behind
-   `develop`. Decide: rebase merge, or fast-forward once Phase D
-   lands. The deprecation shim removal is a natural cut line for
-   the next release.
-3. **Per-phase handlers in `application_submit`** — the
-   `apply_to_vacancies` bridge (PR #129) is a partial bridge: the
-   slice is the entry point, but individual phases (search, score,
-   cover letter, filter, email, captcha, storage I/O) still live
-   inline in the use case. Each phase is a candidate for a future
-   follow-up issue that ports it to a dedicated handler.
+1. **Main behind develop** — `main` is **11 commits behind** `develop`
+   (down from 119 once Phase D landed). Decide: rebase merge, or
+   fast-forward. The deprecation shim removal is no longer a
+   precondition; the only remaining work is the actual merge. Track
+   this as a standalone follow-up PR (candidate cut line for the
+   2.0.1 patch release).
+2. **Per-phase handlers in `application_submit`** — PR #166 (commit
+   `d36c840`, Refs #145) extracted 5 per-phase handlers
+   (search/score/cover-letter/skip/email/captcha) from
+   `apply_to_vacancies.py` into `ApplicationSubmitSlice` handlers. The
+   bridge is mostly done; the remaining work is small and tracked
+   under issue #145.
+
+### Resolved blockers
+
+- ~~**Phase D entry-point decision**~~ — RESOLVED. PR #170 switched
+  `[project.scripts]` to `job_bot.cli.main:main`; PR #182 and PR #192
+  dropped `hh_applicant_tool` from the wheel; v2.0.0 ships without
+  the legacy package.
+
+## Known issues
+
+- 2 pre-existing test failures in
+  `tests/vsa/test_application_submit_handlers_captcha.py::TestCaptchaHandlerLegacyFallback`
+  (the legacy Playwright fallback path; surfaced by a fixture
+  condition after the PR #166 refactor). Being addressed in a
+  separate PR by a follow-up subagent in parallel — **not** in scope
+  for the roadmap doc PR.
+- Pre-existing `ty` diagnostics in
+  `src/job_bot/telegram_bot/services/review_service.py` (unrelated
+  to the VSA migration; predates Phase D).
