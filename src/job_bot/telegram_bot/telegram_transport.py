@@ -14,7 +14,6 @@ routing lives in the slice's handlers, not here.
 
 from __future__ import annotations
 
-import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,14 +21,14 @@ from typing import Any
 
 import requests
 
-from job_bot.shared.config.paths import CONFIG_DIR, CONFIG_FILENAME
-
 # VSA path (issue #59): the telegram transport used to instantiate
 # the legacy ``hh_applicant_tool.utils.config.Config`` directly. That
 # class is now a deprecation shim, so the transport reads its config
 # through the VSA ``ConfigHandler`` (the same handler the CLI uses
 # via ``HHApplicantTool.config``).
 from job_bot.config_auth.handlers.config_handler import ConfigHandler
+from job_bot.shared.config.paths import CONFIG_DIR, CONFIG_FILENAME
+from job_bot.shared.secrets import SecretsManager
 
 # Issue #76: this module is the new home of the legacy
 # ``hh_applicant_tool.telegram.transport`` (issue #56) and is **not**
@@ -77,6 +76,7 @@ class TelegramTransport:
         connect_timeout: int = DEFAULT_CONNECT_TIMEOUT,
         read_timeout: int = DEFAULT_READ_TIMEOUT,
         sleep_fn: Any | None = None,
+        secrets_manager: SecretsManager | None = None,
     ):
         # Create session with proxy support if needed
         if session is None:
@@ -90,6 +90,12 @@ class TelegramTransport:
         self._connect_timeout = connect_timeout
         self._read_timeout = read_timeout
         self._sleep = sleep_fn or time.sleep
+        # Issue #206: ``HH_PROFILE_ID`` is read via the secrets
+        # manager so a deployment can opt to store that key in the
+        # OS keyring (``HH_SECRETS_BACKEND=keyring``). The default is
+        # still ``EnvBackend`` -- callers that never set the env var
+        # see exactly the same behaviour as before.
+        self._secrets = secrets_manager or SecretsManager()
 
         if config is None:
             config = self._load_config(config_path)
@@ -114,7 +120,14 @@ class TelegramTransport:
 
     @classmethod
     def _default_config_path(cls) -> Path:
-        profile = os.getenv("HH_PROFILE_ID", ".")
+        # Issue #206: ``HH_PROFILE_ID`` is read via the shared
+        # :class:`SecretsManager` so a deployment can opt to keep
+        # the key in the OS keyring rather than ``os.environ``. The
+        # default backend (``EnvBackend``) is byte-for-byte
+        # equivalent to the old ``os.getenv`` behaviour.
+        from job_bot.shared.secrets import SecretsManager
+
+        profile: str = SecretsManager().get("HH_PROFILE_ID", default=".") or "."
         return (CONFIG_DIR / profile / CONFIG_FILENAME).resolve()
 
     @classmethod

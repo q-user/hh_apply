@@ -1123,6 +1123,50 @@ hh-applicant-tool config -p
 
 При использовании профиля, отличного от дефолтного, данные хранятся в подкаталоге.
 
+### Внешние хранилища секретов (issue #206)
+
+Утилита читает ряд чувствительных значений (например, `HH_PROFILE_ID`)
+через фасад `SecretsManager` (`src/job_bot/shared/secrets/`).
+Фасад выбирает бэкенд по убыванию приоритета:
+
+1. Переменная окружения `HH_SECRETS_BACKEND` (CLI/12-factor).
+2. Ключ `secrets.backend` в `config.json`.
+3. Значение по умолчанию — `env` (поведение до issue #206 без изменений).
+
+Доступные бэкенды:
+
+| Бэкенд    | Описание                                                                                              | Зависимость                     |
+| --------- | ----------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `env`     | Чтение из `os.environ` (по умолчанию, обратно совместимо).                                            | stdlib                          |
+| `keyring` | Чтение/запись через системное хранилище (macOS Keychain, Linux Secret Service, Windows Credential).    | `uv pip install -e .[secrets]`  |
+| `vault`   | Заглушка для будущей интеграции с HashiCorp Vault. `get`/`set` поднимают `NotImplementedError`.       | — (заглушка)                    |
+
+CLI-флаг `--secrets-backend` (на корневой команде `hh-applicant-tool`)
+переопределяет значение на одну инвокацию:
+
+```bash
+hh-applicant-tool --secrets-backend keyring config -k hh.client_id
+```
+
+Пример конфигурации через `config.json`:
+
+```json
+{
+  "secrets": {
+    "backend": "keyring",
+    "service_name": "hh-applicant-tool"
+  }
+}
+```
+
+Чтобы перенести секрет в системный keyring (на примере macOS):
+
+```bash
+uv pip install -e .[secrets]
+python -c "from job_bot.shared.secrets import SecretsManager; \
+  SecretsManager.from_config({'secrets': {'backend': 'keyring'}}).set('HH_PROFILE_ID', 'default')"
+```
+
 ### Логи
 
 В `log.txt` всегда можно посмотреть подробную информацию об ошибках. В целях безопасности токены, идентификаторы резюме и т. п. затираются.
