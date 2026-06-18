@@ -86,6 +86,25 @@ class HHApiClient:
         response.raise_for_status()
         return cast("dict[str, Any]", response.json())
 
+    def ping(self) -> None:
+        """Lightweight liveness probe against the HH API root.
+
+        Sends a ``HEAD`` to ``https://api.hh.ru/`` and raises on any
+        non-2xx response or network error. Designed for the
+        :class:`DefaultHealthChecks` readiness probe -- the network
+        round-trip and 4xx-mapping is the only thing we care about
+        (we deliberately do *not* parse the response body).
+
+        Raises:
+            requests.HTTPError: if the response status is >= 400.
+            requests.RequestException: on connection / timeout
+                failures (propagated from the underlying session).
+        """
+        response = self._session.head(
+            self._config.base_url, timeout=self._config.timeout
+        )
+        response.raise_for_status()
+
 
 def create_hh_api_client(
     access_token: str | None = None,

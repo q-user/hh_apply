@@ -9,7 +9,16 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sqlite3
 from typing import Any, Protocol
+
+from job_bot.shared.health import (
+    DEFAULT_HOST,
+    DefaultHealthChecks,
+    HealthChecks,
+    HealthServer,
+    TrivialHealthChecks,
+)
 
 from ._base import BaseNamespace, BaseOperation
 
@@ -23,6 +32,10 @@ class _WorkerSlice(Protocol):
 
     @property
     def worker(self) -> Any: ...
+    @property
+    def storage_conn(self) -> Any: ...
+    @property
+    def api_client(self) -> Any: ...
 
 
 class Namespace(BaseNamespace):
@@ -33,6 +46,33 @@ class Namespace(BaseNamespace):
     worker_id: str | None
     idle_sleep: float
     no_telegram: bool
+    health_port: int | None
+    health_host: str
+
+
+def _build_health_checks(slice_: _WorkerSlice) -> HealthChecks:
+    """Build the readiness checks for ``apply-worker``.
+
+    The slice exposes the raw ``sqlite3.Connection`` (not the
+    :class:`Database` wrapper). :class:`DefaultHealthChecks` accepts
+    both shapes, so we pass the connection through directly -- no
+    need to wrap it (which would require the original path string
+    the slice doesn't know about).
+
+    Falls back to :class:`TrivialHealthChecks` if the slice doesn't
+    expose the expected attributes (e.g. a test stub that only
+    implements ``worker``); the readiness endpoint then behaves like
+    a process-up check, which is still useful.
+    """
+    conn = getattr(slice_, "storage_conn", None)
+    api = getattr(slice_, "api_client", None)
+    if not isinstance(conn, sqlite3.Connection):
+        logger.warning(
+            "apply-worker: slice has no sqlite3.Connection storage_conn; "
+            "/ready will report 200 unconditionally"
+        )
+        return TrivialHealthChecks()
+    return DefaultHealthChecks(database=conn, hh_api=api)
 
 
 class Operation(BaseOperation):
@@ -82,6 +122,31 @@ class Operation(BaseOperation):
             action="store_true",
             help="Отключить Telegram-нотификации (для тестов/debug).",
         )
+        parser.add_argument(
+            "--health-port",
+            type=int,
+            default=None,
+            help=(
+                "Запустить HTTP-сервер на указанном порту с "
+                "эндпоинтами /health (liveness) и /ready (readiness: "
+                "SELECT 1 + HH API ping). Используется внешним "
+                "supervisor-ом (Docker, k8s, systemd). По умолчанию "
+                "сервер не запускается."
+            ),
+        )
+        parser.add_argument(
+            "--health-host",
+            type=str,
+            default=DEFAULT_HOST,
+            help=(
+                "Интерфейс, на котором слушает health-сервер. По "
+                "умолчанию: 127.0.0.1 (loopback — безопасно для "
+                "локальной разработки). В k8s/Docker указывайте "
+                "0.0.0.0, чтобы kubelet/докер-демон мог достучаться "
+                "до проб по IP пода/контейнера. Имеет эффект только "
+                "вместе с --health-port."
+            ),
+        )
 
     def run(self, args: argparse.Namespace) -> int:
         slice_ = self._slice
@@ -114,6 +179,23 @@ class Operation(BaseOperation):
             flush=True,
         )
 
+        health_server: HealthServer | None = None
+        health_port = getattr(args, "health_port", None)
+        if health_port is not None:
+            health_checks = _build_health_checks(slice_)
+            health_server = HealthServer(
+                port=health_port,
+                checks=health_checks,
+                host=getattr(args, "health_host", DEFAULT_HOST),
+            )
+            try:
+                health_server.start()
+            except OSError:
+                logger.exception(
+                    "apply-worker: failed to bind health port %s", health_port
+                )
+                return 1
+
         try:
             stats = worker.run(
                 max_jobs=max_jobs,
@@ -122,6 +204,8 @@ class Operation(BaseOperation):
         except KeyboardInterrupt:
             logger.info("apply-worker: KeyboardInterrupt")
             print("\n⛔ apply-worker stopped.", flush=True)
+            if health_server is not None:
+                health_server.stop()
             return 130  # SIGINT
 
         logger.info(
@@ -135,6 +219,8 @@ class Operation(BaseOperation):
             f"succeeded={stats.succeeded} failed={stats.failed}",
             flush=True,
         )
+        if health_server is not None:
+            health_server.stop()
         return 0
 
 
