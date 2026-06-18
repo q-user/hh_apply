@@ -48,13 +48,15 @@ repository = "https://github.com/s3rgeym/hh-applicant-tool"
 authors = ["Senior YAML Developer <yamldeveloper@proton.me>"]
 readme = "README.md"
 packages = [
-  { include = "hh_applicant_tool", from = "src" },
   { include = "job_bot", from = "src" },
 ]
 include = [
-  # Содержит схему и миграции (issue #158: schema moved into
-  # ``job_bot._legacy_compat.storage.queries``).
+  # Schema & migrations live under ``job_bot._legacy_compat.storage.queries``
+  # (issue #158). The UI templates moved with the VSA port and now live at
+  # ``src/job_bot/ui/templates/`` — both must be shipped in the wheel so the
+  # installed package can locate them at runtime.
   { path = "src/job_bot/_legacy_compat/storage/queries/**/*.sql", format = ["sdist", "wheel"] },
+  { path = "src/job_bot/ui/templates/**/*", format = ["sdist", "wheel"] },
 ]
 
 [tool.poetry.dependencies]
@@ -156,18 +158,6 @@ module = [
     "job_bot.*",
 ]
 strict = true
-
-[[tool.mypy.overrides]]
-module = [
-    "hh_applicant_tool.*",
-]
-# Legacy code - relaxed settings
-warn_return_any = false
-warn_unused_ignores = false
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
-check_untyped_defs = false
-no_implicit_optional = false
 
 [[tool.mypy.overrides]]
 module = [
