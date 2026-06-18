@@ -26,6 +26,7 @@ import sqlite3
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Any, cast
 
 from job_bot.application_submit.handlers.apply_one_handler import (
@@ -38,18 +39,27 @@ from job_bot.application_submit.handlers.cover_letter_handler import (
 from job_bot.application_submit.handlers.email_handler import EmailHandler
 from job_bot.application_submit.handlers.job_handler import JobHandler
 from job_bot.application_submit.handlers.retry_handler import RetryHandler
+from job_bot.application_submit.handlers.retry_policy_handler import (
+    RetryAction,
+    RetryPolicyHandler,
+)
 from job_bot.application_submit.handlers.score_handler import ScoreHandler
 from job_bot.application_submit.handlers.search_handler import SearchHandler
 from job_bot.application_submit.handlers.skip_handler import SkipHandler
+from job_bot.application_submit.handlers.storage_io_handler import (
+    StorageIOHandler,
+)
 from job_bot.application_submit.handlers.test_handler import TestHandler
 from job_bot.application_submit.ports.apply_one_port import ApplyOnePort
 from job_bot.application_submit.ports.captcha_port import CaptchaPort
 from job_bot.application_submit.ports.cover_letter_port import CoverLetterPort
 from job_bot.application_submit.ports.email_port import EmailPort
 from job_bot.application_submit.ports.job_port import JobPort
+from job_bot.application_submit.ports.retry_policy_port import RetryPolicyPort
 from job_bot.application_submit.ports.score_port import ScorePort
 from job_bot.application_submit.ports.search_port import SearchPort
 from job_bot.application_submit.ports.skip_port import SkipPort
+from job_bot.application_submit.ports.storage_io_port import StorageIOPort
 from job_bot.application_submit.ports.test_port import TestPort
 from job_bot.application_submit.services.worker_service import (
     DEFAULT_IDLE_SLEEP_SECONDS,
@@ -92,6 +102,8 @@ class ApplicationSubmitSlice:
       * :attr:`skip` -- :class:`SkipPort` (issue #145).
       * :attr:`email` -- :class:`EmailPort` (issue #145).
       * :attr:`captcha` -- :class:`CaptchaPort` (issue #145).
+      * :attr:`storage_io` -- :class:`StorageIOPort` (issue #201).
+      * :attr:`retry_policy` -- :class:`RetryPolicyPort` (issue #201).
     """
 
     def __init__(
@@ -116,7 +128,11 @@ class ApplicationSubmitSlice:
         skip_handler: SkipHandler | None = None,
         email_handler: EmailHandler | None = None,
         captcha_handler: CaptchaHandler | None = None,
-        # Deps for the 5 in-slice handlers (issue #145). Optional;
+        # 2 in-slice per-phase handlers (issue #201). When ``None``,
+        # the slice builds defaults lazily via ``cached_property``.
+        storage_io_handler: StorageIOHandler | None = None,
+        retry_policy_handler: RetryPolicyHandler | None = None,
+        # Deps for the in-slice handlers (issues #145, #201). Optional;
         # sensible defaults are used when ``None``.
         relevance_handler: Any | None = None,
         cover_letter_prep_handler: Any | None = None,
@@ -134,6 +150,9 @@ class ApplicationSubmitSlice:
         self._session = session
         self._xsrf_token = xsrf_token
         self._clock = clock
+        # Pre-injected optional handlers (issue #201).
+        self._storage_io_handler = storage_io_handler
+        self._retry_policy_handler = retry_policy_handler
 
         # Handlers / services (existing).
         self._jobs = JobHandler(storage_conn)
@@ -258,6 +277,36 @@ class ApplicationSubmitSlice:
         """Issue #145: the slice's :class:`CaptchaPort` (CAPTCHA solve)."""
         return self._captcha
 
+    @cached_property
+    def storage_io(self) -> StorageIOPort:
+        """Issue #201: the slice's :class:`StorageIOPort` (DB writes).
+
+        Lazily wires the in-slice :class:`StorageIOHandler` from the
+        slice's :class:`StorageFacade` and the (optional) site parser.
+        Pre-injected handlers (via the ``storage_io_handler`` constructor
+        argument) win over the lazy default.
+        """
+        if self._storage_io_handler is not None:
+            return self._storage_io_handler
+        return StorageIOHandler(
+            storage=self._resolve_storage(),
+            api_client=self._api_client,
+            site_parser=self._parse_site,
+        )
+
+    @cached_property
+    def retry_policy(self) -> RetryPolicyPort:
+        """Issue #201: the slice's :class:`RetryPolicyPort` (exception policy).
+
+        Lazily wires the in-slice :class:`RetryPolicyHandler`. Stateless,
+        so the lazy default is fine; pre-injected handlers (via the
+        ``retry_policy_handler`` constructor argument) win over the
+        lazy default.
+        """
+        if self._retry_policy_handler is not None:
+            return self._retry_policy_handler
+        return RetryPolicyHandler()
+
     def run_apply_pipeline(
         self,
         *,
@@ -356,7 +405,14 @@ class ApplicationSubmitSlice:
         user: dict[str, Any],
         seen_employers: set[str],
     ) -> tuple[int, bool]:
-        """Per-resume loop using the 5 in-slice handlers (issue #145)."""
+        """Per-resume loop using the in-slice handlers (issues #145, #201).
+
+        Issue #201: the per-vacancy try/except was extracted to
+        :class:`RetryPolicyHandler`; the storage I/O was extracted to
+        :class:`StorageIOHandler`. The loop delegates to them and uses
+        the resulting :class:`RetryDecision` to decide whether to
+        continue or break.
+        """
         self._notify(
             "[START] Начинаю рассылку откликов для резюме:", resume.get("title")
         )
@@ -393,89 +449,40 @@ class ApplicationSubmitSlice:
                     max_responses,
                 )
                 break
-            try:
-                if self._skip.check(
-                    vacancy,
+            if self._skip.check(
+                vacancy,
+                resume,
+                do_apply,
+                self._command,
+                self._score.relevance_handler,
+                self._score.vacancy_filter_ai,
+            ):
+                continue
+
+            # Issue #201: the per-vacancy step is delegated to
+            # ``retry_policy.run`` so the exception classification lives
+            # in a dedicated handler. ``applied_box`` lets the inner
+            # callable signal a successful apply without re-running the
+            # classification policy.
+            applied_box: list[bool] = [False]
+            decision = self.retry_policy.run(
+                lambda v=vacancy, box=applied_box: self._process_vacancy(
+                    v,
                     resume,
-                    do_apply,
-                    self._command,
-                    self._score.relevance_handler,
-                    self._score.vacancy_filter_ai,
-                ):
-                    continue
-
-                self._save_vacancy_to_storage(vacancy)
-                self._load_employer_profile(
-                    vacancy, seen_employers, site_emails
-                )
-
-                message_placeholders = self._email.build_message_placeholders(
-                    vacancy, placeholders
-                )
-                letter = self._cover_letter.generate(
-                    vacancy,
-                    message_placeholders,
-                    resume_analysis=resume_analysis,
-                    resume=resume,
-                    force=bool(getattr(self._command, "force_message", False)),
-                    required_by_vacancy=bool(
-                        vacancy.get("response_letter_required")
-                    ),
-                )
-                logger.debug(letter)
-
-                if vacancy.get("has_test"):
-                    self._handle_vacancy_test(vacancy, resume.get("id"))
-                    continue
-
-                params = {
-                    "resume_id": resume.get("id"),
-                    "vacancy_id": vacancy.get("id"),
-                    "message": letter,
-                }
-                if self._send_apply_request(params, vacancy):
-                    applied_count += 1
-
-                self._email.maybe_send(
-                    vacancy,
-                    vacancy.get("employer", {}).get("id"),
-                    message_placeholders,
+                    placeholders,
+                    resume_analysis,
+                    seen_employers,
                     site_emails,
-                    self._command,
-                )
-            except Exception as ex:  # noqa: BLE001
-                # The legacy use case swallowed 3 distinct exceptions
-                # (LimitExceeded → break, ApiError → warn, AIError/BadResponse
-                # → error). The slice keeps the same "resilient apply loop"
-                # contract: any unexpected error logs and continues with
-                # the next vacancy. Programmatic limits still flow via
-                # ``command.send_email`` / ``do_apply``; explicit
-                # :class:`LimitExceeded` from the apply-one call short-
-                # circuits the loop.
-                from job_bot.application_submit.errors import LimitExceeded
-                from job_bot.shared.ai._errors import AIError
-                from job_bot.shared.api.errors import ApiError, BadResponse
-
-                if isinstance(ex, LimitExceeded):
-                    do_apply = False
-                    limit_reached = True
-                    logger.warning(
-                        "Достигли лимита на отклики (отправлено в этой сессии: %d)",
-                        applied_count,
-                    )
-                    break
-                if isinstance(ex, ApiError):
-                    logger.warning(ex)
-                else:
-                    logger.error(
-                        "%s: %s",
-                        type(ex).__name__,
-                        ex,
-                    )
-                    if isinstance(ex, (BadResponse, AIError)):
-                        logger.error(ex)
-                        continue
-                    continue
+                    box,
+                ),
+                applied_count=applied_count,
+            )
+            if applied_box[0]:
+                applied_count += 1
+            if decision.action == RetryAction.BREAK:
+                do_apply = decision.do_apply
+                limit_reached = decision.limit_reached
+                break
 
         self._notify(
             f"[DONE] Закончили рассылку для резюме: {resume.get('title')}. "
@@ -483,67 +490,61 @@ class ApplicationSubmitSlice:
         )
         return applied_count, limit_reached
 
-    def _save_vacancy_to_storage(self, vacancy: dict[str, Any]) -> None:
-        """Persist a processed vacancy + its contacts (best-effort)."""
-        try:
-            storage = self._resolve_storage()
-            storage.vacancies.save(vacancy)
-        except Exception as ex:  # noqa: BLE001
-            logger.debug("save vacancy failed: %s", ex)
-        if vacancy.get("contacts"):
-            try:
-                storage = self._resolve_storage()
-                storage.vacancy_contacts.save(vacancy)
-            except Exception as ex:  # noqa: BLE001
-                logger.debug("save vacancy contacts failed: %s", ex)
-
-    def _load_employer_profile(
+    def _process_vacancy(
         self,
         vacancy: dict[str, Any],
+        resume: dict[str, Any],
+        placeholders: dict[str, Any],
+        resume_analysis: str,
         seen_employers: set[str],
         site_emails: dict[str, Any],
+        applied_box: list[bool],
     ) -> None:
-        """Fetch /employers/{id}, save, and parse site for emails (best-effort)."""
-        employer = vacancy.get("employer") or {}
-        employer_id = employer.get("id")
-        if not employer_id or employer_id in seen_employers:
+        """Process a single vacancy (storage + cover letter + apply + email).
+
+        Helper extracted from the per-vacancy ``try`` block so
+        :class:`RetryPolicyHandler` can wrap it. Side-effects on
+        ``applied_box[0]`` and ``site_emails`` propagate to the caller.
+        """
+        self.storage_io.save_vacancy(vacancy)
+        self.storage_io.load_employer_profile(
+            vacancy, seen_employers, site_emails, self._command
+        )
+
+        message_placeholders = self._email.build_message_placeholders(
+            vacancy, placeholders
+        )
+        letter = self._cover_letter.generate(
+            vacancy,
+            message_placeholders,
+            resume_analysis=resume_analysis,
+            resume=resume,
+            force=bool(getattr(self._command, "force_message", False)),
+            required_by_vacancy=bool(
+                vacancy.get("response_letter_required")
+            ),
+        )
+        logger.debug(letter)
+
+        if vacancy.get("has_test"):
+            self._handle_vacancy_test(vacancy, resume.get("id"))
             return
-        try:
-            employer_profile = self._api_client.get(f"/employers/{employer_id}")
-        except Exception as ex:  # noqa: BLE001
-            logger.warning("load employer %s failed: %s", employer_id, ex)
-            return
-        try:
-            storage = self._resolve_storage()
-            storage.employers.save(employer_profile)
-        except Exception as ex:  # noqa: BLE001
-            logger.debug("save employer failed: %s", ex)
-        if not (
-            getattr(self._command, "send_email", False)
-            and (site_url := (employer_profile.get("site_url") or "").strip())
-        ):
-            return
-        site_url = site_url if "://" in site_url else "https://" + site_url
-        logger.debug("visit site: %s", site_url)
-        try:
-            site_info = self._parse_site(site_url)
-            site_emails[employer_id] = site_info["emails"]
-        except Exception as ex:  # noqa: BLE001
-            logger.debug("parse site %s failed: %s", site_url, ex)
-            return
-        if site_info:
-            try:
-                storage = self._resolve_storage()
-                storage.employer_sites.save(
-                    {
-                        "site_url": site_url,
-                        "employer_id": employer_id,
-                        "subdomains": [],
-                        **site_info,
-                    }
-                )
-            except Exception as ex:  # noqa: BLE001
-                logger.debug("save employer site failed: %s", ex)
+
+        params = {
+            "resume_id": resume.get("id"),
+            "vacancy_id": vacancy.get("id"),
+            "message": letter,
+        }
+        if self._send_apply_request(params, vacancy):
+            applied_box[0] = True
+
+        self._email.maybe_send(
+            vacancy,
+            vacancy.get("employer", {}).get("id"),
+            message_placeholders,
+            site_emails,
+            self._command,
+        )
 
     def _parse_site(self, url: str) -> dict[str, Any]:
         """Parse a site URL (legacy inline regex fallback; no port in slice)."""

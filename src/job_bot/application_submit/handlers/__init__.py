@@ -1,13 +1,14 @@
 """application_submit slice handlers.
 
-The 5 new per-phase handlers (SearchHandler, ScoreHandler,
-CoverLetterHandler, SkipHandler, EmailHandler, CaptchaHandler)
+The 7 new per-phase handlers (SearchHandler, ScoreHandler,
+CoverLetterHandler, SkipHandler, EmailHandler, CaptchaHandler,
+StorageIOHandler, RetryPolicyHandler)
 are *not* eagerly imported here — they would form a circular
 import cycle through ``hh_applicant_tool.api`` (legacy shim) →
 ``application_submit.errors`` → ``application_submit.handlers``
 → ``search_handler`` → ``vacancy_search`` → ``hh_applicant_tool.api``.
 
-Consumers should import the 5 new handlers via their full module
+Consumers should import the 7 new handlers via their full module
 path::
 
     from job_bot.application_submit.handlers.search_handler import SearchHandler
@@ -33,19 +34,21 @@ __all__ = [
     "RetryHandler",
     "DEFAULT_MAX_ATTEMPTS",
     "TestHandler",
-    # The 5 new per-phase handlers (issue #145) are imported lazily via
-    # __getattr__ below; do not add them to __all__ eagerly.
+    # The 7 new per-phase handlers (issues #145, #201) are imported
+    # lazily via __getattr__ below; do not add them to __all__ eagerly.
     "CaptchaHandler",
     "CoverLetterHandler",
     "EmailHandler",
+    "RetryPolicyHandler",
     "ScoreHandler",
     "SearchHandler",
     "SkipHandler",
+    "StorageIOHandler",
 ]
 
 
 def __getattr__(name: str):  # type: ignore[no-untyped-def]
-    """Lazy-import the 5 per-phase handlers (issue #145).
+    """Lazy-import the per-phase handlers (issues #145, #201).
 
     Defers the import until first attribute access, which keeps the
     ``application_submit`` import graph acyclic when the legacy
@@ -58,6 +61,8 @@ def __getattr__(name: str):  # type: ignore[no-untyped-def]
         "SkipHandler",
         "EmailHandler",
         "CaptchaHandler",
+        "StorageIOHandler",
+        "RetryPolicyHandler",
     ):
         from importlib import import_module
 
@@ -68,6 +73,8 @@ def __getattr__(name: str):  # type: ignore[no-untyped-def]
             "SkipHandler": "skip_handler",
             "EmailHandler": "email_handler",
             "CaptchaHandler": "captcha_handler",
+            "StorageIOHandler": "storage_io_handler",
+            "RetryPolicyHandler": "retry_policy_handler",
         }
         module = import_module(
             f".{_module_map[name]}",
