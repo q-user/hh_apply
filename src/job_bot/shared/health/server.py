@@ -153,9 +153,7 @@ class HealthServer:
             # server-side logger is already capturing the lifecycle
             # events (start / stop). 4xx / 5xx responses are still
             # visible via ``log_message`` (overridden below).
-            def log_message(  # type: ignore[override]
-                self, format: str, *args: Any
-            ) -> None:  # noqa: A002 -- match stdlib signature
+            def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 -- match stdlib signature
                 logger.debug(format, *args)
 
             def do_GET(self) -> None:  # noqa: N802 -- stdlib name

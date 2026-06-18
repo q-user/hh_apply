@@ -145,7 +145,7 @@ class DefaultHealthChecks:
                 with self._db.connect() as conn:
                     row = conn.execute("SELECT 1").fetchone()
             else:
-                row = self._db.execute("SELECT 1").fetchone()  # type: ignore[union-attr]
+                row = self._db.execute("SELECT 1").fetchone()
         except Exception as exc:  # noqa: BLE001
             logger.warning("health: db probe failed: %s", exc)
             return False, str(exc) or exc.__class__.__name__
