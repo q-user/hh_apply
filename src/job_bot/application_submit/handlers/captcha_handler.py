@@ -22,6 +22,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__package__)
 
+# Playwright's exception classes live in a private module; fall back to
+# ``Exception`` only when Playwright isn't installed so the handler can
+# still be imported in minimal environments (issue #210).
+try:
+    from playwright._impl._errors import Error as PlaywrightError
+except ImportError:  # pragma: no cover - exercised only without playwright
+    PlaywrightError = Exception  # type: ignore[assignment,misc]
+
 
 class CaptchaHandler:
     """In-slice captcha handler (issue #145).
@@ -98,10 +106,15 @@ class CaptchaHandler:
         """Open the captcha page in a headless Chromium, OCR it via ``captcha_ai``,
         submit, and propagate the resulting cookies to ``session``.
 
-        Any failure (Playwright internal timeout, network error,
-        missing browser deps, unexpected exception from the AI
-        client) is caught and reported as ``False`` so the apply
-        loop can move on instead of crashing the worker.
+        Only environment-shaped failures are caught and reported as
+        ``False`` so the apply loop can move on: Playwright errors
+        (browser missing, page timeout, navigation failure), network
+        errors (``OSError``), async timeouts from ``asyncio.wait_for``,
+        and ``ImportError`` (Playwright not installed at runtime).
+        Programming errors (e.g. ``TypeError``, ``AttributeError``) are
+        deliberately NOT swallowed so real bugs surface in logs and
+        tests instead of being silently turned into 'captcha failed'
+        (issue #210).
         """
         try:
             from playwright.async_api import (  # type: ignore[import-not-found,unused-ignore]
@@ -164,7 +177,18 @@ class CaptchaHandler:
                     return True
                 finally:
                     await browser.close()
-        except Exception as ex:  # noqa: BLE001
+        except (
+            PlaywrightError,
+            OSError,
+            asyncio.TimeoutError,
+            ImportError,
+        ) as ex:
+            # Deliberately narrow: only environment / network / timeout
+            # / missing-dep failures are treated as 'captcha failed'.
+            # Programming errors propagate (issue #210).
+            # ``ImportError`` is also caught by the inner try above, but
+            # listing it here keeps the contract explicit and survives
+            # future refactors of the import block.
             logger.error("Playwright captcha solving failed: %s", ex)
             return False
 
