@@ -466,7 +466,7 @@ class ApplicationSubmitSlice:
             # classification policy.
             applied_box: list[bool] = [False]
             decision = self.retry_policy.run(
-                lambda v=vacancy, box=applied_box: self._process_vacancy(
+                lambda v=vacancy, box=applied_box: self._process_vacancy(  # type: ignore[misc]
                     v,
                     resume,
                     placeholders,
