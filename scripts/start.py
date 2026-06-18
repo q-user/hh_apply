@@ -192,10 +192,10 @@ def ensure_installed() -> None:
     2. Если не удалось — ставим без UI (CLI всегда работает)
     3. Если и это не удалось — выдаём инструкцию
     """
-    if _is_installed("hh_applicant_tool") and _is_installed("webview"):
+    if _is_installed("job_bot") and _is_installed("webview"):
         return
 
-    if not _is_installed("hh_applicant_tool"):
+    if not _is_installed("job_bot"):
         print("\nПервый запуск — устанавливаю зависимости...")
         print("Это может занять 1-2 минуты.\n")
     elif not _is_installed("webview"):
@@ -220,7 +220,7 @@ def ensure_installed() -> None:
     # Обновляем кэш importlib после установки
     importlib.invalidate_caches()
 
-    if not _is_installed("hh_applicant_tool"):
+    if not _is_installed("job_bot"):
         print("\nОшибка: пакет не найден после установки.")
         print("Возможно, нужен перезапуск скрипта.\n")
         _pause_and_exit(1)
@@ -252,7 +252,7 @@ def ensure_installed() -> None:
 
 def run_tool(*args: str) -> int:
     """Запускает hh-applicant-tool <args>."""
-    cmd = [sys.executable, "-m", "hh_applicant_tool", *args]
+    cmd = [sys.executable, "-m", "job_bot", *args]
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     return subprocess.run(cmd, env=env).returncode
 
@@ -264,7 +264,7 @@ def run_ui() -> int:
     поэтому UI запускаем через прямой import в текущем процессе.
     """
     try:
-        from hh_applicant_tool.main import main as hh_main
+        from job_bot.cli.main import main as hh_main
 
         return hh_main(["ui"]) or 0
     except Exception as e:  # noqa: BLE001 - top-level UI launcher; we log and exit non-zero
@@ -284,7 +284,7 @@ def run_authorize() -> int:
     без subprocess — чтобы избежать проблем с encoding на Windows.
     """
     try:
-        from hh_applicant_tool.main import main as hh_main
+        from job_bot.cli.main import main as hh_main
 
         return hh_main(["authorize", "--no-headless", "--manual"]) or 0
     except Exception as e:  # noqa: BLE001 - top-level authorize launcher; we log and exit non-zero

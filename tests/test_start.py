@@ -114,7 +114,7 @@ class TestIsPackageInstalled:
 
     def test_hh_package_is_installed(self):
         # В тестовом окружении пакет должен быть установлен
-        assert start._is_installed("hh_applicant_tool") is True
+        assert start._is_installed("job_bot") is True
 
 
 class TestFindCompatiblePython:

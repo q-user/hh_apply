@@ -30,9 +30,6 @@ jobs:
       - name: Run mypy (VSA code - strict)
         run: uv run --frozen mypy src/job_bot --strict
 
-      - name: Run mypy (legacy code - relaxed)
-        run: uv run --frozen mypy src/hh_applicant_tool || true
-
   test:
     name: Tests
     runs-on: ubuntu-latest

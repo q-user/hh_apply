@@ -139,7 +139,7 @@ show_error_codes = true
 pretty = true
 # Exclude the legacy-compat storage layer (issue #158, narrowed by
 # issue #180). These files are unmodified ports of the pre-VSA
-# ``hh_applicant_tool.storage`` code; mypy's per-module overrides do
+# storage code; mypy's per-module overrides do
 # not apply to entry-point modules, so the only way to skip them is
 # the file-level ``exclude`` directive. The files are still
 # type-checked at runtime by the integration tests.
@@ -164,7 +164,7 @@ module = [
     "job_bot.application_submit.services.use_cases.*",
 ]
 # VSA-bridge shims (issue #158, kept checked per issue #180). These
-# use-case modules wrap pre-VSA ``hh_applicant_tool`` workflows and
+# use-case modules wrap pre-VSA workflows and
 # still carry loose typing in places, so they are excluded from
 # strict checking here. They are still type-checked (just with
 # relaxed settings) so regressions are surfaced — tightening to
