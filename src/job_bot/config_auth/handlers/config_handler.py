@@ -32,6 +32,12 @@ New (nested under section names)::
 
 Saves are atomic (write to ``<path>.tmp`` then ``os.replace``) and
 optionally create a ``.bak`` copy of the previous file.
+
+Issue #206: the ``HH_PROFILE_ID`` env var lookup goes through the
+injected :class:`SecretsManager` so a deployment can opt to keep
+that key in the OS keyring rather than ``os.environ``. The default
+is still :class:`EnvBackend`, so behaviour for users who never set
+anything is preserved.
 """
 
 from __future__ import annotations
@@ -42,10 +48,25 @@ from pathlib import Path
 from typing import Any
 
 from job_bot.config_auth.models.config import AppConfig, HHConfig
+from job_bot.shared.secrets import SecretsManager
 
 
 class ConfigHandler:
-    """Load / save :class:`AppConfig` to a JSON file."""
+    """Load / save :class:`AppConfig` to a JSON file.
+
+    Args:
+        secrets_manager: The :class:`SecretsManager` used to look up
+            the ``HH_PROFILE_ID`` env var on load. A fresh
+            ``SecretsManager(EnvBackend())`` is used when ``None`` is
+            passed, which keeps the behaviour identical to the
+            pre-issue-#206 code path.
+    """
+
+    def __init__(
+        self,
+        secrets_manager: SecretsManager | None = None,
+    ) -> None:
+        self._secrets = secrets_manager or SecretsManager()
 
     # ------------------------------------------------------------------
     # Public API
@@ -58,7 +79,10 @@ class ConfigHandler:
         * If the file is corrupt (invalid JSON), raises :class:`ValueError`
           when ``strict=True``; otherwise returns a default config.
         * The ``HH_PROFILE_ID`` env var is honoured: when set, the matching
-          profile becomes the active one.
+          profile becomes the active one. The lookup goes through
+          :class:`SecretsManager` (issue #206) so a deployment may
+          keep that key in the OS keyring via
+          ``HH_SECRETS_BACKEND=keyring``.
         """
         path = Path(path)
         if not path.exists():
@@ -83,8 +107,10 @@ class ConfigHandler:
                 else:
                     config = self._dict_to_config(data)
 
-        # Honour HH_PROFILE_ID env var
-        env_profile = os.environ.get("HH_PROFILE_ID")
+        # Honour HH_PROFILE_ID env var (issue #206: via SecretsManager
+        # so the same key can be served from the OS keyring when the
+        # operator has opted into ``HH_SECRETS_BACKEND=keyring``).
+        env_profile = self._secrets.get("HH_PROFILE_ID")
         if env_profile and env_profile in config.profiles:
             config.active_profile = env_profile
         return config

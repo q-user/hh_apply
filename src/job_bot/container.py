@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from collections.abc import Sequence
 from functools import cached_property
@@ -130,9 +131,19 @@ class AppContainer:
 
     @cached_property
     def config_auth(self) -> Any:
-        """Lazily build the :class:`ConfigAuthSlice`."""
+        """Lazily build the :class:`ConfigAuthSlice`.
+
+        Issue #206: the slice is constructed with a
+        :class:`SecretsManager` built from ``SecretsManager.from_config(...)``
+        so the ``HH_PROFILE_ID`` lookup can be served by the OS
+        keyring (``HH_SECRETS_BACKEND=keyring``) or any future
+        :class:`SecretsBackend`. The default backend is
+        :class:`EnvBackend`, which is byte-for-byte equivalent to
+        the pre-issue-#206 ``os.environ.get`` path.
+        """
         from job_bot.config_auth.slice import create_config_auth_slice
         from job_bot.shared.config.settings import Settings
+        from job_bot.shared.secrets import SecretsManager
         from job_bot.shared.storage.database import create_database
 
         tool = self._tool
@@ -146,10 +157,17 @@ class AppContainer:
         from job_bot.shared.config.paths import CONFIG_FILENAME  # noqa: PLC0415
 
         config_path = tool.config_path / CONFIG_FILENAME
+        # ``from_config`` consults the ``HH_SECRETS_BACKEND`` env var
+        # first, then ``tool.config["secrets"]["backend"]``, then
+        # falls back to :class:`EnvBackend`. The dict-based lookup
+        # keeps the wiring zero-side-effect when the user has not
+        # opted in to a non-default backend.
+        secrets_manager = SecretsManager.from_config(tool.config or {})
         return create_config_auth_slice(
             settings=settings,
             database=create_database(settings.database.path),
             config_path=config_path,
+            secrets_manager=secrets_manager,
         )
 
     @cached_property
@@ -160,13 +178,21 @@ class AppContainer:
         missing from the config (the polling loop would be useless
         without it).
         """
-        from job_bot.telegram_bot.slice import create_telegram_bot_slice
-        from job_bot.telegram_bot.telegram_transport import (
+        tool = self._tool
+        # Issue #206: share the same SecretsManager instance the
+        # ``config_auth`` slice uses, so the operator's choice of
+        # backend (``HH_SECRETS_BACKEND`` / ``config["secrets"]["backend"]``)
+        # is consistent across the long-running daemons.
+        from job_bot.shared.secrets import SecretsManager  # noqa: PLC0415
+        from job_bot.telegram_bot.slice import (  # noqa: PLC0415
+            create_telegram_bot_slice,
+        )
+        from job_bot.telegram_bot.telegram_transport import (  # noqa: PLC0415
             TelegramTransport,
             TelegramTransportConfig,
         )
 
-        tool = self._tool
+        secrets_manager = SecretsManager.from_config(tool.config or {})
         telegram_cfg = (tool.config or {}).get("telegram") or {}
         bot_token = telegram_cfg.get("bot_token") or ""
         if not bot_token:
@@ -190,6 +216,7 @@ class AppContainer:
                 proxy_url=proxy_url,
             ),
             session=tool.session,
+            secrets_manager=secrets_manager,
         )
         return create_telegram_bot_slice(
             database=tool.db,
@@ -351,6 +378,16 @@ class AppContainer:
             list(argv) if argv is not None else None,
             namespace=BaseNamespace(),
         )
+        # Issue #206: translate the top-level ``--secrets-backend``
+        # flag into the ``HH_SECRETS_BACKEND`` env var. The
+        # :class:`SecretsManager` factory reads that env var (ahead
+        # of ``config["secrets"]["backend"]``), so propagating the
+        # flag via the env is the cleanest way to reach every
+        # ``SecretsManager.from_config`` call site in the slice
+        # accessors without threading the value through every
+        # constructor.
+        if getattr(args, "secrets_backend", None):
+            os.environ["HH_SECRETS_BACKEND"] = args.secrets_backend
         op_cls = getattr(args, "operation_class", None)
         if op_cls is None:
             parser.print_help(file=sys.stderr)
@@ -381,13 +418,30 @@ class AppContainer:
         We instantiate each op with no args (the VSA ops all accept
         optional ``slice_=`` params, so ``op_cls()`` is safe) and
         call :meth:`BaseOperation.setup_parser` on the instance.
-        The legacy CLI registry's parser was built the same way in
-        :meth:`HHApplicantTool._create_parser` — the op's module
-        basename (e.g. ``apply_vacancies``) becomes the sub-command
-        name, with each alias in :pyattr:`__aliases__` registered as
-        an extra ``add_parser`` call against the same instance.
+        The legacy ``HHApplicantTool._create_parser`` uses the same
+        convention (op module basename becomes the sub-command
+        name; legacy ``__aliases__`` are registered as extra
+        ``add_parser`` calls against the same instance).
         """
         parser = argparse.ArgumentParser(prog="job_bot")
+        # Issue #206: top-level ``--secrets-backend`` flag. When set,
+        # the value is exported as ``HH_SECRETS_BACKEND`` for the
+        # subprocess (the rest of the code reads that env var via
+        # :class:`SecretsManager.from_config`). The default of
+        # ``None`` (i.e. "do not override") keeps existing CLI
+        # invocations byte-for-byte identical.
+        parser.add_argument(
+            "--secrets-backend",
+            choices=("env", "keyring", "vault"),
+            default=None,
+            help=(
+                "Externalise secrets via the named backend. "
+                "Overrides config.json / HH_SECRETS_BACKEND for this "
+                "invocation. Choices: env (default, current behaviour), "
+                "keyring (system keyring via the [secrets] extra), "
+                "vault (HashiCorp Vault; placeholder, not yet implemented)."
+            ),
+        )
         sub = parser.add_subparsers(dest="command")
         for op_cls in operations:
             op = op_cls()

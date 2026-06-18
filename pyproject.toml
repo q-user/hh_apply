@@ -16,6 +16,13 @@ ui = ["pywebview>=5.0"]
 ai = [
     "openai>=1.0.0,<2",
 ]
+# Issue #206 -- the ``keyring`` PyPI package is the bridge to the
+# OS keyring (macOS Keychain, Linux Secret Service, Windows
+# Credential Vault). It stays an *optional* dep so the default
+# ``uv sync`` install does not pull in a keyring backend the user
+# may not need. Install with ``uv pip install -e .[secrets]`` to
+# opt in.
+secrets = ["keyring>=24.0.0,<26"]
 
 [project.scripts]
 hh-applicant-tool = "job_bot.cli.main:main"
@@ -79,6 +86,12 @@ playwright = ["playwright"]
 pillow = ["pillow"]
 ui = ["pywebview"]
 ai = ["openai"]
+# Issue #206 -- the ``keyring`` PyPI package is the bridge to the
+# OS keyring (macOS Keychain, Linux Secret Service, Windows
+# Credential Vault). It is an *optional* dep: install with
+# ``poetry install -E secrets`` (or ``uv pip install -e .[secrets]``)
+# to opt in.
+secrets = ["keyring"]
 
 [tool.poetry.group.dev.dependencies]
 isort = "^5.12.0"

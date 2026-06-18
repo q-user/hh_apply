@@ -238,6 +238,28 @@ class HHApplicantTool:
         from job_bot.cli import BUILTIN_OPERATIONS
 
         parser = argparse.ArgumentParser(prog="hh-applicant-tool")
+        # Issue #206: top-level ``--secrets-backend`` flag. Mirrors
+        # the VSA :meth:`AppContainer._build_parser` so a user can opt
+        # in to ``keyring`` / ``vault`` regardless of whether the
+        # dispatch goes through the legacy ``HHApplicantTool`` (this
+        # path) or the VSA :class:`AppContainer` (``run(argv)``).
+        # When the flag is set, ``container.run`` picks the value up
+        # from ``os.environ`` and the legacy path has to do the same
+        # -- the dispatch body in :meth:`run` below is the one place
+        # that copies the value into ``os.environ`` for the rest of
+        # the code to read via :class:`SecretsManager.from_config`.
+        parser.add_argument(
+            "--secrets-backend",
+            choices=("env", "keyring", "vault"),
+            default=None,
+            help=(
+                "Externalise secrets via the named backend. "
+                "Overrides config.json / HH_SECRETS_BACKEND for this "
+                "invocation. Choices: env (default, current behaviour), "
+                "keyring (system keyring via the [secrets] extra), "
+                "vault (HashiCorp Vault; placeholder, not yet implemented)."
+            ),
+        )
         sub = parser.add_subparsers(dest="command")
         for op_cls in BUILTIN_OPERATIONS:
             op = op_cls()
