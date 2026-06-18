@@ -28,6 +28,7 @@ about the underlying container construction. We therefore:
 from __future__ import annotations
 
 import argparse
+import inspect
 import warnings
 from typing import Any
 
@@ -99,26 +100,45 @@ class HHApplicantTool:
         # loudly (issue #177) — silently returning ``None`` masked
         # real configuration mistakes.
         #
-        # The class-level descriptor check (``vars(type(source))``)
-        # avoids invoking ``cached_property`` / ``property`` factories
-        # on the wrapped AppContainer: the container's 7 VSA slice
-        # accessors are ``cached_property`` descriptors whose factories
-        # read ``tool.config`` / ``tool.db_path`` / ``tool.session`` /
-        # etc. and may raise ``AttributeError``. The pre-fix code used
-        # ``hasattr(container, name)`` which actually triggered the
-        # factory, swallowed the real error, and reported a misleading
+        # The class-level descriptor check uses
+        # :func:`inspect.getattr_static` (not ``vars(type(source))``)
+        # to walk the MRO and pick up inherited descriptors
+        # (issue #194). The pre-fix code used ``vars(type(source))``
+        # which only inspects the *exact* class dict: a bare
+        # ``AppContainer`` subclass that does not redefine
+        # ``cached_property`` accessors would have an empty
+        # ``vars(Subclass)``, so the check returned ``False`` and the
+        # inherited ``cached_property`` fell into the
+        # ``except AttributeError: continue`` branch — silently
+        # masking the factory's real error again (the same bug
+        # issue #188 P2 fixed, but for the subclass case).
+        #
+        # The descriptor check itself avoids invoking
+        # ``cached_property`` / ``property`` factories on the wrapped
+        # AppContainer: the container's 7 VSA slice accessors are
+        # ``cached_property`` descriptors whose factories read
+        # ``tool.config`` / ``tool.db_path`` / ``tool.session`` /
+        # etc. and may raise ``AttributeError``. The pre-issue #188
+        # code used ``hasattr(container, name)`` which actually
+        # triggered the factory, swallowed the real error, and
+        # reported a misleading
         # ``HHApplicantTool has no attribute 'vacancy_search'`` —
-        # masking the real misconfiguration. The fix (issue #188 P2)
-        # detects the descriptor at the class level first, then
-        # forwards the real ``getattr`` and lets the underlying
-        # error propagate.
+        # masking the real misconfiguration. The fix forwards the
+        # real ``getattr`` once a descriptor is found and lets the
+        # underlying error propagate verbatim.
         tool = self.__dict__.get("_tool")
         container = self.__dict__.get("_container")
         for source in (tool, container):
             if source is None:
                 continue
-            if name in vars(type(source)):
-                # Class-level descriptor (or data attr): call
+            # ``inspect.getattr_static`` walks the MRO and returns
+            # the descriptor object itself (without invoking its
+            # ``__get__``). A ``None`` default means "no descriptor
+            # found anywhere in the MRO" — fall through to the
+            # generic ``getattr`` below.
+            descriptor = inspect.getattr_static(source, name, None)
+            if descriptor is not None:
+                # Class-level descriptor (inherited or not): call
                 # ``getattr`` so descriptors run; any factory error
                 # propagates verbatim. ``getattr`` here is intentional
                 # — we DO want the descriptor to fire if it's a real
