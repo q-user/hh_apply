@@ -31,6 +31,7 @@ from pathlib import Path
 import pytest
 
 from job_bot._legacy_compat.main_stub import HHApplicantTool
+from job_bot.container import AppContainer
 
 
 class MockTool:
@@ -254,6 +255,63 @@ class TestDescriptorForwarding:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
             tool = HHApplicantTool(tool=MockToolMissingConfig())
+        with pytest.raises(AttributeError) as excinfo:
+            _ = tool.vacancy_search  # noqa: B018
+        msg = str(excinfo.value)
+        # Real, underlying error mentions ``config`` — the missing
+        # attribute on the partial mock that broke the factory.
+        assert "config" in msg
+        # The generic stub message must NOT mask the real error.
+        assert "HHApplicantTool has no attribute" not in msg
+
+
+# ─── Issue #194: inherited descriptors on ``AppContainer`` subclasses ──
+
+
+class TestInheritedDescriptorLookup:
+    """``__getattr__`` must traverse the MRO via ``inspect.getattr_static``.
+
+    PR #191 used ``vars(type(source)).get(name)`` to detect class-level
+    descriptors. This is correct for the exact class but does NOT walk
+    the MRO: if a future PR subclasses :class:`AppContainer` and the
+    subclass doesn't redefine the ``cached_property`` accessor, the
+    class-level check returns ``False``, the code falls into the
+    ``except AttributeError: continue`` branch, and any inherited
+    descriptor whose factory raises ``AttributeError`` is silently
+    masked again — the exact bug issue #188 P2 fixed, but re-opened
+    for the subclass case (issue #194).
+    """
+
+    def test_inherited_cached_property_surfaces_underlying_error(
+        self,
+    ) -> None:
+        """An inherited ``cached_property`` on an ``AppContainer``
+        subclass must surface the real factory error (issue #194).
+
+        A bare subclass that does NOT redefine :pyattr:`vacancy_search`
+        inherits the descriptor from :class:`AppContainer`. The stub
+        must detect the inherited descriptor and forward the real
+        ``getattr`` so the underlying ``config`` ``AttributeError``
+        propagates verbatim — not be masked by a generic
+        ``HHApplicantTool has no attribute 'vacancy_search'`` message.
+        """
+
+        class SubclassedContainer(AppContainer):
+            """Bare subclass that does NOT redefine any slice descriptor.
+
+            ``vars(SubclassedContainer)`` is empty (no overrides), so
+            the pre-fix ``vars(type(source)).get(name)`` check would
+            miss the inherited ``vacancy_search`` ``cached_property``.
+            """
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            tool = HHApplicantTool(tool=MockToolMissingConfig())
+        # Inject the subclassed container — the future-PR scenario
+        # described in issue #194. The constructor wires an
+        # ``AppContainer``; we swap it for a bare subclass so the
+        # MRO-vs-``vars`` distinction is the only thing under test.
+        tool._container = SubclassedContainer(MockToolMissingConfig())
         with pytest.raises(AttributeError) as excinfo:
             _ = tool.vacancy_search  # noqa: B018
         msg = str(excinfo.value)
