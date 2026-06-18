@@ -6,6 +6,12 @@ import argparse
 import logging
 from typing import Any, Protocol
 
+from job_bot.shared.health import (
+    HealthChecks,
+    HealthServer,
+    TrivialHealthChecks,
+)
+
 from ._base import BaseNamespace, BaseOperation
 
 logger = logging.getLogger(__package__)
@@ -29,6 +35,19 @@ class Namespace(BaseNamespace):
     send_message: bool
     chat_id: int | None
     text: str | None
+    health_port: int | None
+
+
+def _build_health_checks(slice_: _MaxBotSlice) -> HealthChecks:
+    """Build the readiness checks for ``max-bot``.
+
+    The ``MaxBotSlice`` doesn't expose the SQLite database (the MAX
+    transport is the only external dep), so we fall back to a
+    trivial check. ``/ready`` then behaves like ``/health`` -- still
+    useful as "is the daemon process up?" signal for the supervisor.
+    A future issue can add a ``transport.ping()`` probe.
+    """
+    return TrivialHealthChecks()
 
 
 class Operation(BaseOperation):
@@ -66,6 +85,17 @@ class Operation(BaseOperation):
             default=None,
             help="Текст сообщения для --send-message.",
         )
+        parser.add_argument(
+            "--health-port",
+            type=int,
+            default=None,
+            help=(
+                "Запустить HTTP-сервер на указанном порту с "
+                "эндпоинтами /health (liveness) и /ready (readiness). "
+                "Используется внешним supervisor-ом. "
+                "По умолчанию сервер не запускается."
+            ),
+        )
 
     def run(self, args: argparse.Namespace) -> int:
         if self._slice is None:
@@ -77,7 +107,9 @@ class Operation(BaseOperation):
 
         if send_message:
             return self._run_send_message(slice_, args)
-        return self._run_polling(slice_, once=once)
+        return self._run_polling(
+            slice_, once=once, health_port=getattr(args, "health_port", None)
+        )
 
     def _run_send_message(self, slice_: Any, args: argparse.Namespace) -> int:
         chat_id = getattr(args, "chat_id", None)
@@ -92,17 +124,39 @@ class Operation(BaseOperation):
         logger.info("MAX: сообщение отправлено в chat_id=%s", chat_id)
         return 0
 
-    def _run_polling(self, slice_: Any, *, once: bool) -> int:
+    def _run_polling(
+        self,
+        slice_: Any,
+        *,
+        once: bool,
+        health_port: int | None = None,
+    ) -> int:
         mode_label = "single-cycle" if once else "long polling"
         logger.info("MAX bot started (%s)...", mode_label)
         print(f"🤖 MAX bot started ({mode_label}). Press Ctrl+C to stop.")
+
+        health_server: HealthServer | None = None
+        if health_port is not None:
+            health_checks = _build_health_checks(slice_)
+            health_server = HealthServer(port=health_port, checks=health_checks)
+            try:
+                health_server.start()
+            except OSError:
+                logger.exception(
+                    "max-bot: failed to bind health port %s", health_port
+                )
+                return 1
 
         try:
             slice_.handler.run(stop_after=1 if once else None)
         except KeyboardInterrupt:
             logger.info("MAX bot is shutting down...")
             print("⛔ MAX bot stopped.")
+            if health_server is not None:
+                health_server.stop()
             return 0
+        if health_server is not None:
+            health_server.stop()
         return 0
 
 

@@ -9,6 +9,14 @@ from datetime import datetime
 from datetime import time as dtime
 from typing import Any, Protocol
 
+from job_bot.shared.health import (
+    DefaultHealthChecks,
+    HealthChecks,
+    HealthServer,
+    TrivialHealthChecks,
+)
+from job_bot.shared.storage.database import Database
+
 from ._base import BaseNamespace, BaseOperation
 
 logger = logging.getLogger(__package__)
@@ -31,6 +39,28 @@ class Namespace(BaseNamespace):
 
     once: bool
     send_digest_now: bool
+    health_port: int | None
+
+
+def _build_health_checks(slice_: _TelegramBotSlice) -> HealthChecks:
+    """Build the readiness checks for ``telegram-bot``.
+
+    The slice exposes a :class:`Database` (or anything that quacks
+    like one). We pass it straight into :class:`DefaultHealthChecks`;
+    the telegram bot doesn't depend on ``api.hh.ru`` so the HH API
+    probe is left as ``None`` (only DB is checked).
+    """
+    db = getattr(slice_, "database", None)
+    if not isinstance(db, Database):
+        # ``TelegramBotSlice.database`` is a public property; if it's
+        # missing or not a ``Database`` (e.g. a test stub), fall back
+        # to a trivial check so /ready still answers 200.
+        logger.warning(
+            "telegram-bot: slice has no Database; "
+            "/ready will report 200 unconditionally"
+        )
+        return TrivialHealthChecks()
+    return DefaultHealthChecks(database=db)
 
 
 class Operation(BaseOperation):
@@ -57,6 +87,17 @@ class Operation(BaseOperation):
                 "В режиме --once бот завершится сразу после отправки."
             ),
         )
+        parser.add_argument(
+            "--health-port",
+            type=int,
+            default=None,
+            help=(
+                "Запустить HTTP-сервер на указанном порту с "
+                "эндпоинтами /health (liveness) и /ready (readiness: "
+                "SELECT 1). Используется внешним supervisor-ом. "
+                "По умолчанию сервер не запускается."
+            ),
+        )
 
     def run(self, args: argparse.Namespace) -> int:
         if self._slice is None:
@@ -71,6 +112,19 @@ class Operation(BaseOperation):
         logger.info("Telegram bot started (%s)...", mode_label)
         print(f"🤖 Telegram bot started ({mode_label}). Press Ctrl+C to stop.")
 
+        health_server: HealthServer | None = None
+        health_port = getattr(args, "health_port", None)
+        if health_port is not None:
+            health_checks = _build_health_checks(slice_)
+            health_server = HealthServer(port=health_port, checks=health_checks)
+            try:
+                health_server.start()
+            except OSError:
+                logger.exception(
+                    "telegram-bot: failed to bind health port %s", health_port
+                )
+                return 1
+
         offset: int | None = None
         digest_done_this_run = False
         try:
@@ -81,6 +135,8 @@ class Operation(BaseOperation):
                     logger.error("Polling error: %s", exc)
                     time.sleep(1.0)
                     if once:
+                        if health_server is not None:
+                            health_server.stop()
                         return 1
                     continue
 
@@ -104,11 +160,17 @@ class Operation(BaseOperation):
                 if once:
                     logger.info("--once: finished one polling cycle, exiting")
                     print("✅ Single cycle done. Exiting (--once).")
+                    if health_server is not None:
+                        health_server.stop()
                     return 0
         except KeyboardInterrupt:
             logger.info("Telegram bot is shutting down...")
             print("⛔ Telegram bot stopped.")
+            if health_server is not None:
+                health_server.stop()
             return 0
+        if health_server is not None:
+            health_server.stop()
         return 0
 
     def _maybe_send_digest(
