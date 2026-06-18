@@ -23,6 +23,17 @@ ai = [
 # may not need. Install with ``uv pip install -e .[secrets]`` to
 # opt in.
 secrets = ["keyring>=24.0.0,<26"]
+# Phase E observability (issue #203). The three sub-systems are
+# independently optional:
+#   * opentelemetry-sdk + opentelemetry-exporter-otlp for tracing
+#   * prometheus-client for the /metrics endpoint
+# Install with: uv sync --extra observability
+#   (or: pip install -e .[observability])
+observability = [
+    "opentelemetry-sdk>=1.27.0,<2",
+    "opentelemetry-exporter-otlp>=1.27.0,<2",
+    "prometheus-client>=0.21.0,<1",
+]
 
 [project.scripts]
 hh-applicant-tool = "job_bot.cli.main:main"
@@ -77,6 +88,9 @@ playwright = { version = "^1.57.0", optional = true }
 pillow = { version = "^12.1.0", optional = true }
 pywebview = { version = ">=5.0", optional = true }
 openai = { version = "^1.0.0", optional = true }
+opentelemetry-sdk = { version = "^1.27.0", optional = true }
+opentelemetry-exporter-otlp = { version = "^1.27.0", optional = true }
+prometheus-client = { version = "^0.21.0", optional = true }
 
 # poetry install --with playwright,pillow
 # poetry install -E ui
@@ -92,6 +106,12 @@ ai = ["openai"]
 # ``poetry install -E secrets`` (or ``uv pip install -e .[secrets]``)
 # to opt in.
 secrets = ["keyring"]
+# Phase E observability (issue #203).
+observability = [
+    "opentelemetry-sdk",
+    "opentelemetry-exporter-otlp",
+    "prometheus-client",
+]
 
 [tool.poetry.group.dev.dependencies]
 isort = "^5.12.0"

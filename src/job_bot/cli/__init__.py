@@ -28,6 +28,7 @@ from .log import Operation as LogOperation
 from .logout import Operation as LogoutOperation
 from .max_bot import Operation as MaxBotOperation
 from .migrate_db import Operation as MigrateDbOperation
+from .observability import Operation as ObservabilityOperation
 from .prepare_vacancies import Operation as PrepareVacanciesOperation
 from .refresh_token import Operation as RefreshTokenOperation
 from .settings import Operation as SettingsOperation
@@ -60,6 +61,7 @@ BUILTIN_OPERATIONS: tuple[type[BaseOperation], ...] = (
     LogOperation,
     LogoutOperation,
     MigrateDbOperation,
+    ObservabilityOperation,
     RefreshTokenOperation,
     SettingsOperation,
     TestSessionOperation,

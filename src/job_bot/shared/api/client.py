@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 import requests
 
@@ -11,6 +11,18 @@ from job_bot.shared.api.rate_limit import (
     RateLimitConfig,
     RateLimiter,
 )
+
+
+class MetricsRequestHook(Protocol):
+    """Signature of the optional metrics hook (issue #203).
+
+    Implementations typically wrap a Prometheus counter increment
+    labelled by ``(method, endpoint, status)``. The Protocol shape
+    matches the call site in :meth:`HHApiClient.get` so mypy accepts
+    the keyword arguments.
+    """
+
+    def __call__(self, *, method: str, endpoint: str, status: int) -> None: ...
 
 
 @dataclass
@@ -40,6 +52,7 @@ class HHApiClient:
         access_token: str | None = None,
         rate_limiter: RateLimiter | None = None,
         rate_limit_config: RateLimitConfig | None = None,
+        metrics_request: MetricsRequestHook | None = None,
     ) -> None:
         self._config = config or HHApiConfig()
         self._session = session or requests.Session()
@@ -52,6 +65,10 @@ class HHApiClient:
             self._rate_limiter = rate_limiter
         else:
             self._rate_limiter = RateLimiter(config=rate_limit_config)
+        # Optional metrics integration (issue #203): when ``None``
+        # the client is a no-op for observability, so existing call
+        # sites (and existing tests) are unaffected.
+        self._metrics_request = metrics_request
 
     def set_access_token(self, token: str) -> None:
         """Set the OAuth access token for authenticated requests."""
@@ -68,6 +85,15 @@ class HHApiClient:
             url, params=params, timeout=self._config.timeout
         )
         response.raise_for_status()
+        # Optional metrics integration (issue #203): increment a
+        # counter labelled by endpoint + status if a metrics
+        # hook was injected via ``metrics=``. The hook is a
+        # no-op when ``metrics`` is ``None``, so existing call
+        # sites are unaffected.
+        if self._metrics_request is not None:
+            self._metrics_request(
+                method="GET", endpoint=endpoint, status=response.status_code
+            )
         return cast("dict[str, Any]", response.json())
 
     def post(
@@ -139,6 +165,7 @@ def create_hh_api_client(
     config: HHApiConfig | None = None,
     rate_limiter: RateLimiter | None = None,
     rate_limit_config: RateLimitConfig | None = None,
+    metrics_request: MetricsRequestHook | None = None,
 ) -> HHApiClient:
     """Factory function to create an HHApiClient instance."""
     return HHApiClient(
@@ -147,4 +174,5 @@ def create_hh_api_client(
         access_token=access_token,
         rate_limiter=rate_limiter,
         rate_limit_config=rate_limit_config,
+        metrics_request=metrics_request,
     )

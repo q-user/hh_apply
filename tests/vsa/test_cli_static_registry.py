@@ -5,9 +5,10 @@ Issue #149 replaces the ``pkgutil.iter_modules`` walker in
 ``BUILTIN_OPERATIONS`` tuple exported from :mod:`job_bot.cli`. This
 module pins that contract:
 
-* the registry has exactly 21 entries (15 new sub-commands from #147 +
-  6 existing VSA ops that were re-typed in #147);
-* ``HHApplicantTool._create_parser()`` builds 21 sub-actions from it;
+* the registry has exactly 22 entries (16 new sub-commands from #147 +
+  6 existing VSA ops that were re-typed in #147; the ``observability``
+  sub-command was added in #203);
+* ``HHApplicantTool._create_parser()`` builds 22 sub-actions from it;
 * every sub-action's ``--help`` text is non-empty.
 
 The tests are intentionally narrow: they exercise the parser surface
@@ -66,12 +67,12 @@ def _count_unique_subcommands(
 
 
 class TestBuiltinOperationsCount:
-    """The registry size is pinned to 21 (issue #149 acceptance criterion)."""
+    """The registry size is pinned to 22 (issue #149 acceptance criterion, #203)."""
 
-    def test_registry_has_21_entries(self) -> None:
-        """``BUILTIN_OPERATIONS`` is a tuple of exactly 21 op classes."""
-        assert len(BUILTIN_OPERATIONS) == 21, (
-            f"expected exactly 21 BUILTIN_OPERATIONS entries, "
+    def test_registry_has_22_entries(self) -> None:
+        """``BUILTIN_OPERATIONS`` is a tuple of exactly 22 op classes."""
+        assert len(BUILTIN_OPERATIONS) == 22, (
+            f"expected exactly 22 BUILTIN_OPERATIONS entries, "
             f"got {len(BUILTIN_OPERATIONS)}"
         )
 
@@ -79,12 +80,12 @@ class TestBuiltinOperationsCount:
 class TestCreateParserUsesStaticRegistry:
     """``_create_parser`` iterates ``BUILTIN_OPERATIONS`` (no iter_modules)."""
 
-    def test_create_parser_builds_21_sub_actions(self) -> None:
-        """``HHApplicantTool._create_parser()`` registers exactly 21 sub-commands."""
+    def test_create_parser_builds_22_sub_actions(self) -> None:
+        """``HHApplicantTool._create_parser()`` registers exactly 22 sub-commands."""
         parser = HHApplicantTool._create_parser()
         subparsers = _subparsers_action(parser)
-        assert _count_unique_subcommands(subparsers) == 21, (
-            f"expected 21 sub-commands, got {_count_unique_subcommands(subparsers)}"
+        assert _count_unique_subcommands(subparsers) == 22, (
+            f"expected 22 sub-commands, got {_count_unique_subcommands(subparsers)}"
         )
 
     def test_parser_contains_every_registry_op(self) -> None:
