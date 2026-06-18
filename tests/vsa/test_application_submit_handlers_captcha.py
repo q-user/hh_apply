@@ -7,6 +7,8 @@ a fake port and a fake Playwright-free session.
 
 from __future__ import annotations
 
+import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -225,6 +227,106 @@ class TestCaptchaHandlerLegacyFallback:
         )
         with pytest.raises(TypeError, match="simulated programming bug"):
             handler.solve_captcha("https://example.com/captcha")
+
+
+# ─── Hang protection (issue #204) ───────────────────────────
+
+
+def _playwright_module_available() -> bool:
+    """Return True iff the ``playwright`` Python package is importable.
+
+    The hang tests need to patch ``playwright.async_api.async_playwright``;
+    the package must be importable for the patch to apply. The handler's
+    own ``ImportError`` fallback is already covered by
+    ``test_no_port_no_ai_returns_false``.
+    """
+    try:
+        import playwright.async_api  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _make_hanging_playwright(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Patch ``playwright.async_api.async_playwright`` to hang forever.
+
+    Used to prove the handler's timeout fires from both the sync and
+    async paths (issue #204).
+    """
+
+    async def _hang(*_args: object, **_kwargs: object) -> None:
+        # 60s is well past any reasonable per-call timeout; the test
+        # should never see this complete.
+        await asyncio.sleep(60)
+
+    fake_pw = MagicMock()
+    fake_pw.chromium.launch = AsyncMock(side_effect=_hang)
+    fake_cm = MagicMock()
+    fake_cm.__aenter__ = AsyncMock(return_value=fake_pw)
+    fake_cm.__aexit__ = AsyncMock(return_value=None)
+    fake_async_playwright = MagicMock(return_value=fake_cm)
+    monkeypatch.setattr(
+        "playwright.async_api.async_playwright",
+        fake_async_playwright,
+    )
+
+
+# Skip the hang tests when Playwright is not importable: the test
+# patches ``playwright.async_api.async_playwright`` which requires the
+# package to be installed. The handler's ImportError-fallback path is
+# already covered by ``test_no_port_no_ai_returns_false``.
+playwright_required = pytest.mark.skipif(
+    _playwright_module_available() is False,
+    reason="playwright Python package not installed",
+)
+
+
+@playwright_required
+@pytest.mark.timeout(45)
+@pytest.mark.asyncio
+async def test_async_path_times_out_when_playwright_hangs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #204: ``solve_captcha_async`` must fail fast on Playwright hang.
+
+    Before #204, the outer ``asyncio.wait_for(..., timeout=4.0)`` lived
+    in the sync wrapper, so the direct async caller
+    (``ApplyToVacanciesUseCase._solve_captcha_async``) was unguarded.
+    """
+    _make_hanging_playwright(monkeypatch)
+    handler = CaptchaHandler(
+        captcha_solver=None,
+        captcha_ai=MagicMock(solve_captcha=MagicMock(return_value="x")),
+    )
+    start = time.monotonic()
+    result = await handler.solve_captcha_async("https://example.com/captcha")
+    elapsed = time.monotonic() - start
+    assert result is False
+    assert elapsed < 32.0, f"async path took {elapsed:.1f}s; expected ~30s"
+
+
+@playwright_required
+@pytest.mark.timeout(45)
+def test_sync_path_times_out_when_playwright_hangs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Issue #204 regression: sync wrapper also fails fast on Playwright hang.
+
+    After the fix, the per-call timeout lives in
+    ``_solve_with_playwright``; the sync wrapper keeps a defense-in-depth
+    outer guard (>30s) so the test passes within ~32s regardless of
+    which layer fires first.
+    """
+    _make_hanging_playwright(monkeypatch)
+    handler = CaptchaHandler(
+        captcha_solver=None,
+        captcha_ai=MagicMock(solve_captcha=MagicMock(return_value="x")),
+    )
+    start = time.monotonic()
+    result = handler.solve_captcha("https://example.com/captcha")
+    elapsed = time.monotonic() - start
+    assert result is False
+    assert elapsed < 32.0, f"sync path took {elapsed:.1f}s; expected ~30s"
 
 
 # ─── Protocol satisfaction ────────────────────────────────────────────
