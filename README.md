@@ -149,7 +149,7 @@ $$('[data-qa="vacancy-serp__vacancy_response"]').forEach((el) => el.click());
 Кодовая база разбита на два слоя:
 
 - **`src/job_bot/`** — [Vertical Slice Architecture (VSA)](./docs/vsa_migration_guide.md). Семь слайсов (`vacancy_search`, `config_auth`, `channel_monitoring`, `max_bot`, `telegram_bot`, `application_prep`, `application_submit`) + shared kernel (`storage/`, `api/`, `ai/`, `config/`). Каждый слайс самодостаточен: свои `models/`, `handlers/`, `ports/`, опционально `repositories/` / `services/`, фабрика `slice.py` и публичный `__init__.py`. Межслайсовое взаимодействие — только через порты.
-- **`src/hh_applicant_tool/`** — CLI-обвязка и переходный слой. Содержит точку входа `main.py` (`HHApplicantTool`), composition root `container.py` (`AppContainer` — лениво создаёт VSA-слайсы), операции в `operations/` и UI в `ui/`. VSA-миграция по сути завершена: весь оставшийся код в этом пакете — либо deprecation-шимы со стандартизованным контрактом ([issue #92](https://github.com/q-user/hh_apply/issues/92), `tests/test_issue_92_deprecation.py`), либо CLI/UI, у которых пока нет VSA-слайса. Следующий шаг — поэтапное удаление шимов (см. [ROADMAP](./ROADMAP.md), Phase D).
+- **`src/hh_applicant_tool/`** — CLI-обвязка и переходный слой. Содержит точку входа `main.py` (`HHApplicantTool`), composition root `container.py` (`AppContainer` — лениво создаёт VSA-слайсы), операции в `operations/` и UI в `ui/`. VSA-миграция по сути завершена: весь оставшийся код в этом пакете — либо deprecation-шимы со стандартизованным контрактом ([issue #92](https://github.com/q-user/hh_apply/issues/92), `tests/test_issue_92_deprecation.py`), либо CLI/UI, у которых пока нет VSA-слайса. Следующий шаг — поэтапное удаление шимов (см. [issues](https://github.com/q-user/hh_apply/issues), Phase D).
 
 CLI-операции (`apply-worker`, `telegram-bot`, `channel-monitor`, `max-bot`, `apply-vacancies`, `prepare-vacancies` и т. д.) парсят argparse → собирают соответствующий VSA-слайс через `AppContainer` → делегируют выполнение. Например, `apply-worker` (см. `src/hh_applicant_tool/operations/apply_worker.py`) — это тонкий адаптер над `ApplicationSubmitSlice.worker.run`.
 
@@ -159,7 +159,7 @@ CLI-операции (`apply-worker`, `telegram-bot`, `channel-monitor`, `max-bo
 - `tests/integration/` — сквозные сценарии между слайсами (запускаются через `pytest -m integration`);
 - `tests/test_*.py` (без `vsa/` и `integration/`) — легаси-тесты легаси-кода.
 
-Актуальное состояние миграции — в [ROADMAP.md](./ROADMAP.md) и в [issues](https://github.com/q-user/hh_apply/issues).
+Актуальное состояние миграции — в [issues](https://github.com/q-user/hh_apply/issues).
 
 ---
 
@@ -1234,7 +1234,7 @@ tool.save_token()
 > через `AppContainer` (см. `src/hh_applicant_tool/container.py`).
 > Прямой импорт `from hh_applicant_tool import HHApplicantTool` пока
 > остаётся публичным API и будет поддерживаться до удаления
-> deprecation-шимов в рамках Phase D из [ROADMAP](./ROADMAP.md). Для
+> deprecation-шимов в рамках Phase D из [issues](https://github.com/q-user/hh_apply/issues). Для
 > нового кода рекомендуется импортировать VSA-слайсы напрямую:
 
 ```python
