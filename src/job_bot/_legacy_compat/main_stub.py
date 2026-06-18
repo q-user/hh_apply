@@ -98,21 +98,51 @@ class HHApplicantTool:
         # raise AttributeError so typos and missing mocks are caught
         # loudly (issue #177) — silently returning ``None`` masked
         # real configuration mistakes.
+        #
+        # The class-level descriptor check (``vars(type(source))``)
+        # avoids invoking ``cached_property`` / ``property`` factories
+        # on the wrapped AppContainer: the container's 7 VSA slice
+        # accessors are ``cached_property`` descriptors whose factories
+        # read ``tool.config`` / ``tool.db_path`` / ``tool.session`` /
+        # etc. and may raise ``AttributeError``. The pre-fix code used
+        # ``hasattr(container, name)`` which actually triggered the
+        # factory, swallowed the real error, and reported a misleading
+        # ``HHApplicantTool has no attribute 'vacancy_search'`` —
+        # masking the real misconfiguration. The fix (issue #188 P2)
+        # detects the descriptor at the class level first, then
+        # forwards the real ``getattr`` and lets the underlying
+        # error propagate.
         tool = self.__dict__.get("_tool")
-        if tool is not None and hasattr(tool, name):
-            return getattr(tool, name)
         container = self.__dict__.get("_container")
-        if container is not None and hasattr(container, name):
-            return getattr(container, name)
+        for source in (tool, container):
+            if source is None:
+                continue
+            if name in vars(type(source)):
+                # Class-level descriptor (or data attr): call
+                # ``getattr`` so descriptors run; any factory error
+                # propagates verbatim. ``getattr`` here is intentional
+                # — we DO want the descriptor to fire if it's a real
+                # attribute the source owns.
+                return getattr(source, name)
+            # Not on the class — check instance attrs and class-data
+            # attrs via plain ``getattr``. ``AttributeError`` here
+            # means the name really isn't on this source, so we fall
+            # through to the next source.
+            try:
+                return getattr(source, name)
+            except AttributeError:
+                continue
         # Compute ``db`` from ``db_path`` when neither tool nor
         # container supplies it (so the VSA slices' ``tool.db``
-        # reads still work end-to-end). ``getattr`` is used (not
-        # ``vars(...).get``) so class-level attributes and
-        # ``cached_property`` accessors are picked up too.
-        if name == "db":
+        # reads still work end-to-end). The match is case-insensitive
+        # on the canonical name ``db`` only — ``db`` / ``DB`` / ``Db``
+        # / ``dB`` all hit this path, but unrelated names like
+        # ``_db`` still fall through to the generic ``AttributeError``
+        # (issue #188 P3).
+        if name.lower() == "db":
             import sqlite3
 
-            for source in (tool, self):
+            for source in (tool, container, self):
                 if source is None:
                     continue
                 db_path = getattr(source, "db_path", None)
