@@ -1618,6 +1618,76 @@ class TestApplicationSubmitSlice:
         )
         assert slice_.storage_conn is storage_conn
 
+    def test_storage_io_property_lazy_wires_default(
+        self, storage_conn: sqlite3.Connection
+    ) -> None:
+        """Issue #201: ``storage_io`` lazily wires ``StorageIOHandler``
+        from the slice's deps when no pre-injected handler is given."""
+        from job_bot.application_submit.handlers.storage_io_handler import (
+            StorageIOHandler,
+        )
+        from job_bot.application_submit.slice import ApplicationSubmitSlice
+
+        slice_ = ApplicationSubmitSlice(
+            storage_conn=storage_conn, api_client=MagicMock()
+        )
+        # First access: creates the handler.
+        assert isinstance(slice_.storage_io, StorageIOHandler)
+        # Second access: cached_property returns the same instance.
+        assert slice_.storage_io is slice_.storage_io
+
+    def test_storage_io_property_uses_pre_injected(
+        self, storage_conn: sqlite3.Connection
+    ) -> None:
+        """Issue #201: pre-injected ``storage_io_handler`` wins over
+        the lazy default."""
+        from job_bot.application_submit.handlers.storage_io_handler import (
+            StorageIOHandler,
+        )
+        from job_bot.application_submit.slice import ApplicationSubmitSlice
+
+        injected = StorageIOHandler(
+            storage=MagicMock(), api_client=MagicMock(), site_parser=MagicMock()
+        )
+        slice_ = ApplicationSubmitSlice(
+            storage_conn=storage_conn,
+            api_client=MagicMock(),
+            storage_io_handler=injected,
+        )
+        assert slice_.storage_io is injected
+
+    def test_retry_policy_property_lazy_wires_default(
+        self, storage_conn: sqlite3.Connection
+    ) -> None:
+        """Issue #201: ``retry_policy`` lazily wires ``RetryPolicyHandler``."""
+        from job_bot.application_submit.handlers.retry_policy_handler import (
+            RetryPolicyHandler,
+        )
+        from job_bot.application_submit.slice import ApplicationSubmitSlice
+
+        slice_ = ApplicationSubmitSlice(
+            storage_conn=storage_conn, api_client=MagicMock()
+        )
+        assert isinstance(slice_.retry_policy, RetryPolicyHandler)
+        assert slice_.retry_policy is slice_.retry_policy
+
+    def test_retry_policy_property_uses_pre_injected(
+        self, storage_conn: sqlite3.Connection
+    ) -> None:
+        """Issue #201: pre-injected ``retry_policy_handler`` wins."""
+        from job_bot.application_submit.handlers.retry_policy_handler import (
+            RetryPolicyHandler,
+        )
+        from job_bot.application_submit.slice import ApplicationSubmitSlice
+
+        injected = RetryPolicyHandler()
+        slice_ = ApplicationSubmitSlice(
+            storage_conn=storage_conn,
+            api_client=MagicMock(),
+            retry_policy_handler=injected,
+        )
+        assert slice_.retry_policy is injected
+
 
 # ─── Port protocols ────────────────────────────────────────────────────
 

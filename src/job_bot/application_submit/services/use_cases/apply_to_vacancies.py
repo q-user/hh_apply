@@ -286,19 +286,23 @@ class ApplyToVacanciesUseCase:
         cover_letter_handler: Any,
         database: Any,
     ) -> Any:
-        """Construct the default VSA :class:`ApplicationSubmitSlice`.
+        """Construct the default VSA :class:`ApplicationSubmitSlice` (issue #201).
 
         When ``cover_letter_handler`` is ``None`` (the prep-phase
         handler was not pre-injected) we lazily build a temp-file
         ``Database`` and let the slice's :class:`CoverLetterHandler`
-        use the prep-phase default construction. This mirrors the
-        legacy ``_build_vsa_handlers`` behaviour (issue #142) and
-        keeps the legacy public surface working without requiring
-        the caller to wire the prep-phase handlers.
+        use the prep-phase default construction. The slice's
+        :class:`StorageIOHandler` (issue #201) takes its storage
+        facade from the caller-supplied ``storage`` so the apply
+        writes land in the same DB as the rest of the legacy code.
+
+        Delegates to :func:`create_application_submit_slice` (the
+        canonical slice factory) so the construction parameters stay
+        in one place.
         """
         from job_bot.application_submit import (
-            ApplicationSubmitSlice,
             CoverLetterHandler,
+            create_application_submit_slice,
         )
 
         prep_cover_letter = cover_letter_handler
@@ -326,19 +330,10 @@ class ApplyToVacanciesUseCase:
 
         # Convert the prep-phase handler into the submit-phase
         # adapter (the slice's ``CoverLetterHandler`` wraps the
-        # prep's ``generate_cover_letter``). ``CoverLetterHandler``
-        # here is the in-slice adapter from
-        # ``job_bot.application_submit.handlers``.
+        # prep's ``generate_cover_letter``).
         submit_cover_letter = CoverLetterHandler(prep_cover_letter)
 
-        # The use case doesn't own a :class:`StorageFacade` of its
-        # own -- it has a raw ``storage`` object passed in by the
-        # caller. The slice's :class:`SkipHandler` uses the storage's
-        # ``skipped_vacancies`` repo; the slice's private helpers
-        # (``_save_vacancy_to_storage``, ``_load_employer_profile``)
-        # use the same ``storage``. We forward the caller's
-        # ``storage`` directly so the legacy side keeps working.
-        return ApplicationSubmitSlice(
+        return create_application_submit_slice(
             storage_conn=self._resolve_storage_conn(),
             api_client=self.api_client,
             session=self.session,
