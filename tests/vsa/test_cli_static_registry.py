@@ -1,7 +1,7 @@
 """Tests for the static ``BUILTIN_OPERATIONS`` CLI registry (issue #149).
 
 Issue #149 replaces the ``pkgutil.iter_modules`` walker in
-``hh_applicant_tool.main._create_parser`` with the static
+``HHApplicantTool._create_parser`` with the static
 ``BUILTIN_OPERATIONS`` tuple exported from :mod:`job_bot.cli`. This
 module pins that contract:
 
@@ -99,8 +99,8 @@ class TestCreateParserUsesStaticRegistry:
             )
 
     def test_parser_exposes_no_legacy_iter_modules_ops(self) -> None:
-        """Ops present in the legacy ``hh_applicant_tool/operations/`` tree
-        but **not** in ``BUILTIN_OPERATIONS`` must not appear in the parser.
+        """Ops present in the old operations tree but **not** in
+        ``BUILTIN_OPERATIONS`` must not appear in the parser.
 
         This pins the static-registry contract: the parser is driven by
         the registry, not by ``pkgutil.iter_modules``.

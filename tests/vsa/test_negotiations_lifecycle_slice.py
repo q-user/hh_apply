@@ -1,7 +1,7 @@
 """Tests for the ``negotiations.lifecycle`` VSA slice (issue #137).
 
 The slice encapsulates the "clear negotiations" workflow that used to
-live in :mod:`hh_applicant_tool.operations.clear_negotiations`:
+live in :mod:`job_bot.negotiations.lifecycle`:
 
 * iterate negotiations (active + discarded + refused),
 * classify each by state / age / ATS signal / blacklist status,

@@ -1,6 +1,6 @@
 """Bridge tests for the daily-digest VSA migration (issue #8).
 
-The legacy module :mod:`hh_applicant_tool.services.daily_digest` (413 LOCs)
+The legacy daily-digest module (413 LOCs)
 is being migrated into the VSA ``telegram_bot`` slice as
 :mod:`job_bot.telegram_bot.services.daily_digest_service`. These tests
 cover the new VSA module's public surface end-to-end on an in-memory
@@ -37,7 +37,6 @@ from job_bot.telegram_bot.telegram_transport import (
     TelegramTransportError,
 )
 
-
 # ─── Fixtures shared across the three groups ────────────────────────
 
 
@@ -47,7 +46,7 @@ CHAT_ID = 42
 class _FixedClock:
     """Deterministic clock that satisfies the canonical ``Clock`` port.
 
-    Implements :class:`hh_applicant_tool.application.ports.Clock` (both
+    Implements the canonical :class:`Clock` port (both
     ``now`` and ``sleep``). ``sleep`` is a no-op — tests do not need
     real delays.
     """

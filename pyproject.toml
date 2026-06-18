@@ -48,13 +48,15 @@ repository = "https://github.com/s3rgeym/hh-applicant-tool"
 authors = ["Senior YAML Developer <yamldeveloper@proton.me>"]
 readme = "README.md"
 packages = [
-  { include = "hh_applicant_tool", from = "src" },
+  { include = "job_bot", from = "src" },
 ]
 include = [
-  # Содержит схему и миграции
-  { path = "src/hh_applicant_tool/**/*.sql", format = ["sdist", "wheel"] },
-  # HTML/CSS/JS шаблоны UI
-  { path = "src/hh_applicant_tool/ui/templates/**/*", format = ["sdist", "wheel"] },
+  # Schema & migrations live under ``job_bot._legacy_compat.storage.queries``
+  # (issue #158). The UI templates moved with the VSA port and now live at
+  # ``src/job_bot/ui/templates/`` — both must be shipped in the wheel so the
+  # installed package can locate them at runtime.
+  { path = "src/job_bot/_legacy_compat/storage/queries/**/*.sql", format = ["sdist", "wheel"] },
+  { path = "src/job_bot/ui/templates/**/*", format = ["sdist", "wheel"] },
 ]
 
 [tool.poetry.dependencies]
@@ -135,15 +137,19 @@ no_implicit_optional = true
 strict_optional = true
 show_error_codes = true
 pretty = true
-# Exclude the legacy-compat storage layer (issue #158). These files
-# are unmodified ports of the pre-VSA ``hh_applicant_tool.storage``
-# code; mypy's per-module overrides do not apply to entry-point
-# modules, so the only way to skip them is the file-level ``exclude``
-# directive. The files are still type-checked at runtime by the
-# integration tests.
+# Exclude the legacy-compat storage layer (issue #158, narrowed by
+# issue #180). These files are unmodified ports of the pre-VSA
+# ``hh_applicant_tool.storage`` code; mypy's per-module overrides do
+# not apply to entry-point modules, so the only way to skip them is
+# the file-level ``exclude`` directive. The files are still
+# type-checked at runtime by the integration tests.
+#
+# Note: the use-case bridge files in
+# ``src/job_bot/application_submit/services/use_cases/`` are
+# deliberately NOT excluded — they are checked (via a relaxed
+# per-module override below) so regressions there are caught early.
 exclude = [
     "src/job_bot/_legacy_compat/.*",
-    "src/job_bot/application_submit/services/use_cases/.*",
 ]
 
 # Per-module overrides
@@ -155,39 +161,14 @@ strict = true
 
 [[tool.mypy.overrides]]
 module = [
-    "hh_applicant_tool.*",
-]
-# Legacy code - relaxed settings
-warn_return_any = false
-warn_unused_ignores = false
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
-check_untyped_defs = false
-no_implicit_optional = false
-
-[[tool.mypy.overrides]]
-module = [
-    "job_bot._legacy_compat.*",
-]
-# Legacy storage layer kept under ``job_bot._legacy_compat`` for
-# transitional use (issue #158). These modules are unmodified
-# ports of the pre-VSA ``hh_applicant_tool.storage`` code and
-# follow the same relaxed rules.
-strict = false
-warn_return_any = false
-warn_unused_ignores = false
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
-check_untyped_defs = false
-no_implicit_optional = false
-
-[[tool.mypy.overrides]]
-module = [
     "job_bot.application_submit.services.use_cases.*",
 ]
-# Legacy use-case bridge files (issue #158). Relaxed for the same
-# reason as the legacy storage layer above; will be tightened in a
-# follow-up cleanup.
+# VSA-bridge shims (issue #158, kept checked per issue #180). These
+# use-case modules wrap pre-VSA ``hh_applicant_tool`` workflows and
+# still carry loose typing in places, so they are excluded from
+# strict checking here. They are still type-checked (just with
+# relaxed settings) so regressions are surfaced — tightening to
+# full strict is scheduled for a follow-up cleanup.
 strict = false
 warn_return_any = false
 disallow_untyped_defs = false

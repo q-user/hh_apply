@@ -1,7 +1,7 @@
 """Tests for the VSA-native CLI entry point at ``job_bot.cli.main`` (issue #154).
 
 Issue #154 moves the ``[project.scripts] hh-applicant-tool`` entry point
-from the legacy ``hh_applicant_tool.main:main`` to the VSA-native
+from the legacy CLI entry point to the VSA-native
 ``job_bot.cli.main:main``. The new module is a thin wrapper that:
 
 * constructs the CLI runner (``HHApplicantTool`` until #155 lands);

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from job_bot.shared.ai._chat_openai import ChatOpenAI
-    from job_bot.application_submit.ports.port_defs import (
+    from job_bot.shared.ports import (
         AIClientPort,
         RateLimiterPort,
     )

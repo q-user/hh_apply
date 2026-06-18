@@ -2,7 +2,7 @@
 
 Issue #146 expands the VSA :class:`StorageFacade` from a stub with only
 ``database: Database`` into a full composition root that exposes all
-the repositories the legacy :class:`hh_applicant_tool.storage.facade.StorageFacade`
+the repositories the legacy :class:`job_bot._legacy_compat.storage.facade.StorageFacade`
 exposes (application_drafts, application_test_answers, apply_jobs,
 employer_sites, employers, negotiations, resumes, search_profiles,
 settings, skipped_vacancies, telegram_sessions, vacancies,
@@ -13,7 +13,7 @@ The 5 VSA repos that already exist keep their import paths
 (``vacancy_search.repositories.{search_profile_repo, vacancy_repo}``,
 ``application_prep.repositories.{application_repo, cover_letter_repo,
 relevance_repo}``). The 9 missing repos are wired via the legacy
-classes under ``hh_applicant_tool.storage.repositories.*`` so the
+classes under ``job_bot._legacy_compat.storage.repositories.*`` so the
 acceptance criterion (4 shim modules that import the legacy facade keep
 working) is preserved for one more release (removed in #158).
 

@@ -1,6 +1,6 @@
 """Tests for :mod:`job_bot.shared.utils.terminal` (issue #151).
 
-The VSA port of the legacy :mod:`hh_applicant_tool.utils.terminal`
+The VSA port of the legacy terminal module
 module preserves the public :func:`setup_terminal` function and the
 ``print_kitty_image`` / ``print_sixel_mage`` helpers. :func:`setup_terminal`
 is a no-op on non-Windows platforms and only touches the Windows
@@ -114,7 +114,9 @@ def test_print_kitty_image_writes_escape_sequence() -> None:
     assert "f=100" in out
 
 
-def test_print_sixel_mage_writes_sixel_sequence(capsys: pytest.CaptureFixture[str]) -> None:
+def test_print_sixel_mage_writes_sixel_sequence(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """``print_sixel_mage`` writes a sixel graphics protocol sequence to stdout.
 
     The PIL-based renderer requires a real :class:`PIL.Image.Image`; we
@@ -122,6 +124,8 @@ def test_print_sixel_mage_writes_sixel_sequence(capsys: pytest.CaptureFixture[st
     image and verify that the output starts with a sixel DCS introducer
     and contains palette + raster fragments.
     """
+    pytest.importorskip("PIL")
+
     fake_img = mock.MagicMock(name="PIL.Image")
     fake_img.size = (4, 4)
     # convert('RGB') returns a same object

@@ -1,4 +1,4 @@
-"""Tests for the VSA port of ``hh_applicant_tool.api.errors`` to
+"""Tests for the VSA port of ``job_bot.shared.api.errors`` to
 ``job_bot.shared.api.errors`` (issue #152).
 
 Contract:
@@ -12,7 +12,7 @@ Contract:
   :mod:`job_bot.application_submit.errors` (alongside
   :class:`RetryableError` / :class:`FatalError`).
 
-After issue #158 the legacy ``hh_applicant_tool`` distribution
+After issue #158 the legacy distribution
 package is deleted, so the canonical deprecation-shim tests for the
 old import paths are removed (see ``tests/test_issue_92_deprecation.py``
 for the surviving canonical warning-format contract).

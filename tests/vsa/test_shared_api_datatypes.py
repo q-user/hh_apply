@@ -1,18 +1,18 @@
-"""Tests for the VSA port of ``hh_applicant_tool.api.datatypes`` to
+"""Tests for the VSA port of ``job_bot.shared.api.datatypes`` to
 ``job_bot.shared.api.datatypes`` (issue #152).
 
 Contract:
 
-* Every TypedDict that lived at ``hh_applicant_tool.api.datatypes``
+* Every TypedDict that lived at ``job_bot.shared.api.datatypes``
   must be re-exported from ``job_bot.shared.api.datatypes`` under the
   same name.
 * Each TypedDict has a small ``to_internal()`` adapter; the adapter
   returns the matching internal dataclass when one exists, otherwise
   the adapter returns the TypedDict (i.e. a plain ``dict``) as-is.
-* The legacy ``hh_applicant_tool.api.datatypes`` module keeps working
-  for one release window and emits a single ``DeprecationWarning`` on
-  import (per the canonical deprecation contract in
-  ``tests/test_issue_92_deprecation.py``).
+* After issue #158 the legacy module is deleted; the canonical
+  deprecation-shim tests for the old import paths are removed (see
+  ``tests/test_issue_92_deprecation.py`` for the surviving canonical
+  warning-format contract).
 """
 
 from __future__ import annotations

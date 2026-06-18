@@ -76,7 +76,7 @@ hh-applicant-tool ui --debug
 
 UI — единственная часть проекта, которая пока **не** имеет собственного VSA-слайса. Это осознанное техническое решение: фронтенд на pywebview — тонкий слой, который вызывает use case-ы через `AppContainer` (см. `src/hh_applicant_tool/container.py`). Сами use case-ы (`PrepareVacanciesUseCase`, `ApplyToVacanciesUseCase`) уже работают через VSA-слайсы (`application_prep`, `application_submit`, `vacancy_search`), которые поднимаются лениво при первом обращении.
 
-`hh_applicant_tool/` сейчас в основном состоит из deprecation-шимов (стандартизованный контракт см. в [issue #92](https://github.com/q-user/hh_apply/issues/92) и в `tests/test_issue_92_deprecation.py`). UI — единственная его часть, которая пока не имеет замены в `src/job_bot/`. Когда будет принято решение о переезде UI в собственный VSA-слайс, переезд синхронизируется с Phase D из [ROADMAP](../ROADMAP.md) (deprecation shim removal). Подробности по VSA-структуре — в [`docs/vsa_migration_guide.md`](./vsa_migration_guide.md).
+`hh_applicant_tool/` сейчас в основном состоит из deprecation-шимов (стандартизованный контракт см. в [issue #92](https://github.com/q-user/hh_apply/issues/92) и в `tests/test_issue_92_deprecation.py`). UI — единственная его часть, которая пока не имеет замены в `src/job_bot/`. Когда будет принято решение о переезде UI в собственный VSA-слайс, переезд синхронизируется с Phase D из [issues](https://github.com/q-user/hh_apply/issues) (deprecation shim removal). Подробности по VSA-структуре — в [`docs/vsa_migration_guide.md`](./vsa_migration_guide.md).
 
 ```
 src/hh_applicant_tool/

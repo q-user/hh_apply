@@ -37,7 +37,7 @@ def storage_conn() -> Iterator[sqlite3.Connection]:
     ``sqlite3.Connection`` with the schema in place. This fixture is the
     shared equivalent of the project-level ``storage`` fixture in
     ``tests/conftest.py`` -- re-defined here so VSA tests can use it
-    without depending on the legacy ``hh_applicant_tool`` import path.
+    without depending on the legacy ``_legacy_compat`` import path.
 
     Issue #94: schema is initialised via ``init_db`` directly (not via
     ``StorageFacade(conn)``) so this fixture no longer pulls in the

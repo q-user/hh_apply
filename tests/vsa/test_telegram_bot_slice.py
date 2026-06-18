@@ -41,7 +41,8 @@ USER_ID = 999
 def storage_conn() -> sqlite3.Connection:
     """Return a fresh in-memory SQLite connection with the schema initialised.
 
-    We re-use the canonical ``StorageFacade`` from ``hh_applicant_tool`` so
+    We re-use the canonical ``StorageFacade`` from
+    ``job_bot._legacy_compat.storage`` so
     the slice talks to the same tables the rest of the project uses.
     """
     from job_bot._legacy_compat.storage import StorageFacade

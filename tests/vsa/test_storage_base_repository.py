@@ -7,7 +7,7 @@ slice repositories re-implemented ``create/get_by_id/update/delete`` inline.
 The new ``BaseSqliteRepository`` is concrete: it derives SQL from the model's
 ``__table__`` classvar and converts dataclass entities to row dicts via
 ``dataclasses.asdict``. The legacy
-``hh_applicant_tool.storage.repositories.base.BaseRepository`` semantics
+``job_bot._legacy_compat.storage.repositories.base.BaseRepository`` semantics
 (``find`` / ``count_total`` / ``clear`` / ``save`` / ``save_batch`` /
 ``_insert`` / ``_row_to_model``) are ported onto the new concrete base
 and exercised by these tests with a deliberately minimal 3-line

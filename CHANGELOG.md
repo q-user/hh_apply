@@ -8,7 +8,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 ## 2.0.0 — 2026-06-16
 
 **SemVer impact: major.** The Vertical Slice Architecture migration has reached
-the cut line called out in `ROADMAP.md` (Phase D) and
+the cut line called out in [issues](https://github.com/q-user/hh_apply/issues) (Phase D) and
 `docs/vsa_migration_guide.md` (Phase 4): the legacy `hh_applicant_tool`
 package is being retired in favour of the VSA-native `job_bot` package.
 

@@ -1,7 +1,7 @@
 """Tests for the dev_tools VSA slice (issue #137).
 
 Covers the SQL REPL / CSV / prettytable workflow migrated from
-``hh_applicant_tool.operations.query`` into a self-contained vertical
+the old SQL REPL/CSV/prettytable workflow into a self-contained vertical
 slice. All external boundaries (HH API, stdout) are replaced with
 in-memory fakes — only the ``sqlite3`` connection is real.
 """
