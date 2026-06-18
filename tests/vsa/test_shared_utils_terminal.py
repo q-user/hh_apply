@@ -124,6 +124,8 @@ def test_print_sixel_mage_writes_sixel_sequence(
     image and verify that the output starts with a sixel DCS introducer
     and contains palette + raster fragments.
     """
+    pytest.importorskip("PIL")
+
     fake_img = mock.MagicMock(name="PIL.Image")
     fake_img.size = (4, 4)
     # convert('RGB') returns a same object
