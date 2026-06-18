@@ -7,7 +7,7 @@ a fake port and a fake Playwright-free session.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -159,19 +159,72 @@ class TestCaptchaHandlerLegacyFallback:
         result = handler.solve_captcha("https://example.com/captcha")
         assert result is False
 
-    def test_no_port_with_ai_tries_playwright(self) -> None:
-        """With ``captcha_ai`` set but no Playwright installed (in a
-        test env), the legacy fallback returns ``False``."""
+    def test_legacy_fallback_invokes_async_playwright(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression for issue #210: the previous assertion
+        ``result in (True, False)`` was tautological — any ``bool`` would
+        pass. Strengthen by mocking ``async_playwright`` and asserting it
+        was actually called, so we verify the Playwright path was taken
+        (not an early return)."""
+        # Mock the async context manager returned by async_playwright().
+        # The browser launch raises a PlaywrightError subclass so the
+        # solve returns False — but the call itself is the proof.
+        from playwright._impl._errors import Error as PlaywrightError
+
+        fake_pw = MagicMock()
+        fake_pw.chromium.launch = AsyncMock(
+            side_effect=PlaywrightError("stubbed: stop after launch")
+        )
+        fake_cm = MagicMock()
+        fake_cm.__aenter__ = AsyncMock(return_value=fake_pw)
+        fake_cm.__aexit__ = AsyncMock(return_value=None)
+        fake_async_playwright = MagicMock(return_value=fake_cm)
+
+        monkeypatch.setattr(
+            "playwright.async_api.async_playwright",
+            fake_async_playwright,
+        )
+
         handler = CaptchaHandler(
             captcha_solver=None,
             captcha_ai=MagicMock(solve_captcha=MagicMock(return_value="x")),
         )
         result = handler.solve_captcha("https://example.com/captcha")
-        # Either Playwright works (unlikely in CI) → True, or it
-        # fails (no module / no browser) → False. Both outcomes are
-        # acceptable for this assertion; we just want the handler to
-        # not raise.
-        assert result in (True, False)
+
+        fake_async_playwright.assert_called_once()
+        assert result is False
+
+    def test_legacy_fallback_does_not_swallow_typeerror(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression for issue #210: a ``TypeError`` from inside the
+        Playwright path is NOT swallowed — it must propagate so real
+        bugs surface instead of silently being reported as 'captcha
+        failed'."""
+        # TypeError is intentionally NOT a PlaywrightError / OSError /
+        # asyncio.TimeoutError / ImportError; a tightened ``except``
+        # must let it through.
+        fake_pw = MagicMock()
+        fake_pw.chromium.launch = AsyncMock(
+            side_effect=TypeError("simulated programming bug")
+        )
+        fake_cm = MagicMock()
+        fake_cm.__aenter__ = AsyncMock(return_value=fake_pw)
+        fake_cm.__aexit__ = AsyncMock(return_value=None)
+        fake_async_playwright = MagicMock(return_value=fake_cm)
+
+        monkeypatch.setattr(
+            "playwright.async_api.async_playwright",
+            fake_async_playwright,
+        )
+
+        handler = CaptchaHandler(
+            captcha_solver=None,
+            captcha_ai=MagicMock(solve_captcha=MagicMock(return_value="x")),
+        )
+        with pytest.raises(TypeError, match="simulated programming bug"):
+            handler.solve_captcha("https://example.com/captcha")
 
 
 # ─── Protocol satisfaction ────────────────────────────────────────────
