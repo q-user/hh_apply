@@ -78,7 +78,7 @@ service paths) has been bridged to VSA in PRs #129–#134 — the
 remaining legacy modules in `src/hh_applicant_tool/services/` and
 `src/hh_applicant_tool/application/use_cases/` are now deprecation
 shims with a standardised `DeprecationWarning` contract (issue #92).
-The next step is *deleting* the shims (tracked in the ROADMAP under
+The next step is *deleting* the shims (tracked in [issues](https://github.com/q-user/hh_apply/issues),
 Phase D); see also the [shim contract table in
 `tests/test_issue_92_deprecation.py`](../tests/test_issue_92_deprecation.py)
 for the canonical list of shims still in place.
@@ -105,7 +105,7 @@ for the canonical list of shims still in place.
 
 ### Remaining
 
-The remaining work is the deprecation shim removal — see the ROADMAP,
+The remaining work is the deprecation shim removal — see [issues](https://github.com/q-user/hh_apply/issues),
 Phase D. The shim modules listed in `tests/test_issue_92_deprecation.py`
 (`SHIM_CONTRACT`) are the candidates for deletion once a removal
 timeline is set.
@@ -145,7 +145,7 @@ timeline is set.
 4. 🟡 Deprecate old `hh_applicant_tool` package — the shims are
    standardised (issue #92) and the slices are wired, but the shim
    modules themselves are still in place. Deletion is the next major
-   work item (ROADMAP Phase D).
+   work item ([issues](https://github.com/q-user/hh_apply/issues), Phase D).
 
 ## Slice Design Principles
 
