@@ -12,8 +12,8 @@ RESUME_ID=${RESUME_ID}
 # обновляем токен, поднимаем резюме и готовим свежие черновики.
 # Отправку одобренных черновиков берёт на себя hh_apply_worker.
 HH_PROFILE_ID=${HH_PROFILE_ID:-default}
-/usr/local/bin/python -u -m hh_applicant_tool refresh-token
-/usr/local/bin/python -u -m hh_applicant_tool update-resumes --id "$RESUME_ID"
-/usr/local/bin/python -u -m hh_applicant_tool prepare-vacancies --search-profile "$HH_PROFILE_ID" --ai
+/usr/local/bin/python -u -m job_bot refresh-token
+/usr/local/bin/python -u -m job_bot update-resumes --id "$RESUME_ID"
+/usr/local/bin/python -u -m job_bot prepare-vacancies --search-profile "$HH_PROFILE_ID" --ai
 
 echo "[$(date)] Startup tasks finished."
