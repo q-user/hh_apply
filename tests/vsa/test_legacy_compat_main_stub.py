@@ -52,6 +52,26 @@ class MockTool:
         return "method-result"
 
 
+class MockToolMissingConfig:
+    """Partial-mock tool that exposes ``db_path`` but lacks ``config``.
+
+    Used to exercise :class:`job_bot.container.AppContainer`'s
+    :func:`functools.cached_property` slice accessors — every factory
+    reads ``tool.config`` first, so probing a slice on a tool without
+    ``config`` raises :class:`AttributeError` about ``config``. The
+    legacy-compat stub must surface that error verbatim rather than
+    masking it with a generic ``HHApplicantTool has no attribute``
+    message (issue #188 P2).
+    """
+
+    db_path: str = "/tmp/mocktool-missing-config.db"
+
+    def __init__(self) -> None:
+        # Intentionally NO ``config`` attribute — the slice factories
+        # must raise AttributeError about ``config`` when invoked.
+        pass
+
+
 @pytest.fixture
 def real_db_path() -> Path:
     """Yield a real on-disk path the stub can ``sqlite3.connect`` to."""
@@ -198,3 +218,101 @@ class TestAttributeProxy:
             tool = HHApplicantTool(tool=MockTool())
         tool.local = "stub-local-value"  # type: ignore[attr-defined]
         assert tool.local == "stub-local-value"  # type: ignore[attr-defined]
+
+
+# ─── Issue #188 P2: descriptor forwarding must not invoke the factory ──
+
+
+class TestDescriptorForwarding:
+    """``__getattr__`` forwards to container descriptors without invoking
+    them, and re-raises the underlying error if the descriptor fails.
+
+    The pre-fix code did ``hasattr(container, name)`` which actually
+    triggered the ``cached_property`` descriptor and ran the underlying
+    factory. If the factory raised (e.g. ``tool.config`` missing),
+    ``hasattr`` swallowed the error and the stub raised its own
+    generic ``HHApplicantTool has no attribute X`` message, masking
+    the real misconfiguration (issue #188 P2). After the fix the stub
+    checks the class-level descriptor registry first, then forwards
+    the real ``getattr`` and lets the underlying error propagate.
+    """
+
+    def test_underlying_config_error_surfaces_for_slice_descriptor(
+        self,
+    ) -> None:
+        """Probing a slice on a partial-mock tool surfaces the real
+        ``config`` error, not the generic stub message (issue #188 P2).
+
+        :class:`MockToolMissingConfig` deliberately lacks ``config``.
+        The :class:`AppContainer.vacancy_search` ``cached_property``
+        factory reads ``tool.config`` first and raises
+        :class:`AttributeError`. The stub must re-raise that error
+        verbatim so the caller can see the real misconfiguration
+        (missing ``config``), not a misleading
+        ``HHApplicantTool has no attribute 'vacancy_search'``.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            tool = HHApplicantTool(tool=MockToolMissingConfig())
+        with pytest.raises(AttributeError) as excinfo:
+            _ = tool.vacancy_search  # noqa: B018
+        msg = str(excinfo.value)
+        # Real, underlying error mentions ``config`` — the missing
+        # attribute on the partial mock that broke the factory.
+        assert "config" in msg
+        # The generic stub message must NOT mask the real error.
+        assert "HHApplicantTool has no attribute" not in msg
+
+
+# ─── Issue #188 P3: ``db`` lookup is case-insensitive, ``_db`` is not ──
+
+
+class TestDbNameCaseHandling:
+    """The ``db`` accessor matches canonical case-variants of ``db``.
+
+    The pre-fix code compared ``name == "db"`` literally, so
+    ``tool.DB`` / ``tool.Db`` silently fell through to the generic
+    :class:`AttributeError`. After the fix any case of ``db`` resolves
+    through ``db_path``. Unrelated names (e.g. ``_db``) still raise
+    the generic error (issue #188 P3).
+    """
+
+    def test_db_uppercase_resolves_via_db_path(
+        self, real_db_path: Path
+    ) -> None:
+        """``tool.DB`` (uppercase) resolves ``db`` via ``db_path``.
+
+        Regression for issue #188 P3: case-sensitive matching silently
+        broke any caller that asked for ``tool.DB``. After the fix the
+        canonical-case path returns the same
+        :class:`sqlite3.Connection` as ``tool.db``.
+        """
+        inner = MockTool()
+        inner.db_path = str(real_db_path)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            tool = HHApplicantTool(tool=inner)
+        conn = tool.DB  # noqa: B018
+        try:
+            assert isinstance(conn, sqlite3.Connection)
+            # Smoke-test: the connection is open and usable.
+            conn.execute("SELECT 1").fetchone()
+        finally:
+            conn.close()
+
+    def test_underscore_db_raises_generic_attribute_error(self) -> None:
+        """``tool._db`` is NOT a canonical name and raises the generic
+        ``HHApplicantTool has no attribute '_db'`` message.
+
+        Only case-variants of ``db`` trigger the ``db_path`` path
+        (issue #188 P3). Unrelated names — even obvious near-misses
+        like ``_db`` — fall through to the final
+        ``raise AttributeError(...)`` so the caller can see exactly
+        which attribute was missing.
+        """
+        tool = _make_tool()
+        with pytest.raises(AttributeError) as excinfo:
+            _ = tool._db  # noqa: B018
+        msg = str(excinfo.value)
+        assert "_db" in msg
+        assert "HHApplicantTool has no attribute" in msg
