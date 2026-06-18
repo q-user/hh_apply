@@ -397,3 +397,166 @@ def test_single_name_import(tmp_path: Path) -> None:
         "from job_bot.application_submit.models.submit_result_dto "
         "import ApplyToVacanciesResult"
     ) in text
+
+
+# ─── Issue #190 regression: trailing comments, parenthesised non-symbolic,
+#     and fixture-skip in main() ──────────────────────────────────────
+
+
+def test_inline_import_with_trailing_comment(tmp_path: Path) -> None:
+    """P1: An inline ``from foo import X  # comment`` line must be
+    rewritten with the comment preserved on the new import line.
+
+    Previously the greedy ``[^(\\r\\n]+`` clause swallowed the comment,
+    ``_split_names`` failed to parse it, and the script emitted a
+    misleading ``unknown symbol`` warning while silently leaving the
+    line unchanged.
+    """
+    p = tmp_path / "comment_inline.py"
+    p.write_text(
+        "from hh_applicant_tool.api.errors import CaptchaRequired "
+        "# slice-specific error\n",
+        encoding="utf-8",
+    )
+    assert migrate_imports.rewrite_file(p) is True
+    text = p.read_text(encoding="utf-8")
+    assert (
+        "from job_bot.application_submit.errors import CaptchaRequired"
+    ) in text
+    # The original legacy import must be gone (the silent no-op bug).
+    assert "from hh_applicant_tool.api.errors" not in text
+    # The trailing comment must be preserved on the rewritten line
+    # (operator annotations belong in the diff).
+    assert "# slice-specific error" in text
+
+
+def test_multiline_parenthesised_import_with_inner_comment(
+    tmp_path: Path,
+) -> None:
+    """P1: A multi-line parenthesised import with a trailing ``#``
+    comment on an inner line must be rewritten cleanly.
+
+    Previously the comment was consumed into the clause, the rewrite
+    produced a ``SyntaxError``-prone line, and the comment leaked into
+    the symbol stream (causing the unknown-symbol warning).
+    """
+    p = tmp_path / "comment_multi.py"
+    p.write_text(
+        "from hh_applicant_tool.application.dto import (\n"
+        "    ApplyToVacanciesResult,  # the submit result\n"
+        "    PrepareVacanciesCommand,\n"
+        ")\n",
+        encoding="utf-8",
+    )
+    assert migrate_imports.rewrite_file(p) is True
+    text = p.read_text(encoding="utf-8")
+    # Known names routed to their VSA targets:
+    assert (
+        "from job_bot.application_submit.models.submit_result_dto "
+        "import ApplyToVacanciesResult"
+    ) in text
+    assert (
+        "from job_bot.application_prep.models.command "
+        "import PrepareVacanciesCommand"
+    ) in text
+    # The legacy import is gone (silent no-op bug would leave it):
+    assert "from hh_applicant_tool.application.dto" not in text
+    # The original inline ``# the submit result`` comment is gone (it
+    # was a slice-marker, not an instruction to preserve verbatim) —
+    # the operator's job is to re-annotate the new import if needed.
+    assert "# the submit result" not in text
+
+
+def test_parenthesised_import_from_non_symbolic_module(
+    tmp_path: Path,
+) -> None:
+    """P2: A parenthesised import from a non-symbolic module
+    (``hh_applicant_tool.ai``) must be rewritten via the prefix
+    rule. Previously the ``(?=[ \\t]+import\\b)`` lookahead required
+    the literal token ``import`` right after the prefix, so the
+    parenthesised form was silently skipped.
+    """
+    p = tmp_path / "paren_non_symbolic.py"
+    p.write_text(
+        "from hh_applicant_tool.ai import (\n"
+        "    make_client,\n"
+        "    ChatMessage,\n"
+        ")\n",
+        encoding="utf-8",
+    )
+    assert migrate_imports.rewrite_file(p) is True
+    text = p.read_text(encoding="utf-8")
+    assert "from job_bot.shared.ai import (\n" in text
+    assert "    make_client," in text
+    assert "    ChatMessage," in text
+    assert "from hh_applicant_tool.ai" not in text
+
+
+def test_parenthesised_storage_prefix_rewrite(tmp_path: Path) -> None:
+    """P2: parenthesised form for a storage module also goes through
+    the prefix rule (catches the same class of bug for a different
+    rewrite target).
+    """
+    p = tmp_path / "paren_storage.py"
+    p.write_text(
+        "from hh_applicant_tool.storage.facade import (\n"
+        "    StorageFacade,\n"
+        "    make_storage,\n"
+        ")\n",
+        encoding="utf-8",
+    )
+    assert migrate_imports.rewrite_file(p) is True
+    text = p.read_text(encoding="utf-8")
+    assert "from job_bot._legacy_compat.storage.facade import (" in text
+    assert "    StorageFacade," in text
+    assert "    make_storage," in text
+    assert "from hh_applicant_tool.storage" not in text
+
+
+def test_main_skips_tests_fixtures_dir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """P3: ``main()`` must NOT walk into ``tests/_fixtures/``.
+
+    The fixture file under ``tests/_fixtures/`` is a static data
+    file that mirrors the legacy-import shape on purpose — running
+    ``main()`` against the real tree would migrate it in place and
+    break every other test in this module.
+    """
+    # Build a tiny self-contained tree in tmp_path that mirrors the
+    # production layout: a ``src/job_bot`` package, a ``tests``
+    # package, and a ``tests/_fixtures`` package containing a
+    # legacy-import file. We then ``chdir`` into the tmp tree and
+    # invoke ``main()`` and assert (a) the source file in
+    # ``src/job_bot`` IS rewritten, and (b) the fixture file under
+    # ``tests/_fixtures/`` is left untouched.
+    (tmp_path / "src" / "job_bot").mkdir(parents=True)
+    src_file = tmp_path / "src" / "job_bot" / "app.py"
+    src_file.write_text(
+        "from hh_applicant_tool.constants import HH_BASE_URL\n",
+        encoding="utf-8",
+    )
+
+    (tmp_path / "tests" / "_fixtures").mkdir(parents=True)
+    fixture_file = tmp_path / "tests" / "_fixtures" / "fixture.py"
+    original_fixture_text = (
+        "from hh_applicant_tool.constants import HH_BASE_URL\n"
+    )
+    fixture_file.write_text(original_fixture_text, encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    rc = migrate_imports.main()
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "Rewrote imports in 1 files" in captured.out, captured.out
+
+    # The real source file under src/job_bot was rewritten.
+    assert (
+        "from job_bot.shared.config.paths import HH_BASE_URL"
+    ) in src_file.read_text(encoding="utf-8")
+
+    # The fixture file was NOT touched (it would be if the
+    # ``_fixtures`` skip was missing).
+    assert fixture_file.read_text(encoding="utf-8") == original_fixture_text
