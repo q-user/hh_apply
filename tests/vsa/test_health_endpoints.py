@@ -202,6 +202,74 @@ def _track(
 # ─── Liveness ───────────────────────────────────────────────────────────
 
 
+class TestServerBindHost:
+    """``HealthServer`` binds to a configurable interface (issue #208 k8s fix).
+
+    The kubelet probes the pod IP, not the pod's loopback, so the
+    ``--health-host`` flag must be able to override the default
+    ``127.0.0.1``. We verify the override here at the server layer so
+    the CLI plumbing test can focus on flag propagation.
+    """
+
+    def test_default_host_is_loopback(self) -> None:
+        """``HealthServer(host=...)`` defaults to ``127.0.0.1``.
+
+        Captures the actual bind address via ``server_address`` so a
+        silent regression to ``0.0.0.0`` (which would expose the probe
+        endpoint on every interface by default) is caught.
+        """
+        port = _free_port()
+        srv = HealthServer(port=port, checks=_AlwaysOk())
+        srv.start()
+        try:
+            _wait_for_server("127.0.0.1", port)
+            assert srv._server is not None
+            bound_host, bound_port = srv._server.server_address
+            assert bound_host == "127.0.0.1"
+            assert bound_port == port
+        finally:
+            srv.stop()
+
+    def test_binds_to_configurable_host(self) -> None:
+        """``HealthServer(host="0.0.0.0", ...)`` actually binds 0.0.0.0.
+
+        The supervisor (kubelet, Docker) reaches the pod by its
+        eth0 IP; loopback-only listeners are unreachable from outside
+        the pod. The CLI ``--health-host 0.0.0.0`` path ends here.
+        """
+        port = _free_port()
+        srv = HealthServer(host="0.0.0.0", port=port, checks=_AlwaysOk())
+        srv.start()
+        try:
+            _wait_for_server("127.0.0.1", port)
+            assert srv._server is not None
+            bound_host, bound_port = srv._server.server_address
+            assert bound_host == "0.0.0.0"
+            assert bound_port == port
+            # And the probe actually responds (0.0.0.0 listeners accept
+            # on loopback too).
+            status, _, _ = _http_get(f"http://127.0.0.1:{port}/health")
+            assert status == 200
+        finally:
+            srv.stop()
+
+    def test_start_succeeds_with_explicit_host(self) -> None:
+        """``start()`` returns cleanly when an explicit host is supplied.
+
+        Belt-and-braces: confirms the explicit-host path doesn't
+        raise during bind (e.g. a malformed IP would raise here, not
+        at first probe).
+        """
+        srv = HealthServer(
+            host="0.0.0.0", port=_free_port(), checks=_AlwaysOk()
+        )
+        try:
+            srv.start()  # must not raise
+            assert srv._server is not None
+        finally:
+            srv.stop()
+
+
 class TestLivenessEndpoint:
     """/health is a trivial liveness probe: HTTP 200, no deps checked."""
 

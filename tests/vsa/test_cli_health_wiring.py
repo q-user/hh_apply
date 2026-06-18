@@ -19,6 +19,8 @@ import socket
 import time
 from typing import Any
 
+import pytest
+
 from job_bot.cli.apply_worker import Operation as ApplyWorkerOperation
 from job_bot.cli.max_bot import Operation as MaxBotOperation
 from job_bot.cli.telegram_bot import Operation as TelegramBotOperation
@@ -78,6 +80,52 @@ class TestHealthPortFlagRegistered:
         parser = _build_parser(MaxBotOperation())
         args = parser.parse_args([])
         assert args.health_port is None
+
+
+class TestHealthHostFlagRegistered:
+    """The ``--health-host`` flag must be on every long-running daemon op.
+
+    Mirrors :class:`TestHealthPortFlagRegistered` for the host
+    override (issue #208 k8s fix). The default stays ``127.0.0.1`` so
+    local dev is safe; production sets ``--health-host 0.0.0.0``.
+    """
+
+    def test_apply_worker_has_health_host(self) -> None:
+        parser = _build_parser(ApplyWorkerOperation())
+        args = parser.parse_args(["--health-host", "0.0.0.0"])
+        assert args.health_host == "0.0.0.0"
+
+    def test_apply_worker_health_host_defaults_to_loopback(self) -> None:
+        """No flag → ``127.0.0.1`` (safe local default)."""
+        from job_bot.shared.health import DEFAULT_HOST
+
+        parser = _build_parser(ApplyWorkerOperation())
+        args = parser.parse_args([])
+        assert args.health_host == DEFAULT_HOST
+
+    def test_telegram_bot_has_health_host(self) -> None:
+        parser = _build_parser(TelegramBotOperation())
+        args = parser.parse_args(["--health-host", "0.0.0.0"])
+        assert args.health_host == "0.0.0.0"
+
+    def test_telegram_bot_health_host_defaults_to_loopback(self) -> None:
+        from job_bot.shared.health import DEFAULT_HOST
+
+        parser = _build_parser(TelegramBotOperation())
+        args = parser.parse_args([])
+        assert args.health_host == DEFAULT_HOST
+
+    def test_max_bot_has_health_host(self) -> None:
+        parser = _build_parser(MaxBotOperation())
+        args = parser.parse_args(["--health-host", "0.0.0.0"])
+        assert args.health_host == "0.0.0.0"
+
+    def test_max_bot_health_host_defaults_to_loopback(self) -> None:
+        from job_bot.shared.health import DEFAULT_HOST
+
+        parser = _build_parser(MaxBotOperation())
+        args = parser.parse_args([])
+        assert args.health_host == DEFAULT_HOST
 
 
 # ─── HealthServer lifecycle in the CLI ops ──────────────────────────────
@@ -164,6 +212,136 @@ class _StubHandler:
 
 
 # ─── HealthServer construction sanity ───────────────────────────────────
+
+
+class _HealthServerRecorder:
+    """Class stand-in for ``HealthServer`` that records its constructor kwargs.
+
+    The CLI ops call ``HealthServer(...)`` (a class call), so the
+    monkey-patched symbol must be a class. We collect kwargs in a
+    class-level list; tests must call :meth:`reset` before each
+    inspection so a previous test's instantiation doesn't leak in.
+    """
+
+    recorded: list[dict[str, object]] = []
+
+    def __init__(self, **kwargs: object) -> None:
+        type(self).recorded.append(kwargs)
+        self.kwargs = kwargs
+        self.started = False
+        self.stopped = False
+
+    def start(self) -> None:
+        self.started = True
+
+    def stop(self, *, timeout: float = 5.0) -> None:
+        self.stopped = True
+
+    @classmethod
+    def reset(cls) -> None:
+        cls.recorded.clear()
+
+
+class TestHealthHostPropagatesToServer:
+    """``--health-host`` must reach the ``HealthServer`` constructor.
+
+    We monkey-patch ``HealthServer`` in each CLI op's module to a
+    recorder so the test can introspect the kwargs without binding a
+    real socket. End-to-end behaviour (probe, port conflict) is
+    covered separately in :mod:`tests.vsa.test_health_endpoints`.
+    """
+
+    def test_apply_worker_propagates_health_host(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from job_bot.cli import apply_worker
+
+        _HealthServerRecorder.reset()
+        monkeypatch.setattr(apply_worker, "HealthServer", _HealthServerRecorder)
+
+        op = ApplyWorkerOperation(slice_=_StubSlice())
+        args = _build_parser(op).parse_args(
+            ["--health-port", "8080", "--health-host", "0.0.0.0"]
+        )
+        rc = op.run(args)
+        assert rc == 0
+        assert len(_HealthServerRecorder.recorded) == 1
+        assert _HealthServerRecorder.recorded[0]["port"] == 8080
+        assert _HealthServerRecorder.recorded[0]["host"] == "0.0.0.0"
+
+    def test_apply_worker_default_host_is_loopback(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No ``--health-host`` flag → server gets ``127.0.0.1``."""
+        from job_bot.cli import apply_worker
+        from job_bot.shared.health import DEFAULT_HOST
+
+        _HealthServerRecorder.reset()
+        monkeypatch.setattr(apply_worker, "HealthServer", _HealthServerRecorder)
+
+        op = ApplyWorkerOperation(slice_=_StubSlice())
+        args = _build_parser(op).parse_args(["--health-port", "8080"])
+        rc = op.run(args)
+        assert rc == 0
+        assert _HealthServerRecorder.recorded[0]["host"] == DEFAULT_HOST
+
+    def test_telegram_bot_propagates_health_host(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from job_bot.cli import telegram_bot
+
+        _HealthServerRecorder.reset()
+        monkeypatch.setattr(telegram_bot, "HealthServer", _HealthServerRecorder)
+
+        op = TelegramBotOperation(slice_=_StubSlice())
+        # ``--once`` so the polling loop exits after one cycle.
+        args = _build_parser(op).parse_args(
+            ["--health-port", "8081", "--health-host", "0.0.0.0", "--once"]
+        )
+        rc = op.run(args)
+        assert rc == 0
+        assert len(_HealthServerRecorder.recorded) == 1
+        assert _HealthServerRecorder.recorded[0]["port"] == 8081
+        assert _HealthServerRecorder.recorded[0]["host"] == "0.0.0.0"
+
+    def test_max_bot_propagates_health_host(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from job_bot.cli import max_bot
+
+        _HealthServerRecorder.reset()
+        monkeypatch.setattr(max_bot, "HealthServer", _HealthServerRecorder)
+
+        op = MaxBotOperation(slice_=_StubSlice())
+        # ``--once`` so ``_run_polling`` calls ``handler.run(stop_after=1)``
+        # and returns immediately.
+        args = _build_parser(op).parse_args(
+            ["--health-port", "8082", "--health-host", "0.0.0.0", "--once"]
+        )
+        rc = op.run(args)
+        assert rc == 0
+        assert len(_HealthServerRecorder.recorded) == 1
+        assert _HealthServerRecorder.recorded[0]["port"] == 8082
+        assert _HealthServerRecorder.recorded[0]["host"] == "0.0.0.0"
+
+    def test_health_server_not_started_without_health_port(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No ``--health-port`` → no ``HealthServer`` constructed.
+
+        Belt-and-braces: the new ``--health-host`` flag must not
+        implicitly enable the server. Both flags are independent.
+        """
+        from job_bot.cli import apply_worker
+
+        _HealthServerRecorder.reset()
+        monkeypatch.setattr(apply_worker, "HealthServer", _HealthServerRecorder)
+
+        op = ApplyWorkerOperation(slice_=_StubSlice())
+        args = _build_parser(op).parse_args(["--health-host", "0.0.0.0"])
+        rc = op.run(args)
+        assert rc == 0
+        assert _HealthServerRecorder.recorded == []
 
 
 class TestHealthServerIntegrationWithCli:

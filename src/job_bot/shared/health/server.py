@@ -114,10 +114,9 @@ class HealthServer:
         server = self._server
         if server is None:
             return
-        # ``shutdown`` is idempotent in modern stdlib; the first call
-        # triggers ``serve_forever`` to return, subsequent calls are
-        # no-ops. We guard with ``_BaseServer__is_shut_down``-ish
-        # logic by checking ``__shutdown_request`` instead.
+        # ``shutdown`` is idempotent in modern stdlib; any rare race is
+        # swallowed by the broad ``except`` below so the caller can
+        # still proceed to ``server_close()`` and join the thread.
         try:
             server.shutdown()
         except Exception:  # noqa: BLE001

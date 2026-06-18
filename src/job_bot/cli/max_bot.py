@@ -7,6 +7,7 @@ import logging
 from typing import Any, Protocol
 
 from job_bot.shared.health import (
+    DEFAULT_HOST,
     HealthChecks,
     HealthServer,
     TrivialHealthChecks,
@@ -36,6 +37,7 @@ class Namespace(BaseNamespace):
     chat_id: int | None
     text: str | None
     health_port: int | None
+    health_host: str
 
 
 def _build_health_checks(slice_: _MaxBotSlice) -> HealthChecks:
@@ -96,6 +98,19 @@ class Operation(BaseOperation):
                 "По умолчанию сервер не запускается."
             ),
         )
+        parser.add_argument(
+            "--health-host",
+            type=str,
+            default=DEFAULT_HOST,
+            help=(
+                "Интерфейс, на котором слушает health-сервер. По "
+                "умолчанию: 127.0.0.1 (loopback — безопасно для "
+                "локальной разработки). В k8s/Docker указывайте "
+                "0.0.0.0, чтобы kubelet/докер-демон мог достучаться "
+                "до проб по IP пода/контейнера. Имеет эффект только "
+                "вместе с --health-port."
+            ),
+        )
 
     def run(self, args: argparse.Namespace) -> int:
         if self._slice is None:
@@ -108,7 +123,10 @@ class Operation(BaseOperation):
         if send_message:
             return self._run_send_message(slice_, args)
         return self._run_polling(
-            slice_, once=once, health_port=getattr(args, "health_port", None)
+            slice_,
+            once=once,
+            health_port=getattr(args, "health_port", None),
+            health_host=getattr(args, "health_host", DEFAULT_HOST),
         )
 
     def _run_send_message(self, slice_: Any, args: argparse.Namespace) -> int:
@@ -130,6 +148,7 @@ class Operation(BaseOperation):
         *,
         once: bool,
         health_port: int | None = None,
+        health_host: str = DEFAULT_HOST,
     ) -> int:
         mode_label = "single-cycle" if once else "long polling"
         logger.info("MAX bot started (%s)...", mode_label)
@@ -138,7 +157,11 @@ class Operation(BaseOperation):
         health_server: HealthServer | None = None
         if health_port is not None:
             health_checks = _build_health_checks(slice_)
-            health_server = HealthServer(port=health_port, checks=health_checks)
+            health_server = HealthServer(
+                port=health_port,
+                checks=health_checks,
+                host=health_host,
+            )
             try:
                 health_server.start()
             except OSError:

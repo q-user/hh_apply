@@ -10,6 +10,7 @@ from datetime import time as dtime
 from typing import Any, Protocol
 
 from job_bot.shared.health import (
+    DEFAULT_HOST,
     DefaultHealthChecks,
     HealthChecks,
     HealthServer,
@@ -40,6 +41,7 @@ class Namespace(BaseNamespace):
     once: bool
     send_digest_now: bool
     health_port: int | None
+    health_host: str
 
 
 def _build_health_checks(slice_: _TelegramBotSlice) -> HealthChecks:
@@ -98,6 +100,19 @@ class Operation(BaseOperation):
                 "По умолчанию сервер не запускается."
             ),
         )
+        parser.add_argument(
+            "--health-host",
+            type=str,
+            default=DEFAULT_HOST,
+            help=(
+                "Интерфейс, на котором слушает health-сервер. По "
+                "умолчанию: 127.0.0.1 (loopback — безопасно для "
+                "локальной разработки). В k8s/Docker указывайте "
+                "0.0.0.0, чтобы kubelet/докер-демон мог достучаться "
+                "до проб по IP пода/контейнера. Имеет эффект только "
+                "вместе с --health-port."
+            ),
+        )
 
     def run(self, args: argparse.Namespace) -> int:
         if self._slice is None:
@@ -116,7 +131,11 @@ class Operation(BaseOperation):
         health_port = getattr(args, "health_port", None)
         if health_port is not None:
             health_checks = _build_health_checks(slice_)
-            health_server = HealthServer(port=health_port, checks=health_checks)
+            health_server = HealthServer(
+                port=health_port,
+                checks=health_checks,
+                host=getattr(args, "health_host", DEFAULT_HOST),
+            )
             try:
                 health_server.start()
             except OSError:
