@@ -23,6 +23,23 @@ left in the original module and a warning is emitted to stderr so
 the operator can handle them manually. The simpler 1-to-1 module
 paths continue to use prefix-based rewrites (:data:`PREFIX_REWRITES`).
 
+Issue #190 — three latent regex bugs and one CI hazard in the
+per-symbol / prefix rewrites:
+
+1. The inline ``clause`` alternation was greedy and swallowed
+   trailing ``#`` comments, so ``from foo import X  # comment``
+   was silently left unchanged with a misleading
+   ``unknown symbol`` warning.
+2. Multi-line parenthesised imports with a trailing comment on an
+   inner line produced ``SyntaxError``-prone output. The inner
+   comment is now stripped before name parsing.
+3. The prefix-rewrite lookahead required the literal ``import``
+   keyword, which silently skipped parenthesised imports from
+   non-symbolic modules. The lookahead now also matches ``(``.
+4. ``main()`` walked into ``tests/_fixtures/`` and would migrate
+   the static fixture file in place if ever run as part of CI.
+   That directory is now excluded.
+
 The script is idempotent — re-running it on already-migrated code
 is a no-op (the regex never matches a ``job_bot.*`` import).
 """
@@ -153,11 +170,16 @@ PREFIX_REWRITES: tuple[tuple[str, str], ...] = (
 # clause is either a parenthesised list (possibly multi-line) or an
 # inline single-line list. An optional trailing comment on the same
 # line as the closing token is preserved in group ``trailer``.
+# Issue #190: the inline ``clause`` alternation now also stops at
+# ``#`` so a trailing inline comment is captured in the ``trailer``
+# group (preserved on the rewritten line) rather than swallowed into
+# the clause. Comments inside the parenthesised form are stripped in
+# :func:`_replace_symbolic` before name parsing.
 _FROM_IMPORT_RE = re.compile(
     r"^([ \t]*)from[ \t]+"
     r"(?P<module>[A-Za-z_][\w.]*)"
     r"[ \t]+import[ \t]+"
-    r"(?P<clause>\((?:[^)]*)\)|[^(\r\n]+)"
+    r"(?P<clause>\((?:[^)]*)\)|[^(\r\n#]+)"
     r"(?P<trailer>[ \t]*\#[^\n]*)?",
     re.MULTILINE,
 )
@@ -168,6 +190,29 @@ _NAME_RE = re.compile(
     r"([A-Za-z_][\w]*)"
     r"(?:\s+as\s+([A-Za-z_][\w]*))?"
 )
+
+
+def _strip_inline_comments(text: str) -> str:
+    """Strip trailing ``# ...`` comments from each line of *text*.
+
+    Issue #190: a multi-line parenthesised import can have a trailing
+    ``#`` comment on an inner line (e.g. ``A,  # submit result``). The
+    per-symbol regex captures the whole parenthesised block greedily,
+    so the comment would otherwise leak into the symbol stream and
+    produce a misleading ``unknown symbol`` warning. We strip it
+    here before name parsing.
+
+    Note: import clauses don't contain string literals, so a naive
+    ``line.find("#")`` is safe.
+    """
+    lines = text.split("\n")
+    stripped: list[str] = []
+    for line in lines:
+        idx = line.find("#")
+        if idx >= 0:
+            line = line[:idx]
+        stripped.append(line.rstrip())
+    return "\n".join(stripped)
 
 
 def _split_names(clause: str) -> list[tuple[str, str | None]]:
@@ -261,9 +306,14 @@ def _replace_symbolic(match: re.Match[str], file_path: Path) -> str:
     module = match.group("module")
     if module not in SYMBOLIC_SOURCE_MODULES:
         return match.group(0)
-    replacement = _rewrite_symbolic_import(
-        module, match.group("clause"), file_path
-    )
+    clause = match.group("clause")
+    # Issue #190: strip inline comments from the parenthesised form
+    # so they don't leak into the symbol stream. (The inline form's
+    # comment, if any, is already separated into ``trailer`` by the
+    # tightened regex.)
+    if clause.startswith("("):
+        clause = _strip_inline_comments(clause)
+    replacement = _rewrite_symbolic_import(module, clause, file_path)
     if replacement is None:
         return match.group(0)
     indent = match.group(1)
@@ -274,15 +324,20 @@ def _replace_symbolic(match: re.Match[str], file_path: Path) -> str:
 def _apply_prefix_rewrites(text: str) -> str:
     """Apply the simple prefix rewrites (non-symbolic modules).
 
-    The regex anchor ``(?=\\s+import\\b)`` ensures the prefix only
-    matches when followed by whitespace + the ``import`` keyword —
-    so a pattern like ``from hh_applicant_tool.application`` does
-    *not* match ``from hh_applicant_tool.application.dto import X``
-    (the dot is not whitespace).
+    The regex anchor ``(?=[ \\t]+import\\b|[ \\t]*\\()`` requires
+    the prefix to be followed by either whitespace + the ``import``
+    keyword (inline form) or whitespace + an open paren (parenthesised
+    form). This means a pattern like ``from hh_applicant_tool.application``
+    does *not* match ``from hh_applicant_tool.application.dto import X``
+    (the dot is not whitespace) AND the parenthesised form
+    ``from hh_applicant_tool.ai import (\\n    A,\\n)`` is correctly
+    rewritten (issue #190: previously the lookahead required the
+    literal ``import`` token, which silently skipped the
+    parenthesised form).
     """
     for old, new in PREFIX_REWRITES:
         pattern = re.compile(
-            rf"^({re.escape(old)})(?=[ \t]+import\b)",
+            rf"^({re.escape(old)})(?=[ \t]+import\b|[ \t]*\()",
             re.MULTILINE,
         )
         text = pattern.sub(new, text)
@@ -319,6 +374,12 @@ def main() -> int:
             continue
         for p in base.rglob("*.py"):
             if "__pycache__" in p.parts:
+                continue
+            # Issue #190: skip the static fixture directory. The
+            # fixture under ``tests/_fixtures/`` mirrors the
+            # legacy-import shape on purpose; migrating it in place
+            # would break every other test in this module.
+            if "_fixtures" in p.parts:
                 continue
             if rewrite_file(p):
                 changed += 1
